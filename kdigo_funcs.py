@@ -93,10 +93,10 @@ def get_esrd_mask(scr_m,id_loc,esrd_m,esrd_locs,v=True):
         print('Number records for patients without ESRD: '+str(nwo))
     return mask
 
-def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,baselines,bsln_scr_loc,date_m,id_loc,icu_locs,selection=2,v=True):
+def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,baselines,bsln_scr_loc,date_m,id_loc,icu_locs,xplt_m,xplt_loc,dem_m,age_loc,sex_loc,eth_loc,selection=2,v=True):
     scr = []
-    tmasks = []
-    dmasks = []
+    tmasks = []     #time/date
+    dmasks = []     #dialysis
     dates = []
     ids = np.unique(scr_all_m[:,0])
     ids.sort()
@@ -117,7 +117,14 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,base
                 print('Patient '+str(idx)+' removed due to missing baseline')
                 log.write('Patient '+str(idx)+' removed due to missing baseline\n')
             continue
-        ### ADD TEST FOR INITIAL GFR
+        gfr = calc_gfr(baselines[baseline_idx,bsln_scr_loc][0],dem_m,age_loc,sex_loc,eth_loc)
+        if gfr < 15:
+            np.delete(ids,baseline_idx)
+            #ids.remove(idx)
+            if v:
+                print('Patient '+str(idx)+' removed due to initial GFR too low')
+                log.write('Patient '+str(idx)+' removed due to initial GFR too lown')
+            continue
         all_rows = np.where(scr_all_m[:,0] == idx)[0]
         sel = np.where(mask[all_rows] != 0)[0]
         if len(sel) == 0:
@@ -127,6 +134,20 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,base
                 print('Patient '+str(idx)+' removed due to no values in the time period of interest')
                 log.write('Patient '+str(idx)+' removed due to no values in the time period of interest\n')
             continue
+
+
+        #template for removing patient based on exclusion criteria
+        #test for kidney transplant
+        x_rows=np.where(xplt_m[:,0] == idx)                     #rows in transplant sheet
+        for row in x_rows:
+            str_disp = str(xplt_m[row,xplt_loc]).upper()
+        if re.search('KIDNEY',str_disp):    #OR TRANSPLANT
+            np.delete(ids,count)
+            if v:
+                print('Patient '+str(idx)+' removed due to kidney transplant')
+                log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
+            continue
+
         keep = all_rows[sel]
         all_drows = np.where(date_m[:,id_loc] == idx)[0]
         delta = datetime.timedelta(0)
@@ -361,5 +382,11 @@ def arr2str(arr,fmt='%f'):
         s = s + ', ' + fmt % (arr[i])
     return s
 
+
+### finish GFR calculation function
+def calc_gfr(bsln,dem_m,age_loc,sex_loc,eth_loc):
+
+
 def get_mat(fname,page_name,sort_id):
     return pd.read_excel(fname,page_name).sort_values(sort_id)
+
