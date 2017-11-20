@@ -30,8 +30,9 @@ def main():
     date_m=date_m.as_matrix()
 
     ### GET KIDNEY TRANSPLANT SHEET AND LOCATION
-    xplt_m = get_mat(inFile,'',[sort_id])
-    xplt_loc = xplt_m.columns.get_loc("")
+    xplt_m = get_mat(inFile,'SURGERY_INDX',[sort_id])
+    xplt_loc = xplt_m.columns.get_loc("SURGERY_CATEGORY")
+    xplt_des_loc = xplt_m.columns.get_loc("SURGERY_DESCRIPTION")
     xplt_m = xplt_m.as_matrix()
 
     print('Loading ESRD status...')
@@ -57,6 +58,8 @@ def main():
 
     baseline_m = get_mat(inFile,'BASELINE_SCR',[sort_id])
     baseline_scr_loc = baseline_m.columns.get_loc('BASELINE_VALUE')
+    #11111111111111111111111111111111111111111111111111111111111111111111111
+    baseline_time_loc = baseline_m.columns.get_loc('')
     baseline_m = baseline_m.as_matrix()
 
     ''' Will be used for post-analysis
@@ -66,16 +69,17 @@ def main():
     #Outcomes
     outcms_m = get_mat(inFile,'OUTCOMES',sort_id)
     '''
-
     #Demographics
-    dem_m = get_mat(inFile,'DEMOGRAPHICS_INDX',sort_id)
-    ###### GET DEMOGRAPHICS FOR GFR CALCULATION
-    #https://www.niddk.nih.gov/health-information/communication-programs/nkdep/laboratory-evaluation/glomerular-filtration-rate-calculators/ckd-epi-adults-conventional-units
-    age_loc =
-    sex_loc =
-    eth_loc =
-    dem_m = 
-
+    dem_m = get_mat(inFile,'DEMOGRAPHICS_INDX',[sort_id])
+    ###### GET DEMOGRAPHICS FOR GFR CALCULATION#https://www.niddk.nih.gov/health-information/communication-programs/nkdep/laboratory-evaluation/glomerular-filtration-rate-calculators/ckd-epi-adults-conventional-units
+    sex_loc = dem_m.columns.get_loc('GENDER')
+    eth_loc = dem_m.columns.get_loc('RACE')
+    dem_m = dem_m.as_matrix()
+    #================================================================
+    #DOB
+    dob_m = get_mat(inFile,'DOB',[sort_id])
+    birth_loc = dob_m.columns.get_loc("DOB")
+    dob_m = dob_m.as_matrix()
     ###### Get masks for ESRD, dialysis, etc.
 
     #Get mask inidicating which points are during dialysis
@@ -111,7 +115,7 @@ def main():
 
 
     #Extract patients into separate list elements and get baselines
-    ids,scr,dates,masks,dmasks,baselines = get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,baseline_m,baseline_scr_loc,date_m,id_loc,icu_locs,xplt_m,xplt_loc,dem_m,age_loc,sex_loc,eth_loc) ### add demographics locations
+    ids,scr,dates,masks,dmasks,baselines = get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,baseline_m,baseline_scr_loc,date_m,id_loc,icu_locs,xplt_m,xplt_loc,xplt_des_loc,dem_m,sex_loc,eth_loc) 
     arr2csv(outPath+'scr_ICU_raw.csv',scr,ids)
     str2csv(outPath+'dates_ICU.csv',dates,ids)
     arr2csv(outPath+'masks_ICU.csv',masks,ids)
@@ -134,8 +138,5 @@ def main():
     arr2csv(outPath+'kdigo.csv',kdigo,ids)
     #Get KDIGO Distance Matrix
     kdigo_dm = pairwise_dtw_dist(kdigo,'/media/taylor/LaCie/kdigo_dm.csv')
-
-def get_mat(fname,page_name,sort_id):
-    return pd.read_excel(fname,page_name).sort_values(sort_id)
 
 main()

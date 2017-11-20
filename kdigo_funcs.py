@@ -8,9 +8,8 @@ import pandas as pd
 import time
 from scipy.spatial import distance
 import dtw
-
-def get_mat(fname,page_name,sort_id):
-    return pd.read_excel(fname,page_name).sort_values(sort_id)
+import math
+from dateutil import relativedelta as rdelta
 
 def get_dialysis_mask(scr_m,scr_date_loc,dia_m,crrt_locs,hd_locs,pd_locs,v=True):
     mask = np.zeros(len(scr_m))
@@ -93,7 +92,7 @@ def get_esrd_mask(scr_m,id_loc,esrd_m,esrd_locs,v=True):
         print('Number records for patients without ESRD: '+str(nwo))
     return mask
 
-def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,baselines,bsln_scr_loc,date_m,id_loc,icu_locs,xplt_m,xplt_loc,dem_m,age_loc,sex_loc,eth_loc,selection=2,v=True):
+def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,baselines,bsln_scr_loc,baseline_time,loc,date_m,id_loc,icu_locs,xplt_m,xplt_loc,xplt_des_loc,dem_m,birth_loc,dob_m,sex_loc,eth_loc,selection=2,v=True):
     scr = []
     tmasks = []     #time/date
     dmasks = []     #dialysis
@@ -117,7 +116,11 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,base
                 print('Patient '+str(idx)+' removed due to missing baseline')
                 log.write('Patient '+str(idx)+' removed due to missing baseline\n')
             continue
-        gfr = calc_gfr(baselines[baseline_idx,bsln_scr_loc][0],dem_m,age_loc,sex_loc,eth_loc)
+        #QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+        birth_idx = np.where(dob_m[:,0] == idx)[0]
+        dem_idx = np.where(dem_m[:,0] == idx)[0]
+        ###baselines[baseline_idx,baseline_time_loc]?????????????????
+        gfr = calc_gfr(baselines[baseline_idx,bsln_scr_loc][0],baselines[baseline_idx,baseline_time_loc],dem_m,dem_idx,dob_m[birth_idx,birth_loc],sex_loc,eth_loc)
         if gfr < 15:
             np.delete(ids,baseline_idx)
             #ids.remove(idx)
@@ -138,15 +141,17 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,base
 
         #template for removing patient based on exclusion criteria
         #test for kidney transplant
-        x_rows=np.where(xplt_m[:,0] == idx)                     #rows in transplant sheet
+        x_rows=np.where(xplt_m[:,0] == idx)         #rows in transplant sheet
         for row in x_rows:
             str_disp = str(xplt_m[row,xplt_loc]).upper()
-        if re.search('KIDNEY',str_disp):    #OR TRANSPLANT
-            np.delete(ids,count)
-            if v:
-                print('Patient '+str(idx)+' removed due to kidney transplant')
-                log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
-            continue
+            str_des = str(xplt_m[row,xplt_des_loc]).upper()
+        if re.search('TRANSP',str_disp):
+            if re.search('KID',str_des) or re.search('KODA',str_des):
+                np.delete(ids,count)
+                if v:
+                    print('Patient '+str(idx)+' removed due to kidney transplant')
+                    log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
+                continue
 
         keep = all_rows[sel]
         all_drows = np.where(date_m[:,id_loc] == idx)[0]
@@ -303,6 +308,7 @@ def pairwise_dtw_dist(patients,dm_fname,dtw_name,v=True):
         log.close()
     return df
 
+#===========================================================================
 def scr2kdigo(scr,base,masks):
     kdigos = []
     for i in range(len(scr)):
@@ -384,9 +390,30 @@ def arr2str(arr,fmt='%f'):
 
 
 ### finish GFR calculation function
-def calc_gfr(bsln,dem_m,age_loc,sex_loc,eth_loc):
-
+def calc_gfr(bsln,date_base,dem_m,dem_idx,birth_date,sex_loc,eth_loc):
+    k_value=0.7#female
+    a_value=-0.329#female
+    black_val=1.159#black
+    time_diff=rdelta.relativedelta(date_base,birth_date)
+    age = time_diff.years
+    min_value=1
+    max_vallue=1
+    f_value=1.018
+    if dem_m[dem_idx,sex_loc] == 'M':
+        k_value = 0.9
+        a_value = -0.411
+        f_value =1
+    if dem_m[dem_idx,eth_loc] != "BLACK/AFR AMERI":
+        black_val = 1
+    if bsln/k_value < 1:
+        min_value = bsln/k_value
+    else:
+        max_value = bsln/k_value
+    min_power=math.pow(min_value,a_value)
+    max_power= math.pow(max_value,-1.209)
+    age_power= math.pow(0.993,age)
+    GFR = 141 * min_power * max_power * age_power * f_value * black_val
+    return GFR
 
 def get_mat(fname,page_name,sort_id):
     return pd.read_excel(fname,page_name).sort_values(sort_id)
-
