@@ -1,34 +1,37 @@
+from __future__ import division
 import datetime
-from datetime import date
 import math
-from datetime import timedelta
 import numpy as np
-import h5py
 import pandas as pd
-import time
 from scipy.spatial import distance
 import dtw
-import math
 from dateutil import relativedelta as rdelta
+import re
 
-def get_dialysis_mask(scr_m,scr_date_loc,dia_m,crrt_locs,hd_locs,pd_locs,v=True):
+
+def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs,
+                      pd_locs, v=True):
     mask = np.zeros(len(scr_m))
     if v:
-        print('Getting mask for dialysis')
-        print('Number non-dialysis records, #CRRT, #HD, #PD')
+        print 'Getting mask for dialysis'
+        print 'Number non-dialysis records, #CRRT, #HD, #PD'
     for i in range(len(mask)):
-        this_id = scr_m[i,0]
-        this_date = scr_m[i,scr_date_loc]
-        this_date.resolution=datetime.timedelta(0, 1)
-        rows = np.where(dia_m[:,0]==this_id)[0]
+        this_id = scr_m[i, 0]
+        this_date = scr_m[i, scr_date_loc]
+        this_date.resolution = datetime.timedelta(0, 1)
+        rows = np.where(dia_m[:, 0] == this_id)[0]
         for row in rows:
-            if dia_m[row,crrt_locs[0]]:
-                if str(dia_m[row,crrt_locs[0]]) != 'nan' and str(dia_m[row,crrt_locs[1]]) != 'nan':
-                    if this_date > dia_m[row,crrt_locs[0]] and this_date < dia_m[row,crrt_locs[1]] + datetime.timedelta(2):
+            if dia_m[row, crrt_locs[0]]:
+                if str(dia_m[row, crrt_locs[0]]) != 'nan' and \
+                        str(dia_m[row, crrt_locs[1]]) != 'nan':
+                    if this_date > dia_m[row, crrt_locs[0]] and this_date < \
+                            dia_m[row, crrt_locs[1]] + datetime.timedelta(2):
                         mask[i] = 1
-            if dia_m[row,hd_locs[0]]:
-                if str(dia_m[row,hd_locs[0]]) != 'nan' and str(dia_m[row,hd_locs[1]]) != 'nan':
-                    if this_date > dia_m[row,hd_locs[0]] and this_date < dia_m[row,hd_locs[1]] + datetime.timedelta(2):
+            if dia_m[row, hd_locs[0]]:
+                if str(dia_m[row, hd_locs[0]]) != 'nan' and \
+                        str(dia_m[row, hd_locs[1]]) != 'nan':
+                    if this_date > dia_m[row, hd_locs[0]] and this_date < \
+                            dia_m[row, hd_locs[1]] + datetime.timedelta(2):
                         mask[i] = 2
             if dia_m[row,pd_locs[0]]:
                 if str(dia_m[row,pd_locs[0]]) != 'nan' and str(dia_m[row,pd_locs[1]]) != 'nan':
@@ -92,7 +95,14 @@ def get_esrd_mask(scr_m,id_loc,esrd_m,esrd_locs,v=True):
         print('Number records for patients without ESRD: '+str(nwo))
     return mask
 
-def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,baselines,bsln_scr_loc,baseline_time,loc,date_m,id_loc,icu_locs,xplt_m,xplt_loc,xplt_des_loc,dem_m,birth_loc,dob_m,sex_loc,eth_loc,selection=2,v=True):
+def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
+                 mask,dia_mask,\
+                 dx_m,dx_loc,\
+                 bsln_m,bsln_scr_loc,bsln_date_loc,\
+                 date_m,id_loc,icu_locs,\
+                 xplt_m,xplt_loc,xplt_des_loc,\
+                 dem_m,sex_loc,eth_loc,\
+                 dob_m,birth_loc,v=True):
     scr = []
     tmasks = []     #time/date
     dmasks = []     #dialysis
@@ -102,28 +112,42 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,base
     ids_out = []
     bslns = []
     count=0
-    log = open('record_counts.csv','w')
+    gfr_count=0
+    no_bsln_count=0
+    no_recs_count=0
+    gap_icu_count=0
+    kid_xplt_count=0
+    log = open('result/record_counts.csv','w')
     if v:
         print('Getting patient vectors')
         print('Patient ID,\tBaseline,\tTotal no. records,\tno. selected records')
         log.write('Patient ID,\tBaseline,\tTotal no. records,\tno. selected records\n')
     for idx in ids:
-        baseline_idx = np.where(baselines[:,0] == idx)[0]
-        if str(baselines[baseline_idx,bsln_scr_loc][0]) == 'nan':
-            np.delete(ids,baseline_idx)
-            #ids.remove(idx)
+        ### Get Baseline
+        bsln_idx = np.where(bsln_m[:,0] == idx)[0]
+        bsln = bsln_m[bsln_idx,bsln_scr_loc][0]
+        bsln_date = bsln_m[bsln_idx,bsln_date_loc][0]
+        #remove if no baseline
+        if str(bsln) == 'nan':
+            np.delete(ids,bsln_idx)
+            no_bsln_count+=1
             if v:
                 print('Patient '+str(idx)+' removed due to missing baseline')
                 log.write('Patient '+str(idx)+' removed due to missing baseline\n')
             continue
-        #QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ
+
+        #get dob, sex, and race
         birth_idx = np.where(dob_m[:,0] == idx)[0]
+        dob = dob_m[birth_idx,birth_loc][0]
+
         dem_idx = np.where(dem_m[:,0] == idx)[0]
-        ###baselines[baseline_idx,baseline_time_loc]?????????????????
-        gfr = calc_gfr(baselines[baseline_idx,bsln_scr_loc][0],baselines[baseline_idx,baseline_time_loc],dem_m,dem_idx,dob_m[birth_idx,birth_loc],sex_loc,eth_loc)
+        sex = dem_m[dem_idx,sex_loc]
+        race = dem_m[dem_idx,eth_loc]
+
+        gfr = calc_gfr(bsln,bsln_date,sex,race,dob)
         if gfr < 15:
-            np.delete(ids,baseline_idx)
-            #ids.remove(idx)
+            np.delete(ids,bsln_idx)
+            gfr_count+=1
             if v:
                 print('Patient '+str(idx)+' removed due to initial GFR too low')
                 log.write('Patient '+str(idx)+' removed due to initial GFR too lown')
@@ -132,22 +156,37 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,base
         sel = np.where(mask[all_rows] != 0)[0]
         if len(sel) == 0:
             np.delete(ids,count)
-            #ids.remove(idx)
+            no_recs_count+=1
             if v:
                 print('Patient '+str(idx)+' removed due to no values in the time period of interest')
                 log.write('Patient '+str(idx)+' removed due to no values in the time period of interest\n')
             continue
 
-
-        #template for removing patient based on exclusion criteria
         #test for kidney transplant
-        x_rows=np.where(xplt_m[:,0] == idx)         #rows in transplant sheet
+        x_rows=np.where(xplt_m[:,0] == idx)         #rows in surgery sheet
         for row in x_rows:
-            str_disp = str(xplt_m[row,xplt_loc]).upper()
             str_des = str(xplt_m[row,xplt_des_loc]).upper()
-        if re.search('TRANSP',str_disp):
-            if re.search('KID',str_des) or re.search('KODA',str_des):
+            if 'KID' in str_des and 'TRANS' in str_des:
+                kid_xplt_count+=1
                 np.delete(ids,count)
+                if v:
+                    print('Patient '+str(idx)+' removed due to kidney transplant')
+                    log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
+                continue
+
+        d_rows = np.where(dx_m[:,0] == idx)
+        for row in d_rows:
+            str_des = str(dx_m[row,dx_loc]).upper()
+            if str_des == 'KIDNEY/PANCREAS FROM BATAVIA  ETA 1530':
+                kid_xplt_count+=1
+                np.delete(ids,count)
+                if v:
+                    print('Patient '+str(idx)+' removed due to kidney transplant')
+                    log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
+                continue
+            elif 'KID' in str_des and 'TRANS' in str_des:
+                np.delete(ids,count)
+                kid_xplt_count+=1
                 if v:
                     print('Patient '+str(idx)+' removed due to kidney transplant')
                     log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
@@ -171,13 +210,13 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,base
                 delta = td
         if delta > datetime.timedelta(3):
             np.delete(ids,count)
-            #ids.remove(idx)
+            gap_icu_count+=1
             if v:
                 print('Patient '+str(idx)+' removed due to different ICU stays > 3 days apart')
                 log.write('Patient '+str(idx)+' removed due to different ICU stays > 3 days apart\n')
             continue
 
-        bslns.append(baselines[baseline_idx,bsln_scr_loc][0])
+        bslns.append(bsln_m[bsln_idx,bsln_scr_loc][0])
         if v:
             print('%d,\t\t%f,\t\t%d,\t\t%d' % (idx,bslns[count],len(all_rows),len(sel)))
             log.write('%d,\t\t%f,\t\t%d,\t\t%d\n' % (idx,bslns[count],len(all_rows),len(sel)))
@@ -190,9 +229,22 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,mask,dia_mask,incl_esrd,base
         ids_out.append(idx)
         count+=1
     bslns = np.array(bslns)
-    log.close()
+    if v:
+        print('# Patients Kept: '+str(count))
+        print('# Patients w/ GFR < 15: '+str(gfr_count))
+        print('# Patients w/ no baseline: '+str(no_bsln_count))
+        print('# Patients w/ no ICU records: '+str(no_recs_count))
+        print('# Patients w/ gap in ICU > 3 days: '+str(gap_icu_count))
+        print('# Patients w/ kidney transplant: '+str(kid_xplt_count))
+        log.write('# Patients Kept: '+str(count)+'\n')
+        log.write('# Patients w/ GFR < 15: '+str(gfr_count)+'\n')
+        log.write('# Patients w/ no baseline: '+str(no_bsln_count)+'\n')
+        log.write('# Patients w/ no ICU records: '+str(no_recs_count)+'\n')
+        log.write('# Patients w/ gap in ICU > 3 days: '+str(gap_icu_count)+'\n')
+        log.write('# Patients w/ kidney transplant: '+str(kid_xplt_count)+'\n')
+        log.close()
     del scr_all_m
-    del baselines
+    del bsln_m
     return ids_out, scr, dates, tmasks, dmasks, bslns
 
 
@@ -270,11 +322,10 @@ def linear_interpo(scr,ids,dates,masks,dmasks,scale,v=True):
 def nbins(start,stop,scale):
     dt = (stop-start).total_seconds()
     div = scale*60*60       #hrs * minutes * seconds
-    bins, rem = divmod(dt,div)
+    bins, _ = divmod(dt,div)
     return bins+1
 
 def pairwise_dtw_dist(patients,dm_fname,dtw_name,v=True):
-    paths=[]
     df = open(dm_fname,'w')
     if v and dtw_name is not None:
         log = open(dtw_name,'w')
@@ -332,8 +383,8 @@ def scr2kdigo(scr,base,masks):
                 kdigo[j] = 3
         kdigos.append(kdigo)
     return kdigos
-    
-    
+
+
 ### Helper functions for descriptive statistics
 
 def get_disch_date(date_m,hosp_locs,idx):
@@ -344,7 +395,7 @@ def get_disch_date(date_m,hosp_locs,idx):
             dd = date_m[row,hosp_locs[1]]
     #dd.resolution=datetime.timedelta(1)
     return dd
-        
+
 def get_dod(date_m,outcome_m,dod_loc,idx):
     rows = np.where(date_m[0] == idx)
     if rows == None:
@@ -352,11 +403,120 @@ def get_dod(date_m,outcome_m,dod_loc,idx):
     dd = datetime.timedelta(0)
     for row in rows:
         if outcome_m[row,dod_loc] > dd:
-            dd = date_m[row,hosp_locs[1]]
+            dd = outcome_m[row,dod_loc]
     if dd == datetime.timedelta(0):
         return None
-    #dd.resolution=datetime.timedelta(1)
     return dd
+
+
+def get_bsln_dates(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
+                   scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc):
+    #%%
+    log = open('baseline_dates.csv', 'w')
+    log.write('ID,provided_bsln,matching_date,provided_type,\tcalc_bsln,calc_date,calc_type\n')
+    for i in range(len(bsln_m)):
+        idx = bsln_m[i,0]
+        log.write(str(idx))
+        bsln = bsln_m[i,bsln_scr_loc]
+        bsln_type = bsln_m[i,bsln_type_loc]
+        #skip if no baseline
+#        if str(bsln) == 'nan':
+#            log.write(',no baseline\n')
+#            ref_base = None
+        log.write(', '+str(bsln)+', ')
+        #determine earliest admission date
+        admit = datetime.datetime.now()
+        didx = np.where(date_m[:,0] == idx)[0]
+        for did in didx:
+            if date_m[did,hosp_locs[0]] < admit:
+                admit = date_m[did,hosp_locs[0]]
+
+        #find indices of all SCr values for this patient
+        all_rows = np.where(scr_all_m[:,0] == idx)[0]
+
+        #extract record types
+        #i.e. indexed admission, before indexed, after indexed
+        scr_desc = scr_all_m[all_rows,scr_desc_loc]
+        for j in range(len(scr_desc)):
+            scr_desc[j]=scr_desc[j].split()[0].upper()
+
+        scr_tp = scr_all_m[all_rows,scr_desc_loc]
+        for j in range(len(scr_tp)):
+            scr_tp[j]=scr_tp[j].split()[-1].upper()
+
+        #find location of first indexed, inpatient record
+        idx_rows = np.where(scr_desc == 'INDEXED')[0]
+        idx_rows = all_rows[idx_rows]
+
+        #find locations of before indexed inpatient and outpatient
+        bo_rows = np.intersect1d(np.where(scr_desc == 'BEFORE')[0],np.where(scr_tp == 'OUTPATIENT')[0])
+        bo_rows = all_rows[bo_rows]
+        bi_rows = np.intersect1d(np.where(scr_desc == 'BEFORE')[0],np.where(scr_tp == 'INPATIENT')[0])
+        bi_rows = all_rows[bi_rows]
+        true_date = 'missing'
+        #find the baseline
+        if idx_rows == []: # no indexed tpts, so disregard
+            log.write(',no indexed values\n')
+            true_base = None
+            true_date = None
+            true_type = None
+            log.write('\n')
+        #no values prior to admission
+        elif idx_rows[0] == all_rows[0]:
+            true_base = np.min(scr_all_m[idx_rows,scr_val_loc])
+            row = np.argmin(scr_all_m[idx_rows,scr_val_loc])
+            row = idx_rows[row]
+            true_date = scr_all_m[row,scr_date_loc]
+            true_type = 'INDEXED - MINIMUM VALUE'
+        else: # start at first indexed tpt and move back until match found
+            row = idx_rows[0]
+            end_date = scr_all_m[row,scr_date_loc]
+            row-=1
+            prev_date = scr_all_m[row,scr_date_loc]
+            if rdelta.relativedelta(end_date,prev_date).years < 1:
+                true_base = scr_all_m[row,scr_val_loc]
+                true_date = prev_date
+                true_type = scr_all_m[row,scr_desc_loc]
+            else:
+                true_base = np.min(scr_all_m[idx_rows,scr_val_loc])
+                true_date_idx = np.argmin(scr_all_m[idx_rows,scr_val_loc])
+                row = idx_rows[true_date_idx]
+                true_date = scr_all_m[row,scr_date_loc]
+                true_type = 'INDEXED - MINIMUM VALUE'
+        log.write(', ' + str(bsln_type) + ',\t'+str(true_base)+', '+str(true_date) + ', ' + str(true_type).upper() + '\n')
+    log.close()
+
+
+'''
+            row = idx_rows[0]
+            end_date = scr_all_m[row,scr_date_loc]
+            row-=1
+            true_base = 'None'
+            true_date = 'None'
+            #see if there are any outpatients before index and use the latest
+            if len(bi_rows) > 0 and len(bo_rows) > 0:
+                tr = bo_rows[-1]
+                tdi = scr_all_m[tr,scr_date_loc]
+
+            elif len(bo_rows) > 0:
+                tr = bo_rows[-1]
+                td = scr_all_m[tr,scr_date_loc]
+                if rdelta.relativedelta(end_date,td).years < 1:
+                    true_base = scr_all_m[tr,scr_val_loc]
+                    true_date = scr_all_m[tr,scr_date_loc]
+                    true_type = 'INPATIENT - latest <1 yr prior to admission'
+            #see if any inpatients
+            elif len(bi_rows) > 0:
+                #only count inpatient records < 1 yr from admission
+                tr = bi_rows[-1]
+                td = scr_all_m[tr,scr_date_loc]
+                if rdelta.relativedelta(end_date,td).years < 1:
+                    true_base = scr_all_m[tr,scr_val_loc]
+                    true_date = scr_all_m[tr,scr_date_loc]
+                    true_type = 'INPATIENT - latest <1 yr prior to admission'
+'''
+
+#%%
 
 def arr2csv(fname,inds,ids):
     outFile=open(fname,'w')
@@ -388,23 +548,26 @@ def arr2str(arr,fmt='%f'):
         s = s + ', ' + fmt % (arr[i])
     return s
 
-
 ### finish GFR calculation function
-def calc_gfr(bsln,date_base,dem_m,dem_idx,birth_date,sex_loc,eth_loc):
-    k_value=0.7#female
-    a_value=-0.329#female
-    black_val=1.159#black
-    time_diff=rdelta.relativedelta(date_base,birth_date)
-    age = time_diff.years
+def calc_gfr(bsln,date_base,sex,race,dob):
+    date_base = datetime.datetime.strptime(date_base.split('.')[0], ' %Y-%m-%d %H:%M:%S')
+    time_diff=rdelta.relativedelta(date_base,dob)
+    year_val = time_diff.years
+    mon_val = time_diff.months
+    age = year_val+mon_val/12
     min_value=1
-    max_vallue=1
-    f_value=1.018
-    if dem_m[dem_idx,sex_loc] == 'M':
+    max_value=1
+    race_value=1
+    if sex == 'M':
         k_value = 0.9
         a_value = -0.411
         f_value =1
-    if dem_m[dem_idx,eth_loc] != "BLACK/AFR AMERI":
-        black_val = 1
+    else:
+        k_value=0.7#female
+        a_value=-0.329#female
+        f_value=1.018#female
+    if race == "BLACK/AFR AMERI":
+        race_value = 1.159
     if bsln/k_value < 1:
         min_value = bsln/k_value
     else:
@@ -412,7 +575,7 @@ def calc_gfr(bsln,date_base,dem_m,dem_idx,birth_date,sex_loc,eth_loc):
     min_power=math.pow(min_value,a_value)
     max_power= math.pow(max_value,-1.209)
     age_power= math.pow(0.993,age)
-    GFR = 141 * min_power * max_power * age_power * f_value * black_val
+    GFR = 141 * min_power * max_power * age_power * f_value * race_value
     return GFR
 
 def get_mat(fname,page_name,sort_id):
