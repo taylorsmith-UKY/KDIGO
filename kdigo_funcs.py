@@ -245,6 +245,11 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
         log.close()
     del scr_all_m
     del bsln_m
+    del dx_m
+    del date_m
+    del xplt_m
+    del dem_m
+    del dob_m
     return ids_out, scr, dates, tmasks, dmasks, bslns
 
 
