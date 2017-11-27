@@ -7,7 +7,7 @@ Created on Mon Nov 20 14:11:19 2017
 """
 
 from kdigo_funcs import get_mat
-from kdigo_funcs import get_bsln_dates
+from kdigo_funcs import get_baselines
 
 
 #------------------------------- PARAMETERS ----------------------------------#
@@ -33,5 +33,5 @@ bsln_type_loc = bsln_m.columns.get_loc('BASELINE_TYPE')
 bsln_date_loc = bsln_m.columns.get_loc('BASELINE_TYPE')
 bsln_m = bsln_m.as_matrix()
 
-get_bsln_dates(date_m,hosp_locs,bsln_m,bsln_scr_loc,bsln_type_loc,\
+get_baselines(date_m,hosp_locs,bsln_m,bsln_scr_loc,bsln_type_loc,\
                    scr_all_m,scr_val_loc,scr_date_loc,scr_desc_loc)

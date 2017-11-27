@@ -11,14 +11,12 @@ incl_esrd = False
 t_analyze = 'ICU'
 timescale = 6       #in hours
 
-data_file = 'kdigo_data.hdf5'
 #-----------------------------------------------------------------------------#
 def main():
     outPath="result/"
     if not os.path.exists(outPath):
         os.makedirs(outPath)
 
-    #f = h5py.File(data_file,'w')
     ############ Get Indices for All Used Values ################
     print('Loading encounter info...')
     #Get IDs and find indices of all used metrics

@@ -135,7 +135,6 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
                 print('Patient '+str(idx)+' removed due to missing baseline')
                 log.write('Patient '+str(idx)+' removed due to missing baseline\n')
             continue
-
         #get dob, sex, and race
         birth_idx = np.where(dob_m[:,0] == idx)[0]
         dob = dob_m[birth_idx,birth_loc][0]
@@ -218,8 +217,8 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
 
         bslns.append(bsln_m[bsln_idx,bsln_scr_loc][0])
         if v:
-            print('%d,\t\t%f,\t\t%d,\t\t%d' % (idx,bslns[count],len(all_rows),len(sel)))
-            log.write('%d,\t\t%f,\t\t%d,\t\t%d\n' % (idx,bslns[count],len(all_rows),len(sel)))
+            print('%d,\t\t%f,\t\t%d,\t\t%d' % (idx,bsln,len(all_rows),len(sel)))
+            log.write('%d,\t\t%f,\t\t%d,\t\t%d\n' % (idx,bsln,len(all_rows),len(sel)))
         tmask = mask[keep]
         tmasks.append(tmask)
         dmask = dia_mask[keep]
@@ -414,11 +413,11 @@ def get_dod(date_m,outcome_m,dod_loc,idx):
     return dd
 
 
-def get_bsln_dates(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
+def get_baselines(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
                    scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc):
     #%%
-    log = open('baseline_dates.csv', 'w')
-    log.write('ID,provided_bsln,matching_date,provided_type,\tcalc_bsln,calc_date,calc_type\n')
+    log = open('baseline_calc.csv', 'w')
+    log.write('ID,provided_bsln,calc_bsln,provided_type,calc_type,calc_date\n')
     for i in range(len(bsln_m)):
         idx = bsln_m[i,0]
         log.write(str(idx))
@@ -428,7 +427,7 @@ def get_bsln_dates(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
 #        if str(bsln) == 'nan':
 #            log.write(',no baseline\n')
 #            ref_base = None
-        log.write(', '+str(bsln)+', ')
+        log.write(','+str(bsln)+',')
         #determine earliest admission date
         admit = datetime.datetime.now()
         didx = np.where(date_m[:,0] == idx)[0]
@@ -459,6 +458,7 @@ def get_bsln_dates(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
         bi_rows = np.intersect1d(np.where(scr_desc == 'BEFORE')[0],np.where(scr_tp == 'INPATIENT')[0])
         bi_rows = all_rows[bi_rows]
         true_date = 'missing'
+        true_type = 'nan'
         #find the baseline
         if idx_rows == []: # no indexed tpts, so disregard
             log.write(',no indexed values\n')
@@ -472,23 +472,31 @@ def get_bsln_dates(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
             row = np.argmin(scr_all_m[idx_rows,scr_val_loc])
             row = idx_rows[row]
             true_date = scr_all_m[row,scr_date_loc]
-            true_type = 'INDEXED - MINIMUM VALUE'
-        else: # start at first indexed tpt and move back until match found
+            if str(true_base) != 'nan':
+                true_type = scr_all_m[row,scr_desc_loc].upper()
+        else: # start at first indexed tpt and move back until valid point found
             row = idx_rows[0]
             end_date = scr_all_m[row,scr_date_loc]
             row-=1
             prev_date = scr_all_m[row,scr_date_loc]
-            if rdelta.relativedelta(end_date,prev_date).years < 1:
+            prev_type = scr_all_m[row,scr_desc_loc].upper().split()[-1]
+            while prev_type == 'EMERGENCY' and row > all_rows[0]:
+                row-=1
+                prev_date = scr_all_m[row,scr_date_loc]
+                prev_type = scr_all_m[row,scr_desc_loc].upper().split()[-1]
+            if prev_type != 'EMERGENCY' and rdelta.relativedelta(end_date,prev_date).years < 1:
                 true_base = scr_all_m[row,scr_val_loc]
                 true_date = prev_date
-                true_type = scr_all_m[row,scr_desc_loc]
+                if str(true_base) != 'nan':
+                    true_type = scr_all_m[row,scr_desc_loc].upper()
             else:
                 true_base = np.min(scr_all_m[idx_rows,scr_val_loc])
                 true_date_idx = np.argmin(scr_all_m[idx_rows,scr_val_loc])
                 row = idx_rows[true_date_idx]
                 true_date = scr_all_m[row,scr_date_loc]
-                true_type = 'INDEXED - MINIMUM VALUE'
-        log.write(', ' + str(bsln_type) + ',\t'+str(true_base)+', '+str(true_date) + ', ' + str(true_type).upper() + '\n')
+                if str(true_base) != 'nan':
+                    true_type = scr_all_m[row,scr_desc_loc].upper()
+        log.write(str(true_base) + ','+str(bsln_type)+',' + str(true_type) + ',' + str(true_date) + '\n')
     log.close()
 
 
@@ -555,7 +563,7 @@ def arr2str(arr,fmt='%f'):
 
 ### finish GFR calculation function
 def calc_gfr(bsln,date_base,sex,race,dob):
-    date_base = datetime.datetime.strptime(date_base.split('.')[0], ' %Y-%m-%d %H:%M:%S')
+    date_base = datetime.datetime.strptime(date_base.split('.')[0], '%Y-%m-%d %H:%M:%S')
     time_diff=rdelta.relativedelta(date_base,dob)
     year_val = time_diff.years
     mon_val = time_diff.months
