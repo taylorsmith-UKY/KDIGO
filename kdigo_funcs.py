@@ -452,20 +452,13 @@ def get_baselines(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
         idx_rows = np.where(scr_desc == 'INDEXED')[0]
         idx_rows = all_rows[idx_rows]
 
-        #find locations of before indexed inpatient and outpatient
-        bo_rows = np.intersect1d(np.where(scr_desc == 'BEFORE')[0],np.where(scr_tp == 'OUTPATIENT')[0])
-        bo_rows = all_rows[bo_rows]
-        bi_rows = np.intersect1d(np.where(scr_desc == 'BEFORE')[0],np.where(scr_tp == 'INPATIENT')[0])
-        bi_rows = all_rows[bi_rows]
         true_date = 'missing'
         true_type = 'nan'
         #find the baseline
-        if idx_rows == []: # no indexed tpts, so disregard
-            log.write(',no indexed values\n')
+        if len(idx_rows) == 0: # no indexed tpts, so disregard
             true_base = None
             true_date = None
-            true_type = None
-            log.write('\n')
+            true_type = 'No_indexed_values'
         #no values prior to admission
         elif idx_rows[0] == all_rows[0]:
             true_base = np.min(scr_all_m[idx_rows,scr_val_loc])
@@ -498,36 +491,6 @@ def get_baselines(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
                     true_type = scr_all_m[row,scr_desc_loc].upper()
         log.write(str(true_base) + ','+str(bsln_type)+',' + str(true_type) + ',' + str(true_date) + '\n')
     log.close()
-
-
-'''
-            row = idx_rows[0]
-            end_date = scr_all_m[row,scr_date_loc]
-            row-=1
-            true_base = 'None'
-            true_date = 'None'
-            #see if there are any outpatients before index and use the latest
-            if len(bi_rows) > 0 and len(bo_rows) > 0:
-                tr = bo_rows[-1]
-                tdi = scr_all_m[tr,scr_date_loc]
-
-            elif len(bo_rows) > 0:
-                tr = bo_rows[-1]
-                td = scr_all_m[tr,scr_date_loc]
-                if rdelta.relativedelta(end_date,td).years < 1:
-                    true_base = scr_all_m[tr,scr_val_loc]
-                    true_date = scr_all_m[tr,scr_date_loc]
-                    true_type = 'INPATIENT - latest <1 yr prior to admission'
-            #see if any inpatients
-            elif len(bi_rows) > 0:
-                #only count inpatient records < 1 yr from admission
-                tr = bi_rows[-1]
-                td = scr_all_m[tr,scr_date_loc]
-                if rdelta.relativedelta(end_date,td).years < 1:
-                    true_base = scr_all_m[tr,scr_val_loc]
-                    true_date = scr_all_m[tr,scr_date_loc]
-                    true_type = 'INPATIENT - latest <1 yr prior to admission'
-'''
 
 #%%
 
