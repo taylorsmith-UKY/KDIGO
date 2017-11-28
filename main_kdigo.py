@@ -3,8 +3,8 @@ import numpy as np
 import os
 
 #------------------------------- PARAMETERS ----------------------------------#
-inFile = "/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/kdigo_full.xlsx"
-outPath = "result2/"
+inFile = "/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/KDIGO_full.xlsx"
+outPath = "result/"
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 incl_esrd = False
@@ -13,7 +13,6 @@ timescale = 6       #in hours
 
 #-----------------------------------------------------------------------------#
 def main():
-    outPath="result/"
     if not os.path.exists(outPath):
         os.makedirs(outPath)
 
@@ -83,28 +82,22 @@ def main():
     dia_mask=kf.get_dialysis_mask(scr_all_m,scr_date_loc,dia_m,crrt_locs,hd_locs,pd_locs)
 
     #Get mask indicating whether each point was in hospital or ICU
-    t_mask=kf.get_t_mask(scr_all_m,scr_date_loc,date_m,hosp_locs,icu_locs)
+    t_mask=kf.get_t_mask(scr_all_m,scr_date_loc,scr_val_loc,date_m,hosp_locs,icu_locs)
 
     #Get mask for all patients with ESRD
-    esrd_mask=kf.get_esrd_mask(scr_all_m,id_loc,esrd_m,esrd_locs)
+    #esrd_mask=kf.get_esrd_mask(scr_all_m,id_loc,esrd_m,esrd_locs)
 
     #Get mask for the desired data
     mask=np.zeros(len(scr_all_m))
     for i in range(len(scr_all_m)):
         if t_analyze == 'ICU':
-            if not incl_esrd:
-                if esrd_mask[i]:
-                    continue
             if t_mask[i] == 2:
                 if dia_mask[i]:
                     mask[i]=-1
                 else:
                     mask[i]=1
         elif t_analyze == 'HOSP':
-            if not incl_esrd:
-                if esrd_mask[i]:
-                    continue
-            if t_mask[i] == 1:
+            if t_mask[i] >= 1:
                 if dia_mask[i]:
                     mask[i]=-1
                 else:
@@ -112,9 +105,10 @@ def main():
 
 
     #Extract patients into separate list elements and get baselines
-    ids,scr,dates,masks,dmasks,baselines = kf.get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
+    ids,scr,dates,masks,dmasks,baselines,bsln_gfr = kf.get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
                                                         mask,dia_mask,\
                                                         dx_m,dx_loc,\
+                                                        esrd_m,esrd_locs,\
                                                         bsln_m,bsln_scr_loc,bsln_date_loc,\
                                                         date_m,id_loc,icu_locs,\
                                                         surg_m,surg_loc,surg_des_loc,\
@@ -125,6 +119,7 @@ def main():
     kf.arr2csv(outPath+'masks_ICU.csv',masks,ids)
     kf.arr2csv(outPath+'dialysis_ICU.csv',dmasks,ids)
     kf.arr2csv(outPath+'baselines.csv',baselines,ids)
+    kf.arr2csv(outPath+'baseline_gfr.csv',bsln_gfr,ids)
 
     #Interpolate missing values
     post_interpo,dmasks_interp=kf.linear_interpo(scr,ids,dates,masks,dmasks,timescale)
@@ -136,8 +131,8 @@ def main():
 
     #Convert SCr to KDIGO
     kdigo = kf.scr2kdigo(post_interpo,baselines,dmasks_interp)
-    kf.arr2csv(outPath+'kdigo.csv',kdigo,ids)
+    kf.arr2csv(outPath+'kdigo_ex.csv',kdigo,ids)
     #Get KDIGO Distance Matrix
-    kf.pairwise_dtw_dist(kdigo,'kdigo_test_dm.csv','kdigo_test_dtwlog.csv')
+    kf.pairwise_dtw_dist(kdigo,'kdigo_ex_dm.csv','kdigo_ex_dtwlog.csv')
 
 main()

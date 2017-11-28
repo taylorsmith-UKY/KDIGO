@@ -6,9 +6,8 @@ import pandas as pd
 from scipy.spatial import distance
 import dtw
 from dateutil import relativedelta as rdelta
-import re
 
-
+#%%
 def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs,
                       pd_locs, v=True):
     mask = np.zeros(len(scr_m))
@@ -44,15 +43,18 @@ def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs,
         npd = len(np.where(mask == 3)[0])
         print('%d, %d, %d, %d\n' % (nwo,ncrrt,nhd,npd))
     return mask
-
-
-def get_t_mask(scr_m,scr_date_loc,date_m,hosp_locs,icu_locs,v=True):
+#%%
+#%%
+def get_t_mask(scr_m,scr_date_loc,scr_val_loc,date_m,hosp_locs,icu_locs,v=True):
     mask = np.zeros(len(scr_m))
     if v:
         print('Getting masks for icu and hospital admit-discharge')
     for i in range(len(mask)):
         this_id = scr_m[i,0]
         this_date = scr_m[i,scr_date_loc]
+        this_val = scr_m[i,scr_val_loc]
+        if this_val == np.nan:
+            continue
         rows = np.where(date_m[:,0]==this_id)[0]
         for row in rows:
             if date_m[row,icu_locs[0]] != np.nan:
@@ -70,8 +72,8 @@ def get_t_mask(scr_m,scr_date_loc,date_m,hosp_locs,icu_locs,v=True):
         print('Number records in hospital: '+str(nhp))
         print('Number records in ICU: '+str(nicu))
     return mask
-
-
+#%%
+#%%
 def get_esrd_mask(scr_m,id_loc,esrd_m,esrd_locs,v=True):
     '''
     purpose: find out the patient id who have esrd data "Y"
@@ -81,7 +83,7 @@ def get_esrd_mask(scr_m,id_loc,esrd_m,esrd_locs,v=True):
     '''
     mask = np.zeros(len(scr_m))
     if v:
-        print('Getting mask for dialysis')
+        print('Getting mask for ESRD')
     for i in range(len(mask)):
         this_id = scr_m[i][id_loc]
         rows = np.where(esrd_m[0,:]==this_id)[0]
@@ -94,10 +96,12 @@ def get_esrd_mask(scr_m,id_loc,esrd_m,esrd_locs,v=True):
         print('Number records for patients with ESRD: '+str(nw))
         print('Number records for patients without ESRD: '+str(nwo))
     return mask
-
+#%%
+#%%
 def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
                  mask,dia_mask,\
                  dx_m,dx_loc,\
+                 esrd_m,esrd_locs,\
                  bsln_m,bsln_scr_loc,bsln_date_loc,\
                  date_m,id_loc,icu_locs,\
                  xplt_m,xplt_loc,xplt_des_loc,\
@@ -111,12 +115,15 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
     ids.sort()
     ids_out = []
     bslns = []
+    bsln_gfr = []
     count=0
     gfr_count=0
     no_bsln_count=0
     no_recs_count=0
     gap_icu_count=0
     kid_xplt_count=0
+    esrd_count=0
+    dem_count=0
     log = open('result/record_counts.csv','w')
     if v:
         print('Getting patient vectors')
@@ -128,20 +135,48 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
         bsln = bsln_m[bsln_idx,bsln_scr_loc][0]
         bsln_date = bsln_m[bsln_idx,bsln_date_loc][0]
         #remove if no baseline
-        if str(bsln) == 'nan':
+        if str(bsln) == 'nan' or str(bsln_date).lower() == 'nat':
             np.delete(ids,bsln_idx)
             no_bsln_count+=1
             if v:
                 print('Patient '+str(idx)+' removed due to missing baseline')
                 log.write('Patient '+str(idx)+' removed due to missing baseline\n')
             continue
+
+        #remove if ESRD status
+        esrd_idx = np.where(esrd_m[:,0]==idx)[0]
+        if len(esrd_idx) > 0:
+            for loc in esrd_locs:
+                if np.any(esrd_m[esrd_idx,loc] == 'Y'):
+                    np.delete(ids,bsln_idx)
+                    esrd_count+=1
+                    if v:
+                        print('Patient '+str(idx)+' removed due to ESRD status')
+                        log.write('Patient '+str(idx)+' removed due to ESRD status\n')
+                    continue
         #get dob, sex, and race
+        if idx not in dob_m[:,0] or idx not in dem_m[:,0]:
+            np.delete(ids,bsln_idx)
+            dem_count+=1
+            if v:
+                print('Patient '+str(idx)+' removed due to missing DOB')
+                log.write('Patient '+str(idx)+' removed due to missing DOB\n')
+            continue
         birth_idx = np.where(dob_m[:,0] == idx)[0]
         dob = dob_m[birth_idx,birth_loc][0]
 
         dem_idx = np.where(dem_m[:,0] == idx)[0]
+        if len(dem_idx) > 1:
+            dem_idx = dem_idx[0]
         sex = dem_m[dem_idx,sex_loc]
         race = dem_m[dem_idx,eth_loc]
+        if str(sex) == 'nan' or str(race) == 'nan':
+            np.delete(ids,bsln_idx)
+            dem_count+=1
+            if v:
+                print('Patient '+str(idx)+' removed due to missing demographics')
+                log.write('Patient '+str(idx)+' removed due to missing demographics\n')
+            continue
 
         gfr = calc_gfr(bsln,bsln_date,sex,race,dob)
         if gfr < 15:
@@ -149,7 +184,7 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
             gfr_count+=1
             if v:
                 print('Patient '+str(idx)+' removed due to initial GFR too low')
-                log.write('Patient '+str(idx)+' removed due to initial GFR too lown')
+                log.write('Patient '+str(idx)+' removed due to initial GFR too low\n')
             continue
         all_rows = np.where(scr_all_m[:,0] == idx)[0]
         sel = np.where(mask[all_rows] != 0)[0]
@@ -216,6 +251,7 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
             continue
 
         bslns.append(bsln_m[bsln_idx,bsln_scr_loc][0])
+        bsln_gfr.append(gfr)
         if v:
             print('%d,\t\t%f,\t\t%d,\t\t%d' % (idx,bsln,len(all_rows),len(sel)))
             log.write('%d,\t\t%f,\t\t%d,\t\t%d\n' % (idx,bsln,len(all_rows),len(sel)))
@@ -230,12 +266,14 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
     bslns = np.array(bslns)
     if v:
         print('# Patients Kept: '+str(count))
+        print('# Patients removed for ESRD: '+str(esrd_count))
         print('# Patients w/ GFR < 15: '+str(gfr_count))
         print('# Patients w/ no baseline: '+str(no_bsln_count))
         print('# Patients w/ no ICU records: '+str(no_recs_count))
         print('# Patients w/ gap in ICU > 3 days: '+str(gap_icu_count))
         print('# Patients w/ kidney transplant: '+str(kid_xplt_count))
         log.write('# Patients Kept: '+str(count)+'\n')
+        log.write('# Patients removed for ESRD: '+str(esrd_count)+'\n')
         log.write('# Patients w/ GFR < 15: '+str(gfr_count)+'\n')
         log.write('# Patients w/ no baseline: '+str(no_bsln_count)+'\n')
         log.write('# Patients w/ no ICU records: '+str(no_recs_count)+'\n')
@@ -249,9 +287,9 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
     del xplt_m
     del dem_m
     del dob_m
-    return ids_out, scr, dates, tmasks, dmasks, bslns
-
-
+    return ids_out, scr, dates, tmasks, dmasks, bslns, bsln_gfr
+#%%
+#%%
 def linear_interpo(scr,ids,dates,masks,dmasks,scale,v=True):
     post_interpo = []
     dmasks_interp = []
@@ -322,13 +360,15 @@ def linear_interpo(scr,ids,dates,masks,dmasks,scale,v=True):
     if v:
         log.close()
     return post_interpo, dmasks_interp
-
+#%%
+#%%
 def nbins(start,stop,scale):
     dt = (stop-start).total_seconds()
     div = scale*60*60       #hrs * minutes * seconds
     bins, _ = divmod(dt,div)
     return bins+1
-
+#%%
+#%%
 def pairwise_dtw_dist(patients,dm_fname,dtw_name,v=True):
     df = open(dm_fname,'w')
     if v and dtw_name is not None:
@@ -357,13 +397,13 @@ def pairwise_dtw_dist(patients,dm_fname,dtw_name,v=True):
                 else:
                     df.write('%f\n' % (distance.braycurtis(p1,p2)))
             if v and dtw_name is not None:
-                log.write(arr2str(p1)+'\n')
-                log.write(arr2str(p2)+'\n\n')
+                log.write(arr2str(p1,fmt='%d')+'\n')
+                log.write(arr2str(p2,fmt='%d')+'\n\n')
     if v and dtw_name is not None:
         log.close()
     return df
-
-#===========================================================================
+#%%
+#%%
 def scr2kdigo(scr,base,masks):
     kdigos = []
     for i in range(len(scr)):
@@ -387,10 +427,11 @@ def scr2kdigo(scr,base,masks):
                 kdigo[j] = 3
         kdigos.append(kdigo)
     return kdigos
+#%%
 
 
 ### Helper functions for descriptive statistics
-
+#%%
 def get_disch_date(date_m,hosp_locs,idx):
     rows = np.where(date_m[0] == idx)
     dd = datetime.timedelta(0)
@@ -399,7 +440,8 @@ def get_disch_date(date_m,hosp_locs,idx):
             dd = date_m[row,hosp_locs[1]]
     #dd.resolution=datetime.timedelta(1)
     return dd
-
+#%%
+#%%
 def get_dod(date_m,outcome_m,dod_loc,idx):
     rows = np.where(date_m[0] == idx)
     if rows == None:
@@ -411,12 +453,13 @@ def get_dod(date_m,outcome_m,dod_loc,idx):
     if dd == datetime.timedelta(0):
         return None
     return dd
-
+#%%
+#%%
 
 def get_baselines(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
                    scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc):
-    #%%
-    log = open('baseline_calc.csv', 'w')
+
+    log = open('../DATA/baseline_calc.csv', 'w')
     log.write('ID,provided_bsln,calc_bsln,provided_type,calc_type,calc_date\n')
     for i in range(len(bsln_m)):
         idx = bsln_m[i,0]
@@ -459,6 +502,10 @@ def get_baselines(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
             true_base = None
             true_date = None
             true_type = 'No_indexed_values'
+        elif np.all([np.isnan(scr_all_m[x,scr_val_loc]) for x in idx_rows]):
+            true_base = None
+            true_date = None
+            true_type = 'No_indexed_values'
         #no values prior to admission
         elif idx_rows[0] == all_rows[0]:
             true_base = np.min(scr_all_m[idx_rows,scr_val_loc])
@@ -493,6 +540,7 @@ def get_baselines(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
     log.close()
 
 #%%
+#%%
 
 def arr2csv(fname,inds,ids):
     outFile=open(fname,'w')
@@ -508,7 +556,8 @@ def arr2csv(fname,inds,ids):
             outFile.write('%d' % (ids[i]))
             outFile.write(', %f\n' % (inds[i]))
         outFile.close()
-
+#%%
+#%%
 def str2csv(fname,inds,ids):
     outFile=open(fname,'w')
     for i in range(len(inds)):
@@ -517,16 +566,24 @@ def str2csv(fname,inds,ids):
             outFile.write(', %s' % (inds[i][j]))
         outFile.write('\n')
     outFile.close()
-
+#%%
+#%%
 def arr2str(arr,fmt='%f'):
     s = fmt % (arr[0])
     for i in range(1,len(arr)):
         s = s + ', ' + fmt % (arr[i])
     return s
-
-### finish GFR calculation function
+#%%
+#%%
+def get_subset(file_name,sheet_names,ids):
+    for sheet in sheet_names:
+        ds = get_mat(file_name,sheet,'STUDY_PATIENT_ID')
+        mask = [ds['STUDY_PATIENT_ID'][x] in ids for x in range(len(ds['STUDY_PATIENT_ID']))]
+        ds[mask].to_excel(sheet+'.xlsx')
+#%%
+#%%
 def calc_gfr(bsln,date_base,sex,race,dob):
-    date_base = datetime.datetime.strptime(date_base.split('.')[0], '%Y-%m-%d %H:%M:%S')
+    #date_base = datetime.datetime.strptime(date_base.split('.')[0], '%Y-%m-%d %H:%M:%S')
     time_diff=rdelta.relativedelta(date_base,dob)
     year_val = time_diff.years
     mon_val = time_diff.months
@@ -553,6 +610,14 @@ def calc_gfr(bsln,date_base,sex,race,dob):
     age_power= math.pow(0.993,age)
     GFR = 141 * min_power * max_power * age_power * f_value * race_value
     return GFR
-
+#%%
+#%%
 def get_mat(fname,page_name,sort_id):
     return pd.read_excel(fname,page_name).sort_values(sort_id)
+#%%
+def load_csv(fname,ids,dt):
+    res = []
+    f = open(fname,'r')
+    for l in f:
+        res.append(np.array(l.split(',')[1:],dtype=dt))
+    return res
