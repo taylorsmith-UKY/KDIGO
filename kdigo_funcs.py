@@ -44,7 +44,6 @@ def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs,
         print('%d, %d, %d, %d\n' % (nwo,ncrrt,nhd,npd))
     return mask
 #%%
-#%%
 def get_t_mask(scr_m,scr_date_loc,scr_val_loc,date_m,hosp_locs,icu_locs,v=True):
     mask = np.zeros(len(scr_m))
     if v:
@@ -72,7 +71,7 @@ def get_t_mask(scr_m,scr_date_loc,scr_val_loc,date_m,hosp_locs,icu_locs,v=True):
         print('Number records in hospital: '+str(nhp))
         print('Number records in ICU: '+str(nicu))
     return mask
-#%%
+
 #%%
 def get_esrd_mask(scr_m,id_loc,esrd_m,esrd_locs,v=True):
     '''
@@ -96,9 +95,9 @@ def get_esrd_mask(scr_m,id_loc,esrd_m,esrd_locs,v=True):
         print('Number records for patients with ESRD: '+str(nw))
         print('Number records for patients without ESRD: '+str(nwo))
     return mask
+
 #%%
-#%%
-def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
+def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
                  mask,dia_mask,\
                  dx_m,dx_loc,\
                  esrd_m,esrd_locs,\
@@ -106,11 +105,13 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
                  date_m,id_loc,icu_locs,\
                  xplt_m,xplt_loc,xplt_des_loc,\
                  dem_m,sex_loc,eth_loc,\
-                 dob_m,birth_loc,v=True):
+                 dob_m,birth_loc,\
+                 log,v=True):
     scr = []
     tmasks = []     #time/date
     dmasks = []     #dialysis
     dates = []
+    d_disp = []
     ids = np.unique(scr_all_m[:,0])
     ids.sort()
     ids_out = []
@@ -124,7 +125,6 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
     kid_xplt_count=0
     esrd_count=0
     dem_count=0
-    log = open('result/record_counts.csv','w')
     if v:
         print('Getting patient vectors')
         print('Patient ID,\tBaseline,\tTotal no. records,\tno. selected records')
@@ -249,7 +249,7 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
                 print('Patient '+str(idx)+' removed due to different ICU stays > 3 days apart')
                 log.write('Patient '+str(idx)+' removed due to different ICU stays > 3 days apart\n')
             continue
-
+        d_disp.append(date_m[all_drows[0],d_disp_loc])
         bslns.append(bsln_m[bsln_idx,bsln_scr_loc][0])
         bsln_gfr.append(gfr)
         if v:
@@ -279,7 +279,6 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
         log.write('# Patients w/ no ICU records: '+str(no_recs_count)+'\n')
         log.write('# Patients w/ gap in ICU > 3 days: '+str(gap_icu_count)+'\n')
         log.write('# Patients w/ kidney transplant: '+str(kid_xplt_count)+'\n')
-        log.close()
     del scr_all_m
     del bsln_m
     del dx_m
@@ -287,15 +286,14 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,\
     del xplt_m
     del dem_m
     del dob_m
-    return ids_out, scr, dates, tmasks, dmasks, bslns, bsln_gfr
+    return ids_out, scr, dates, tmasks, dmasks, bslns, bsln_gfr, d_disp
+
 #%%
-#%%
-def linear_interpo(scr,ids,dates,masks,dmasks,scale,v=True):
+def linear_interpo(scr,ids,dates,masks,dmasks,scale,log,v=True):
     post_interpo = []
     dmasks_interp = []
     count=0
     if v:
-        log = open('result/interpo_log.txt','w')
         log.write('Raw SCr\n')
         log.write('Stretched SCr\n')
         log.write('Interpolated\n')
@@ -357,28 +355,29 @@ def linear_interpo(scr,ids,dates,masks,dmasks,scale,v=True):
         print(str(thisp))
         post_interpo.append(thisp)
         count+=1
-    if v:
-        log.close()
     return post_interpo, dmasks_interp
-#%%
+
 #%%
 def nbins(start,stop,scale):
     dt = (stop-start).total_seconds()
     div = scale*60*60       #hrs * minutes * seconds
     bins, _ = divmod(dt,div)
     return bins+1
-#%%
+
 #%%
 def pairwise_dtw_dist(patients,dm_fname,dtw_name,v=True):
     df = open(dm_fname,'w')
+    dis = []
     if v and dtw_name is not None:
         log = open(dtw_name,'w')
     for i in range(len(patients)):
         if v:
             print('#'+str(i+1)+' vs #'+str(i+2)+' to '+str(len(patients)))
         for j in range(i+1,len(patients)):
+            df.write('%d,%d,' % (i,j))
             if np.all(patients[i] == 0) and np.all(patients[j] == 0):
                 df.write('%f\n' % (0))
+                dis.append(0)
             else:
                 if len(patients[i]) > 1 and len(patients[j]) > 1:
                     dist,_,_,path=dtw.dtw(patients[i],patients[j],lambda x,y: np.abs(x-y))
@@ -394,15 +393,17 @@ def pairwise_dtw_dist(patients,dm_fname,dtw_name,v=True):
                     p2 = np.repeat(patients[j][0],len(patients[i]))
                 if np.all(p1 == p2):
                     df.write('%f\n' % (0))
+                    dis.append(0)
                 else:
                     df.write('%f\n' % (distance.braycurtis(p1,p2)))
+                    dis.append(distance.braycurtis(p1,p2))
             if v and dtw_name is not None:
                 log.write(arr2str(p1,fmt='%d')+'\n')
                 log.write(arr2str(p2,fmt='%d')+'\n\n')
     if v and dtw_name is not None:
         log.close()
-    return df
-#%%
+    return dis
+
 #%%
 def scr2kdigo(scr,base,masks):
     kdigos = []
@@ -440,7 +441,7 @@ def get_disch_date(date_m,hosp_locs,idx):
             dd = date_m[row,hosp_locs[1]]
     #dd.resolution=datetime.timedelta(1)
     return dd
-#%%
+
 #%%
 def get_dod(date_m,outcome_m,dod_loc,idx):
     rows = np.where(date_m[0] == idx)
@@ -453,9 +454,8 @@ def get_dod(date_m,outcome_m,dod_loc,idx):
     if dd == datetime.timedelta(0):
         return None
     return dd
-#%%
-#%%
 
+#%%
 def get_baselines(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
                    scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc):
 
@@ -539,48 +539,56 @@ def get_baselines(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
         log.write(str(true_base) + ','+str(bsln_type)+',' + str(true_type) + ',' + str(true_date) + '\n')
     log.close()
 
-#%%
-#%%
 
-def arr2csv(fname,inds,ids):
+#%%
+def arr2csv(fname,inds,ids,fmt='%f',header=False):
     outFile=open(fname,'w')
+    if header:
+        outFile.write('id')
+        for idx in ids:
+            outFile.write(',%d' % (idx))
+        outFile.write('\n')
     try:
         for i in range(len(inds)):
             outFile.write('%d' % (ids[i]))
             for j in range(len(inds[i])):
-                outFile.write(', %f' % (inds[i][j]))
+                outFile.write(','+fmt % (inds[i][j]))
             outFile.write('\n')
         outFile.close()
     except:
         for i in range(len(inds)):
             outFile.write('%d' % (ids[i]))
-            outFile.write(', %f\n' % (inds[i]))
+            outFile.write(','+fmt % (inds[i])+'\n')
         outFile.close()
-#%%
+
 #%%
 def str2csv(fname,inds,ids):
     outFile=open(fname,'w')
-    for i in range(len(inds)):
-        outFile.write('%d' % (ids[i]))
-        for j in range(len(inds[i])):
-            outFile.write(', %s' % (inds[i][j]))
-        outFile.write('\n')
+    if len(np.shape(inds)) > 1:
+        for i in range(len(inds)):
+            outFile.write('%d' % (ids[i]))
+            for j in range(len(inds[i])):
+                outFile.write(',%s' % (inds[i][j]))
+            outFile.write('\n')
+    else:
+        for i in range(len(inds)):
+            outFile.write('%d,%s\n' % (ids[i],inds[i]))
     outFile.close()
-#%%
+
 #%%
 def arr2str(arr,fmt='%f'):
     s = fmt % (arr[0])
     for i in range(1,len(arr)):
-        s = s + ', ' + fmt % (arr[i])
+        s = s + ',' + fmt % (arr[i])
     return s
-#%%
+
 #%%
 def get_subset(file_name,sheet_names,ids):
     for sheet in sheet_names:
         ds = get_mat(file_name,sheet,'STUDY_PATIENT_ID')
         mask = [ds['STUDY_PATIENT_ID'][x] in ids for x in range(len(ds['STUDY_PATIENT_ID']))]
         ds[mask].to_excel(sheet+'.xlsx')
-#%%
+
 #%%
 def calc_gfr(bsln,date_base,sex,race,dob):
     #date_base = datetime.datetime.strptime(date_base.split('.')[0], '%Y-%m-%d %H:%M:%S')
@@ -610,14 +618,19 @@ def calc_gfr(bsln,date_base,sex,race,dob):
     age_power= math.pow(0.993,age)
     GFR = 141 * min_power * max_power * age_power * f_value * race_value
     return GFR
-#%%
+
 #%%
 def get_mat(fname,page_name,sort_id):
     return pd.read_excel(fname,page_name).sort_values(sort_id)
+
 #%%
-def load_csv(fname,ids,dt):
+def load_csv(fname,ids,dt=float):
     res = []
+    rid = []
     f = open(fname,'r')
-    for l in f:
-        res.append(np.array(l.split(',')[1:],dtype=dt))
-    return res
+    for line in f:
+        l = line.rstrip()
+        if int(l.split(',')[0]) in ids:
+            res.append(np.array(l.split(',')[1:],dtype=dt))
+            rid.append(int(l.split(',')[0]))
+    return rid,res

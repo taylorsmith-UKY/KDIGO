@@ -11,7 +11,7 @@ from kdigo_funcs import get_baselines
 
 
 #------------------------------- PARAMETERS ----------------------------------#
-inFile = "/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/kdigo_full.xlsx"
+inFile = "/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/KDIGO_full.xlsx"
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 
@@ -30,7 +30,7 @@ scr_all_m = scr_all_m.as_matrix()
 bsln_m = get_mat(inFile,'BASELINE_SCR',[sort_id])
 bsln_scr_loc = bsln_m.columns.get_loc('BASELINE_VALUE')
 bsln_type_loc = bsln_m.columns.get_loc('BASELINE_TYPE')
-bsln_date_loc = bsln_m.columns.get_loc('BASELINE_TYPE')
+bsln_date_loc = bsln_m.columns.get_loc('BASELINE_DATE')
 bsln_m = bsln_m.as_matrix()
 
 get_baselines(date_m,hosp_locs,bsln_m,bsln_scr_loc,bsln_type_loc,\
