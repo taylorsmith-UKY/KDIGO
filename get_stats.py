@@ -1,12 +1,21 @@
 from __future__ import division
-import pandas as pd
 import numpy as np
-import datetime
 import re
-from kdigo_funcs import *
+from kdigo_funcs import load_csv
 
-sort_id = 'STUDY_PATIENT_ID'
-inFile = "../DATA/KDIGO_full.xlsx"
+#------------------------------- PARAMETERS ----------------------------------#
+#root directory for study
+base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/'
+sep = 'icu/'
+id_fname = '6clusters_matorder.csv'
+
+#-----------------------------------------------------------------------------#
+#generate paths and filenames
+data_path = base_path+'DATA/'+sep
+
+res_path = base_path+'RESULTS/'+sep
+
+idFile = res_path + id_fname
 
 '''
 Code:
@@ -17,76 +26,66 @@ Code:
     4 - AMA
 '''
 
-date_m = get_mat(inFile,'ADMISSION_INDX',[sort_id])
-id_loc=date_m.columns.get_loc("STUDY_PATIENT_ID")
-hosp_locs=[date_m.columns.get_loc("HOSP_ADMIT_DATE"),date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
-icu_locs=[date_m.columns.get_loc("ICU_ADMIT_DATE"),date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
-adisp_loc = date_m.columns.get_loc('DISCHARGE_DISPOSITION')
-date_m = date_m.as_matrix()
-
-outcome_m = get_mat(inFile,'OUTCOMES',[sort_id])
-disp_loc = outcome_m.columns.get_loc('INDX_DISCHARGE_DISPOSITION')
-dod_loc = outcome_m.columns.get_loc('DECEASED_DATE')
-outcome_m = outcome_m.as_matrix()
-
-dob_m = get_mat(inFile,'DOB',[sort_id])
-dob_loc = dob_m.columns.get_loc('DOB')
-dob_m = dob_m.as_matrix()
-
-f = open('result/kdigo_sub_no0.csv','r')
-rids = []
-kdigos = []
-for l in f:
-    rids.append(int(l.split(', ')[0]))
-    kdigos.append([int(float(x)) for x in l.split(',')[1:]])
-    
-
-f = open('result/kdigo_sub_no0_6clusters_matorder.csv','r')
-clusters = []
+#get IDs in order from cluster file
 ids = []
-f.readline()
+f = open(idFile,'r')
+_ = f.readline()
 for l in f:
-    ids.append(int(l.rstrip().split(',')[0][1:-1]))
-    clusters.append(int(l.rstrip().split(',')[1]))
+    ids.append(int(l.split(',')[0][1:-1]))
 f.close()
-ids = np.array(ids)
 n_ids = len(ids)
 
-dead_inp = np.zeros(n_ids,dtype=bool)
-death_dur = np.repeat(datetime.timedelta(10000),n_ids)
+k_ids,kdigos = load_csv(data_path + 'kdigo.csv',ids,dt=int)
+d_ids,d_disp = load_csv(data_path + 'disch_disp.csv',ids,dt='|S')
 
+dead_inp = np.zeros(n_ids,dtype=int)
 kdigo_max = np.zeros(n_ids,dtype=int)
 kdigo_counts = np.zeros([n_ids,5],dtype=int)
-kdigo_pcts = np.zeros([n_ids,5],dtype=int)
+kdigo_pcts = np.zeros([n_ids,5],dtype=float)
+n_alive = 0
+n_died = 0
+n_lt = 0
+n_gt = 0
+n_xfer = 0
+n_ama = 0
+n_unk = 0
 
 for i in range(len(ids)):
     idx = ids[i]
     #assign death group
-    rows = np.where(date_m[:,0]==idx)[0]
-    for row in rows:
-        str_disp = str(date_m[row,adisp_loc]).upper()
-        if re.search('LESS THAN',str_disp):
-            dead_inp[i]=1
-    
+    drow = np.where(d_ids==idx)[0][0]
+    str_disp = d_disp[drow].upper()
+    if re.search('EXP',str_disp):
+        dead_inp[i] = 1
+        n_died += 1
+        if re.search('LESS',str_disp):
+            n_lt += 1
+        elif re.search('MORE',str_disp):
+            n_gt += 1
+    elif re.search('ALIVE',str_disp):
+        n_alive += 1
+    elif re.search('XFER',str_disp) or re.search('TRANS',str_disp):
+        n_xfer += 1
+    elif re.search('AMA',str_disp):
+        n_ama += 1
+    else:
+        n_unk += 1
+
     #get duration of death
     #disch = get_disch_date(date_m,hosp_locs,idx)
     #dod = get_dod(date_m,outcome_m,dod_loc,idx)
     #if dod is not None:
     #    death_dur[i] = dod - disch
-    
+
     #get max and avg kdigo, as well as percent time at each stage
-    kidx = np.where(rids == idx)[0][0]
-    kdigo = kdigos[kidx]
+    krow = np.where(k_ids == idx)[0][0]
     for j in range(5):
-        kdigo_counts[i,j] = len(np.where(kdigo == i)[0])
-    kdigo_max[i] = np.max(kdigo)
-    kdigo_pcts = kdigo_counts[i,:] / np.sum(kdigo_counts[i,:])
-    
-#row_lbls = np.array(ids, dtype='|S5')[:, np.newaxis]
+        kdigo_counts[i,j] = len(np.where(kdigos[krow] == i)[0])
+        kdigo_pcts = kdigo_counts[i,j] / len(kdigos[krow])
+    kdigo_max[i] = np.max(kdigos[krow])
 
-#ds = np.hstack((row_lbls,clusters,dead_inp,kdigo_max,kdigo_pcts))
 
-np.savetxt('result/death_ind.csv',dead_inp)
-np.savetxt('result/kdigo_max.csv',kdigo_max)
-np.savetxt('result/kdigo_pct.csv',kdigo_pcts)
+np.savetxt('result2/death_ind.csv',dead_inp)
+np.savetxt('result2/kdigo_max.csv',kdigo_max)
+np.savetxt('result2/kdigo_pct.csv',kdigo_pcts)
 
