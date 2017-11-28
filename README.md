@@ -43,7 +43,7 @@ to a patient.
 	7) Results in a condensed distance matrix (see the pdist function in MATLAB
 	   for reference) to be used for clustering.
 
-Usage:
+	Usage:
 	The main program takes a single Microsoft Excel file with multiple sheets as
 	input. See the example `kdigo_test.xlsx` linked below. The following is a summary
 	of the information and sheets required:
