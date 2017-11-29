@@ -8,13 +8,14 @@ import os
 #root directory for study
 base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/'
 sep = 'icu/'
-id_fname = 'ex_keep_ids.txt'
+id_fname = 'all_ids.csv'
 
 #base for output filenames
-res_base = 'test'
+res_base = 'subset1'
 #-----------------------------------------------------------------------------#
 #generate paths and filenames
 data_path = base_path+'DATA/'+sep
+id_file = data_path + id_fname
 
 res_path = base_path+'RESULTS/'+sep
 if not os.path.exists(res_path):
@@ -26,7 +27,6 @@ dtwname = res_path+res_base+'_dtw.csv'
 dmsname = res_path+res_base+'_dm_square.csv'
 
 #get desired ids
-id_file = data_path + id_fname
 keep_ids = np.loadtxt(id_file,dtype=int)
 
 #load kdigo vector for each patient
@@ -42,7 +42,7 @@ ids = np.array(ids,dtype=int)
 f.close()
 
 #perform pairwise DTW + distance calculation
-cdm = ppd(kdigos, dmname, dtwname)
+cdm = ppd(kdigos, ids, dmname, dtwname)
 
 
 #condensed matrix -> square
