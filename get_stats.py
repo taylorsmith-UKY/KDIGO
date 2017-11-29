@@ -8,20 +8,17 @@ import datetime
 
 #------------------------------- PARAMETERS ----------------------------------#
 #root directory for study
-base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/'
+base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/shared/'
 sep = 'icu/'
-id_fname = base_path+'RESULTS/'+sep+'6clusters_matorder.csv'
+set_name = 'subset2'
 sort_id = 'STUDY_PATIENT_ID'
-
-
 #-----------------------------------------------------------------------------#
 #generate paths and filenames
-data_path = base_path+'DATA/'+sep
-inFile = base_path + "DATA/KDIGO_full.xlsx"
+data_path = base_path+'DATA/'
+inFile = base_path + "KDIGO_full.xlsx"
 
-#
-res_path = base_path+'RESULTS/'+sep
-idFile = res_path + id_fname
+res_path = base_path+'RESULTS/'+sep+'/'+ set_name
+idFile = res_path + '/clusters_matorder.csv'
 
 '''
 Code:
@@ -32,18 +29,17 @@ Code:
     4 - AMA
     -1 - Unknown
 '''
-
-#Get hospital and ICU admit/discharge dates
-date_m = get_mat(inFile,'ADMISSION_INDX',[sort_id])
-id_loc=date_m.columns.get_loc("STUDY_PATIENT_ID")
-hosp_locs=[date_m.columns.get_loc("HOSP_ADMIT_DATE"),date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
-icu_locs=[date_m.columns.get_loc("ICU_ADMIT_DATE"),date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
-date_m=date_m.as_matrix()
-
-#Outcomes
-outcome_m = get_mat(inFile,'OUTCOMES',sort_id)
-death_loc=outcome_m.columns.get_loc("STUDY_PATIENT_ID")
-outcome_m=outcome_m.as_matrix()
+##Get hospital and ICU admit/discharge dates
+#date_m = get_mat(inFile,'ADMISSION_INDX',[sort_id])
+#id_loc=date_m.columns.get_loc("STUDY_PATIENT_ID")
+#hosp_locs=[date_m.columns.get_loc("HOSP_ADMIT_DATE"),date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
+#icu_locs=[date_m.columns.get_loc("ICU_ADMIT_DATE"),date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
+#date_m=date_m.as_matrix()
+#
+##Outcomes
+#outcome_m = get_mat(inFile,'OUTCOMES',sort_id)
+#death_loc=outcome_m.columns.get_loc("STUDY_PATIENT_ID")
+#outcome_m=outcome_m.as_matrix()
 
 #get IDs in order from cluster file
 ids = []
@@ -55,8 +51,10 @@ f.close()
 n_ids = len(ids)
 
 #load KDIGO and discharge dispositions
-k_ids,kdigos = load_csv(data_path + 'kdigo.csv',ids,dt=int)
-d_ids,d_disp = load_csv(data_path + 'disch_disp.csv',ids,dt='|S')
+k_ids,kdigos = load_csv(data_path + sep + 'kdigo.csv',ids,dt=int)
+d_ids,d_disp = load_csv(data_path + sep + 'disch_disp.csv',ids,dt='|S')
+k_ids = np.array(k_ids,dtype=int)
+d_ids = np.array(d_ids,dtype=int)
 
 #arrays to store results
 disch_disp = np.zeros(n_ids,dtype=int)
@@ -94,19 +92,19 @@ for i in range(len(ids)):
 
     #get max and avg kdigo, as well as percent time at each stage
     krow = np.where(k_ids == idx)[0][0]
-    kdigo = kdigos[krow]
+    kdigo = np.array(kdigos[krow],dtype=int)
     for j in range(5):
-        kdigo_counts[i,j] = len(np.where(kdigo == i)[0])
-        kdigo_pcts = kdigo_counts[i,j] / len(kdigo)
+        kdigo_counts[i,j] = len(np.where(kdigo == j)[0])
+        kdigo_pcts[i,j] = kdigo_counts[i,j] / len(kdigo)
     kdigo_max[i] = np.max(kdigo)
 
     #Add function to calculate number of episodes
     #n_eps = count_eps(kdigo,timescale,gap)
 
 
-np.savetxt(res_path+'disch_codes.csv',disch_disp,fmt='%d')
-np.savetxt(res_path+'kdigo_max.csv',kdigo_max,fmt='%d')
-np.savetxt(res_path+'kdigo_pct.csv',kdigo_pcts,fmt='%f')
-#np.savetxt(res_path+'n_episodes.csv',n_eps,fmt='%d')
-#np.savetxt(res_path+'all_los.csv',los,fmt=datetime.datetime)
-#np.savetxt(res_path+'survival_duration.csv',surv_t,fmt=datetime.datetime)
+np.savetxt(res_path+'/disch_codes.csv',disch_disp,fmt='%d')
+np.savetxt(res_path+'/kdigo_max.csv',kdigo_max,fmt='%d')
+np.savetxt(res_path+'/kdigo_pct.csv',kdigo_pcts,fmt='%f')
+#np.savetxt(res_path+'/n_episodes.csv',n_eps,fmt='%d')
+#np.savetxt(res_path+'/all_los.csv',los,fmt=datetime.datetime)
+#np.savetxt(res_path+'/survival_duration.csv',surv_t,fmt=datetime.datetime)

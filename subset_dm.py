@@ -8,23 +8,22 @@ import os
 #root directory for study
 base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/shared/'
 sep = 'icu/'
-id_fname = 'subset2_ids.csv'
 
 #base for output filenames
-res_base = 'subset2'
+set_name = 'subset2'
 #-----------------------------------------------------------------------------#
 #generate paths and filenames
 data_path = base_path+'DATA/'+sep
-id_file = data_path + id_fname
+id_file = data_path + set_name + '_ids.csv'
 
-res_path = base_path+'RESULTS/'+sep
+res_path = base_path+'RESULTS/'+sep+set_name
 if not os.path.exists(res_path):
     os.makedirs(res_path)
 
-dmname = res_path+res_base+'_dm.csv'
-dtwname = res_path+res_base+'_dtw.csv'
+dmname = res_path+'/dm.csv'
+dtwname = res_path+'/dtw.csv'
 
-dmsname = res_path+res_base+'_dm_square.csv'
+dmsname = res_path+'/dm_square.csv'
 
 #get desired ids
 keep_ids = np.loadtxt(id_file,dtype=int)

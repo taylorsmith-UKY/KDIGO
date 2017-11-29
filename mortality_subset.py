@@ -17,14 +17,13 @@ import re
 #------------------------------- PARAMETERS ----------------------------------#
 base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/shared/'
 sep = 'icu/'
-n_pts = 150
-fname = 'subset2_ids.csv'#Save IDs here
+set_name = 'subset2'
+n_pts = 200
 #-----------------------------------------------------------------------------#
 data_path = base_path + 'DATA/'
 path = data_path + sep
 disp_file = path + 'disch_disp.csv'
-fname = path + fname
-
+fname = path + set_name + '_ids.csv'
 
 def main():
     n_alive = 0

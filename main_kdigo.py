@@ -5,18 +5,19 @@ import os
 
 #------------------------------- PARAMETERS ----------------------------------#
 basePath = "/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/"
-dataPath = basePath + "DATA/"
 t_analyze = 'ICU'
-inFile = dataPath + "KDIGO_test.xlsx"
-sort_id = 'STUDY_PATIENT_ID'
-sort_id_date = 'SCR_ENTERED'
-incl_esrd = False
+xl_file = "KDIGO_test.xlsx"
 timescale = 6       #in hours
 id_ref = 'all_ids.csv'#default is all
-outPath = dataPath + t_analyze.lower() + '/'
-resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/'
 
 #-----------------------------------------------------------------------------#
+
+sort_id = 'STUDY_PATIENT_ID'
+sort_id_date = 'SCR_ENTERED'
+dataPath = basePath + "DATA/"
+outPath = dataPath + t_analyze.lower() + '/'
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/'
+inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 
 def main():
