@@ -2,29 +2,48 @@ from __future__ import division
 import numpy as np
 import re
 from kdigo_funcs import load_csv
+import stat_funcs as sf
+from kdigo_funcs import get_mat
+import datetime
 
 #------------------------------- PARAMETERS ----------------------------------#
 #root directory for study
 base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/'
 sep = 'icu/'
-id_fname = '6clusters_matorder.csv'
+id_fname = base_path+'RESULTS/'+sep+'6clusters_matorder.csv'
+sort_id = 'STUDY_PATIENT_ID'
+
 
 #-----------------------------------------------------------------------------#
 #generate paths and filenames
 data_path = base_path+'DATA/'+sep
+inFile = base_path + "DATA/KDIGO_full.xlsx"
 
+#
 res_path = base_path+'RESULTS/'+sep
-
 idFile = res_path + id_fname
 
 '''
 Code:
-    0 - Dead in hospital
-    1 - Dead after 48 hrs
-    2 - Alive
+    0 - Alive
+    1 - Died < 48 hrs after admission
+    2 - Died > 48 hrs after admission
     3 - Transfered
     4 - AMA
+    -1 - Unknown
 '''
+
+#Get hospital and ICU admit/discharge dates
+date_m = get_mat(inFile,'ADMISSION_INDX',[sort_id])
+id_loc=date_m.columns.get_loc("STUDY_PATIENT_ID")
+hosp_locs=[date_m.columns.get_loc("HOSP_ADMIT_DATE"),date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
+icu_locs=[date_m.columns.get_loc("ICU_ADMIT_DATE"),date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
+date_m=date_m.as_matrix()
+
+#Outcomes
+outcome_m = get_mat(inFile,'OUTCOMES',sort_id)
+death_loc=outcome_m.columns.get_loc("STUDY_PATIENT_ID")
+outcome_m=outcome_m.as_matrix()
 
 #get IDs in order from cluster file
 ids = []
@@ -35,57 +54,59 @@ for l in f:
 f.close()
 n_ids = len(ids)
 
+#load KDIGO and discharge dispositions
 k_ids,kdigos = load_csv(data_path + 'kdigo.csv',ids,dt=int)
 d_ids,d_disp = load_csv(data_path + 'disch_disp.csv',ids,dt='|S')
 
-dead_inp = np.zeros(n_ids,dtype=int)
+#arrays to store results
+disch_disp = np.zeros(n_ids,dtype=int)
 kdigo_max = np.zeros(n_ids,dtype=int)
 kdigo_counts = np.zeros([n_ids,5],dtype=int)
 kdigo_pcts = np.zeros([n_ids,5],dtype=float)
-n_alive = 0
-n_died = 0
-n_lt = 0
-n_gt = 0
-n_xfer = 0
-n_ama = 0
-n_unk = 0
+los = np.zeros([n_ids,2],dtype=datetime.datetime)    #   [:,0]=hospital   [:,1]=ICU
+surv_t = np.zeros(n_ids,dtype=datetime.datetime)
 
 for i in range(len(ids)):
     idx = ids[i]
     #assign death group
     drow = np.where(d_ids==idx)[0][0]
-    str_disp = d_disp[drow].upper()
+    str_disp = d_disp[drow][0].upper()
     if re.search('EXP',str_disp):
-        dead_inp[i] = 1
-        n_died += 1
         if re.search('LESS',str_disp):
-            n_lt += 1
+            disch_disp[i] = 1
         elif re.search('MORE',str_disp):
-            n_gt += 1
+            disch_disp[i] = 2
     elif re.search('ALIVE',str_disp):
-        n_alive += 1
+        disch_disp[i] = 0
     elif re.search('XFER',str_disp) or re.search('TRANS',str_disp):
-        n_xfer += 1
+        disch_disp[i] = 3
     elif re.search('AMA',str_disp):
-        n_ama += 1
+        disch_disp[i] = 4
     else:
-        n_unk += 1
+        disch_disp[i] = -1
 
-    #get duration of death
-    #disch = get_disch_date(date_m,hosp_locs,idx)
-    #dod = get_dod(date_m,outcome_m,dod_loc,idx)
-    #if dod is not None:
-    #    death_dur[i] = dod - disch
+    #los = sf.get_los(PID,date_m,hosp_locs,icu_locs)
+
+    #surv_t = sf.get_survival_time(PID,date_m,hosp_locs,outcome_m,death_loc)
+
+
+
 
     #get max and avg kdigo, as well as percent time at each stage
     krow = np.where(k_ids == idx)[0][0]
+    kdigo = kdigos[krow]
     for j in range(5):
-        kdigo_counts[i,j] = len(np.where(kdigos[krow] == i)[0])
-        kdigo_pcts = kdigo_counts[i,j] / len(kdigos[krow])
-    kdigo_max[i] = np.max(kdigos[krow])
+        kdigo_counts[i,j] = len(np.where(kdigo == i)[0])
+        kdigo_pcts = kdigo_counts[i,j] / len(kdigo)
+    kdigo_max[i] = np.max(kdigo)
+
+    #Add function to calculate number of episodes
+    #n_eps = count_eps(kdigo,timescale,gap)
 
 
-np.savetxt(res_path+'death_ind.csv',dead_inp)
-np.savetxt(res_path+'kdigo_max.csv',kdigo_max)
-np.savetxt(res_path+'kdigo_pct.csv',kdigo_pcts)
-
+np.savetxt(res_path+'disch_codes.csv',disch_disp,fmt='%d')
+np.savetxt(res_path+'kdigo_max.csv',kdigo_max,fmt='%d')
+np.savetxt(res_path+'kdigo_pct.csv',kdigo_pcts,fmt='%f')
+#np.savetxt(res_path+'n_episodes.csv',n_eps,fmt='%d')
+#np.savetxt(res_path+'all_los.csv',los,fmt=datetime.datetime)
+#np.savetxt(res_path+'survival_duration.csv',surv_t,fmt=datetime.datetime)

@@ -428,32 +428,6 @@ def scr2kdigo(scr,base,masks):
                 kdigo[j] = 3
         kdigos.append(kdigo)
     return kdigos
-#%%
-
-
-### Helper functions for descriptive statistics
-#%%
-def get_disch_date(date_m,hosp_locs,idx):
-    rows = np.where(date_m[0] == idx)
-    dd = datetime.timedelta(0)
-    for row in rows:
-        if date_m[row,hosp_locs[1]] > dd:
-            dd = date_m[row,hosp_locs[1]]
-    #dd.resolution=datetime.timedelta(1)
-    return dd
-
-#%%
-def get_dod(date_m,outcome_m,dod_loc,idx):
-    rows = np.where(date_m[0] == idx)
-    if rows == None:
-        return rows
-    dd = datetime.timedelta(0)
-    for row in rows:
-        if outcome_m[row,dod_loc] > dd:
-            dd = outcome_m[row,dod_loc]
-    if dd == datetime.timedelta(0):
-        return None
-    return dd
 
 #%%
 def get_baselines(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
