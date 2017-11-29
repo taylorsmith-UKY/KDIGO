@@ -179,6 +179,6 @@ def main():
         kf.arr2csv(outPath+'kdigo.csv',kdigo,ids)
 
     #Get KDIGO Distance Matrix
-    kf.pairwise_dtw_dist(kdigo,resPath+'kdigo_dm.csv',resPath+'kdigo_dtwlog.csv')
+    kf.pairwise_dtw_dist(kdigo,ids,resPath+'kdigo_dm.csv',resPath+'kdigo_dtwlog.csv')
 
 main()

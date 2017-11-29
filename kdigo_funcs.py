@@ -365,7 +365,7 @@ def nbins(start,stop,scale):
     return bins+1
 
 #%%
-def pairwise_dtw_dist(patients,dm_fname,dtw_name,v=True):
+def pairwise_dtw_dist(patients,ids,dm_fname,dtw_name,v=True):
     df = open(dm_fname,'w')
     dis = []
     if v and dtw_name is not None:
@@ -374,7 +374,7 @@ def pairwise_dtw_dist(patients,dm_fname,dtw_name,v=True):
         if v:
             print('#'+str(i+1)+' vs #'+str(i+2)+' to '+str(len(patients)))
         for j in range(i+1,len(patients)):
-            df.write('%d,%d,' % (i,j))
+            df.write('%d,%d,' % (ids[i],ids[j]))
             if np.all(patients[i] == 0) and np.all(patients[j] == 0):
                 df.write('%f\n' % (0))
                 dis.append(0)
