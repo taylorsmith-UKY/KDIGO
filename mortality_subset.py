@@ -38,7 +38,7 @@ def main():
     f = open(disp_file,'r')
     for l in f:
         idx = int(l.split(',')[0])
-        str_disp = l.split(',')[-1].upper()
+        str_disp = l.split(',')[1].upper()
         if re.search('EXP',str_disp):
             dead_ids.append(idx)
             if re.search('LESS',str_disp):

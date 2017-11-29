@@ -6,9 +6,9 @@ import os
 
 #------------------------------- PARAMETERS ----------------------------------#
 #root directory for study
-base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/'
+base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/shared/'
 sep = 'icu/'
-id_fname = 'all_ids.csv'
+id_fname = 'ex_keep_ids.txt'
 
 #base for output filenames
 res_base = 'subset1'
