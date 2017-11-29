@@ -8,10 +8,10 @@ import os
 #root directory for study
 base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/shared/'
 sep = 'icu/'
-id_fname = 'ex_keep_ids.txt'
+id_fname = 'subset2_ids.csv'
 
 #base for output filenames
-res_base = 'subset1'
+res_base = 'subset2'
 #-----------------------------------------------------------------------------#
 #generate paths and filenames
 data_path = base_path+'DATA/'+sep

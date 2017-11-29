@@ -15,13 +15,13 @@ from numpy.random import permutation as permute
 import re
 
 #------------------------------- PARAMETERS ----------------------------------#
-base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/'
+base_path = '/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/shared/'
 sep = 'icu/'
-n_pts = 300
-fname = 'ex1_ids.csv'#Save IDs here
+n_pts = 150
+fname = 'subset2_ids.csv'#Save IDs here
 #-----------------------------------------------------------------------------#
 data_path = base_path + 'DATA/'
-path = base_path + sep
+path = data_path + sep
 disp_file = path + 'disch_disp.csv'
 fname = path + fname
 
@@ -69,9 +69,9 @@ def main():
         print('Number died: %d' % (len(dead_ids)))
         print('Number alive: %d' % (len(alive_ids)))
     else:
-        alive = permute(alive_ids)[:n_pts]
-        dead = permute(dead_ids)[:n_pts]
-        ids = permute(np.concatenate1d(alive,dead))
+        alive = permute(alive_ids)[:(n_pts/2)]
+        dead = permute(dead_ids)[:(n_pts/2)]
+        ids = permute(np.concatenate((alive,dead)))
         np.savetxt(fname,ids,fmt='%d')
 
 main()
