@@ -85,7 +85,7 @@ for i in range(len(ids)):
     kdigo_max[i] = np.max(kdigos[krow])
 
 
-np.savetxt('result2/death_ind.csv',dead_inp)
-np.savetxt('result2/kdigo_max.csv',kdigo_max)
-np.savetxt('result2/kdigo_pct.csv',kdigo_pcts)
+np.savetxt(res_path+'death_ind.csv',dead_inp)
+np.savetxt(res_path+'kdigo_max.csv',kdigo_max)
+np.savetxt(res_path+'kdigo_pct.csv',kdigo_pcts)
 
