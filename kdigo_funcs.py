@@ -6,6 +6,8 @@ import pandas as pd
 from scipy.spatial import distance
 import dtw
 from dateutil import relativedelta as rdelta
+from numpy.random import permutation as permute
+import re
 
 #%%
 def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs,
@@ -225,7 +227,7 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
                     print('Patient '+str(idx)+' removed due to kidney transplant')
                     log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
                 continue
-
+        #
         keep = all_rows[sel]
         all_drows = np.where(date_m[:,id_loc] == idx)[0]
         delta = datetime.timedelta(0)
@@ -249,6 +251,20 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
                 print('Patient '+str(idx)+' removed due to different ICU stays > 3 days apart')
                 log.write('Patient '+str(idx)+' removed due to different ICU stays > 3 days apart\n')
             continue
+        #### If current time is > 7 days after start time, continue to
+        # next patient
+        #get duration vector
+        these_dates = scr_all_m[keep,scr_date_loc]
+        duration = [rdelta.relativedelta(these_dates[x+1],these_dates[0]).days for x in range(len(these_dates)-1)]
+        duration = np.array(duration)
+        dkeep = np.where(duration < 7)[0]
+        count = len(dkeep)
+        valid = np.where(keep)[0][0] #first 1 in keep
+        keep[valid+count:]=0
+
+        #points to keep = where duration < 7 days
+        #i.e. set any points in 'keep' corresponding to points > 7 days
+        #from start to 0
         d_disp.append(date_m[all_drows[0],d_disp_loc])
         bslns.append(bsln_m[bsln_idx,bsln_scr_loc][0])
         bsln_gfr.append(gfr)
@@ -430,21 +446,21 @@ def scr2kdigo(scr,base,masks):
     return kdigos
 
 #%%
-def get_baselines(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
-                   scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc):
+def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc,scr_desc_loc,
+                    bsln_m=None, bsln_scr_loc=None,bsln_type_loc=None):
 
     log = open('../DATA/baseline_calc.csv', 'w')
-    log.write('ID,provided_bsln,calc_bsln,provided_type,calc_type,calc_date\n')
+    if bsln_m is None:
+        log.write('ID,calc_bsln,calc_type,calc_date\n')
+    else:
+        log.write('ID,provided_bsln,provided_type,calc_bsln,calc_type,calc_date\n')
     for i in range(len(bsln_m)):
-        idx = bsln_m[i,0]
-        log.write(str(idx))
-        bsln = bsln_m[i,bsln_scr_loc]
-        bsln_type = bsln_m[i,bsln_type_loc]
-        #skip if no baseline
-#        if str(bsln) == 'nan':
-#            log.write(',no baseline\n')
-#            ref_base = None
-        log.write(','+str(bsln)+',')
+        if bsln_m is not None:
+            idx = bsln_m[i,0]
+            log.write(str(idx))
+            bsln = bsln_m[i,bsln_scr_loc]
+            bsln_type = bsln_m[i,bsln_type_loc]
+            log.write(','+str(bsln)+','+str(bsln_type)+',')
         #determine earliest admission date
         admit = datetime.datetime.now()
         didx = np.where(date_m[:,0] == idx)[0]
@@ -510,9 +526,53 @@ def get_baselines(date_m, hosp_locs, bsln_m, bsln_scr_loc,bsln_type_loc,
                 true_date = scr_all_m[row,scr_date_loc]
                 if str(true_base) != 'nan':
                     true_type = scr_all_m[row,scr_desc_loc].upper()
-        log.write(str(true_base) + ','+str(bsln_type)+',' + str(true_type) + ',' + str(true_date) + '\n')
+        log.write(str(true_base)+',' + str(true_type) + ',' + str(true_date) + '\n')
     log.close()
 
+
+#%%
+def get_subset_ids(n_pts=300,path='../DATA/icu/',set_name='subset1'):
+    n_alive = 0
+    n_lt = 0
+    n_gt = 0
+    n_xfer = 0
+    n_ama = 0
+    n_unk = 0
+    alive_ids = []
+    dead_ids = []
+    f = open(path+'disch_disp.csv','r')
+    for line in f:
+        l = line.strip()
+        idx = int(l.split(',')[0])
+        str_disp = l.split(',')[1].upper()
+        if re.search('EXP',str_disp):
+            dead_ids.append(idx)
+            if re.search('LESS',str_disp):
+                n_lt += 1
+            elif re.search('MORE',str_disp):
+                n_gt += 1
+        elif re.search('ALIVE',str_disp):
+            alive_ids.append(idx)
+            n_alive += 1
+        elif re.search('XFER',str_disp) or re.search('TRANS',str_disp):
+            n_xfer += 1
+        elif re.search('AMA',str_disp):
+            n_ama += 1
+        else:
+            n_unk += 1
+    fname = path + set_name + '_ids.csv'
+    np.savetxt(path+'inp_died_ids.csv',dead_ids,fmt='%d')
+    np.savetxt(path+'alive_ids.csv',alive_ids,fmt='%d')
+    if len(alive_ids)*2 < n_pts or len(dead_ids)*2 < n_pts:
+        print('Change number of desired patients')
+        print('Current: %d' % (n_pts))
+        print('Number died: %d' % (len(dead_ids)))
+        print('Number alive: %d' % (len(alive_ids)))
+    else:
+        alive = permute(alive_ids)[:(n_pts/2)]
+        dead = permute(dead_ids)[:(n_pts/2)]
+        ids = permute(np.concatenate((alive,dead)))
+        np.savetxt(fname,ids,fmt='%d')
 
 #%%
 def arr2csv(fname,inds,ids,fmt='%f',header=False):
