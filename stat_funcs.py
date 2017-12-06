@@ -6,7 +6,7 @@ Created on Wed Nov 29 13:15:39 2017
 @author: taylorsmith
 """
 from __future__ import division
-from kdigo_funcs import load_csv
+from kdigo_funcs import load_csv, get_mat
 import datetime
 import numpy as np
 from dateutil import relativedelta as rdelta
@@ -34,10 +34,13 @@ def get_cstats(clustFile,dataPath,outPath):
     d_ids = np.array(d_ids,dtype=int)
 
     #load outcome data
+    date_m = get_mat('../DATA/KDIGO_full.xlsx','ADMISSION_INDX','STUDY_PATIENT_ID')
     date_ids=date_m[:,0]
     date_all_ids=[]
     for i in range(len(date_ids)):
         date_all_ids.append(date_ids[i])
+
+    outcome_m = get_mat('../DATA/KDIGO_full.xlsx','OUTCOMES','STUDY_PATIENT_ID')
     outcome_ids = outcome_m[:,0]
     outcome_allid=[]
     for i in range(len(outcome_ids)):

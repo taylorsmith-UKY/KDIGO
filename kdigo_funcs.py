@@ -127,11 +127,13 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
     kid_xplt_count=0
     esrd_count=0
     dem_count=0
+    lt48_count=0
     if v:
         print('Getting patient vectors')
         print('Patient ID,\tBaseline,\tTotal no. records,\tno. selected records')
         log.write('Patient ID,\tBaseline,\tTotal no. records,\tno. selected records\n')
     for idx in ids:
+        skip = False
         ### Get Baseline
         bsln_idx = np.where(bsln_m[:,0] == idx)[0]
         bsln = bsln_m[bsln_idx,bsln_scr_loc][0]
@@ -150,12 +152,15 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
         if len(esrd_idx) > 0:
             for loc in esrd_locs:
                 if np.any(esrd_m[esrd_idx,loc] == 'Y'):
+                    skip = True
                     np.delete(ids,bsln_idx)
                     esrd_count+=1
                     if v:
                         print('Patient '+str(idx)+' removed due to ESRD status')
                         log.write('Patient '+str(idx)+' removed due to ESRD status\n')
-                    continue
+                    break
+        if skip:
+            continue
         #get dob, sex, and race
         if idx not in dob_m[:,0] or idx not in dem_m[:,0]:
             np.delete(ids,bsln_idx)
@@ -203,30 +208,37 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
         for row in x_rows:
             str_des = str(xplt_m[row,xplt_des_loc]).upper()
             if 'KID' in str_des and 'TRANS' in str_des:
+                skip = True
                 kid_xplt_count+=1
                 np.delete(ids,count)
                 if v:
                     print('Patient '+str(idx)+' removed due to kidney transplant')
                     log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
-                continue
+                break
+        if skip:
+            continue
 
         d_rows = np.where(dx_m[:,0] == idx)
         for row in d_rows:
             str_des = str(dx_m[row,dx_loc]).upper()
             if str_des == 'KIDNEY/PANCREAS FROM BATAVIA  ETA 1530':
+                skip = True
                 kid_xplt_count+=1
                 np.delete(ids,count)
                 if v:
                     print('Patient '+str(idx)+' removed due to kidney transplant')
                     log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
-                continue
+                break
             elif 'KID' in str_des and 'TRANS' in str_des:
+                skip = True
                 np.delete(ids,count)
                 kid_xplt_count+=1
                 if v:
                     print('Patient '+str(idx)+' removed due to kidney transplant')
                     log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
-                continue
+                break
+        if skip:
+            continue
         #
         keep = all_rows[sel]
         all_drows = np.where(date_m[:,id_loc] == idx)[0]
@@ -251,11 +263,22 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
                 print('Patient '+str(idx)+' removed due to different ICU stays > 3 days apart')
                 log.write('Patient '+str(idx)+' removed due to different ICU stays > 3 days apart\n')
             continue
+        #remove patients who died <48 hrs after indexed admission
+        disch_disp = str(date_m[all_drows[0],d_disp_loc]).upper()
+        if 'LESS THAN' in disch_disp:
+            np.delete(ids,count)
+            lt48_count+=1
+            if v:
+                print('Patient '+str(idx)+' removed due to death within 48 hours of admission')
+                log.write('Patient '+str(idx)+' removed due to  death within 48 hours of admission\n')
+            continue
+
+
         #### If current time is > 7 days after start time, continue to
         # next patient
         #get duration vector
-        these_dates = scr_all_m[keep,scr_date_loc]
-        duration = [rdelta.relativedelta(these_dates[x+1],these_dates[0]).days for x in range(len(these_dates)-1)]
+        dates = scr_all_m[keep,scr_date_loc]
+        duration = [rdelta.relativedelta(dates[x+1],dates[0]).days for x in range(len(dates)-1)]
         duration = np.array(duration)
         dkeep = np.where(duration < 7)[0]
         count = len(dkeep)
@@ -265,7 +288,7 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
         #points to keep = where duration < 7 days
         #i.e. set any points in 'keep' corresponding to points > 7 days
         #from start to 0
-        d_disp.append(date_m[all_drows[0],d_disp_loc])
+        d_disp.append(disch_disp)
         bslns.append(bsln_m[bsln_idx,bsln_scr_loc][0])
         bsln_gfr.append(gfr)
         if v:
@@ -531,7 +554,7 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc,scr_de
 
 
 #%%
-def get_subset_ids(n_pts=300,path='../DATA/icu/',set_name='subset1'):
+def get_subset_ids(n_pts=300,path='../DATA/icu/',set_name='subset2'):
     n_alive = 0
     n_lt = 0
     n_gt = 0
