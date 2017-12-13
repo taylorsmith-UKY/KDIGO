@@ -15,8 +15,8 @@ id_ref = 'all_ids.csv'#default is all
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 dataPath = basePath + "DATA/"
-outPath = dataPath + t_analyze.lower() + '/'
-resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/'
+outPath = dataPath + t_analyze.lower() + '/7days/'
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days/'
 inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 

@@ -277,13 +277,11 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
         #### If current time is > 7 days after start time, continue to
         # next patient
         #get duration vector
-        dates = scr_all_m[keep,scr_date_loc]
-        duration = [rdelta.relativedelta(dates[x+1],dates[0]).days for x in range(len(dates)-1)]
+        tdates = scr_all_m[keep,scr_date_loc]
+        duration = [datetime.timedelta(0)] + [tdates[x] - tdates[0] for x in range(1,len(tdates))]
         duration = np.array(duration)
-        dkeep = np.where(duration < 7)[0]
-        count = len(dkeep)
-        valid = np.where(keep)[0][0] #first 1 in keep
-        keep[valid+count:]=0
+        dkeep = np.where(duration < datetime.timedelta(7))[0]
+        keep = keep[dkeep]
 
         #points to keep = where duration < 7 days
         #i.e. set any points in 'keep' corresponding to points > 7 days
@@ -472,84 +470,100 @@ def scr2kdigo(scr,base,masks):
 def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc,scr_desc_loc,
                     bsln_m=None, bsln_scr_loc=None,bsln_type_loc=None):
 
-    log = open('../DATA/baseline_calc.csv', 'w')
-    if bsln_m is None:
-        log.write('ID,calc_bsln,calc_type,calc_date\n')
-    else:
-        log.write('ID,provided_bsln,provided_type,calc_bsln,calc_type,calc_date\n')
-    for i in range(len(bsln_m)):
-        if bsln_m is not None:
-            idx = bsln_m[i,0]
-            log.write(str(idx))
-            bsln = bsln_m[i,bsln_scr_loc]
-            bsln_type = bsln_m[i,bsln_type_loc]
-            log.write(','+str(bsln)+','+str(bsln_type)+',')
-        #determine earliest admission date
-        admit = datetime.datetime.now()
-        didx = np.where(date_m[:,0] == idx)[0]
-        for did in didx:
-            if date_m[did,hosp_locs[0]] < admit:
-                admit = date_m[did,hosp_locs[0]]
+    log = open('../DATA/baselines_new.csv', 'w')
+    log.write('ID,bsln_val,bsln_type,bsln_date\n')
+    cur_id = None
+    for i in range(len(date_m)):
+        idx = date_m[i,0]
+        if cur_id != idx:
+            cur_id = idx
+            log.write(str(idx) + ',')
+            #determine earliest admission date
+            admit = datetime.datetime.now()
+            didx = np.where(date_m[:,0] == idx)[0]
+            for did in didx:
+                if date_m[did,hosp_locs[0]] < admit:
+                    admit = date_m[did,hosp_locs[0]]
 
-        #find indices of all SCr values for this patient
-        all_rows = np.where(scr_all_m[:,0] == idx)[0]
+            #find indices of all SCr values for this patient
+            all_rows = np.where(scr_all_m[:,0] == idx)[0]
 
-        #extract record types
-        #i.e. indexed admission, before indexed, after indexed
-        scr_desc = scr_all_m[all_rows,scr_desc_loc]
-        for j in range(len(scr_desc)):
-            scr_desc[j]=scr_desc[j].split()[0].upper()
+            #extract record types
+            #i.e. indexed admission, before indexed, after indexed
+            scr_desc = scr_all_m[all_rows,scr_desc_loc]
+            for j in range(len(scr_desc)):
+                scr_desc[j]=scr_desc[j].split()[0].upper()
 
-        scr_tp = scr_all_m[all_rows,scr_desc_loc]
-        for j in range(len(scr_tp)):
-            scr_tp[j]=scr_tp[j].split()[-1].upper()
+            scr_tp = scr_all_m[all_rows,scr_desc_loc]
+            for j in range(len(scr_tp)):
+                scr_tp[j]=scr_tp[j].split()[-1].upper()
 
-        #find location of first indexed, inpatient record
-        idx_rows = np.where(scr_desc == 'INDEXED')[0]
-        idx_rows = all_rows[idx_rows]
+            #find indexed admission rows for this patient
+            idx_rows = np.where(scr_desc == 'INDEXED')[0]
+            idx_rows = all_rows[idx_rows]
 
-        true_date = 'missing'
-        true_type = 'nan'
-        #find the baseline
-        if len(idx_rows) == 0: # no indexed tpts, so disregard
-            true_base = None
-            true_date = None
-            true_type = 'No_indexed_values'
-        elif np.all([np.isnan(scr_all_m[x,scr_val_loc]) for x in idx_rows]):
-            true_base = None
-            true_date = None
-            true_type = 'No_indexed_values'
-        #no values prior to admission
-        elif idx_rows[0] == all_rows[0]:
-            true_base = np.min(scr_all_m[idx_rows,scr_val_loc])
-            row = np.argmin(scr_all_m[idx_rows,scr_val_loc])
-            row = idx_rows[row]
-            true_date = scr_all_m[row,scr_date_loc]
-            if str(true_base) != 'nan':
-                true_type = scr_all_m[row,scr_desc_loc].upper()
-        else: # start at first indexed tpt and move back until valid point found
-            row = idx_rows[0]
-            end_date = scr_all_m[row,scr_date_loc]
-            row-=1
-            prev_date = scr_all_m[row,scr_date_loc]
-            prev_type = scr_all_m[row,scr_desc_loc].upper().split()[-1]
-            while prev_type == 'EMERGENCY' and row > all_rows[0]:
-                row-=1
-                prev_date = scr_all_m[row,scr_date_loc]
-                prev_type = scr_all_m[row,scr_desc_loc].upper().split()[-1]
-            if prev_type != 'EMERGENCY' and rdelta.relativedelta(end_date,prev_date).years < 1:
-                true_base = scr_all_m[row,scr_val_loc]
-                true_date = prev_date
-                if str(true_base) != 'nan':
-                    true_type = scr_all_m[row,scr_desc_loc].upper()
-            else:
-                true_base = np.min(scr_all_m[idx_rows,scr_val_loc])
-                true_date_idx = np.argmin(scr_all_m[idx_rows,scr_val_loc])
-                row = idx_rows[true_date_idx]
-                true_date = scr_all_m[row,scr_date_loc]
-                if str(true_base) != 'nan':
-                    true_type = scr_all_m[row,scr_desc_loc].upper()
-        log.write(str(true_base)+',' + str(true_type) + ',' + str(true_date) + '\n')
+            pre_admit_rows = np.where(scr_desc == 'BEFORE')[0]
+            #pre_admit_rows = all_rows[pre_admit_rows]
+            inp_rows = np.where(scr_tp == 'INPATIENT')[0]
+            out_rows = np.where(scr_tp == 'OUTPATIENT')[0]
+
+            pre_inp_rows = np.intersect1d(pre_admit_rows,inp_rows)
+            pre_inp_rows = list(all_rows[pre_inp_rows])
+
+            pre_out_rows = np.intersect1d(pre_admit_rows,out_rows)
+            pre_out_rows = list(all_rows[pre_out_rows])
+
+            d_lim = datetime.timedelta(2)
+            y_lim = datetime.timedelta(365)
+
+            #default values
+            bsln_val = None
+            bsln_date = None
+            bsln_type = None
+            #find the baseline
+            if len(idx_rows) == 0: # no indexed tpts, so disregard entirely
+                bsln_type = 'No_indexed_values'
+            elif np.all([np.isnan(scr_all_m[x,scr_val_loc]) for x in idx_rows]):
+                bsln_type = 'No_indexed_values'
+            #first look for valid outpatient values before admission
+            if len(pre_out_rows) != 0 and bsln_type == None:
+                row = pre_out_rows.pop(-1)
+                this_date = scr_all_m[row,scr_date_loc]
+                delta = admit-this_date
+                #find latest point that is > 48 hrs prior to admission
+                while delta < d_lim and len(pre_out_rows) > 0:
+                    row = pre_out_rows.pop(-1)
+                    this_date = scr_all_m[row,scr_date_loc]
+                    delta = admit-this_date
+                #if valid point found save it
+                if delta < y_lim and delta > d_lim:
+                    bsln_date = this_date
+                    bsln_val = scr_all_m[row,scr_val_loc]
+                    bsln_type = 'OUTPATIENT'
+            #no valid outpatient, so look for valid inpatient
+            if len(pre_inp_rows) != 0 and bsln_type == None:
+                row = pre_inp_rows.pop(-1)
+                this_date = scr_all_m[row,scr_date_loc]
+                delta = admit-this_date
+                #find latest point that is > 48 hrs prior to admission
+                while delta < d_lim and len(pre_inp_rows) > 0:
+                    row = pre_inp_rows.pop(-1)
+                    this_date = scr_all_m[row,scr_date_loc]
+                    delta = admit-this_date
+                    #if valid point found save it
+                if delta < y_lim and delta > d_lim:
+                    bsln_date = this_date
+                    bsln_val = scr_all_m[row,scr_val_loc]
+                    bsln_type = 'INPATIENT'
+                    #no values prior to admission, find minimum during
+            if bsln_type == None:
+                bsln_val = np.min(scr_all_m[idx_rows,scr_val_loc])
+                row = np.argmin(scr_all_m[idx_rows,scr_val_loc])
+                row = idx_rows[row]
+                bsln_date = scr_all_m[row,scr_date_loc]
+                if str(bsln_val) != 'nan':
+                    bsln_type = scr_all_m[row,scr_desc_loc].upper()
+            log.write(str(bsln_val)+',' + str(bsln_type) + ',' + str(bsln_date) + '\n')
     log.close()
 
 
