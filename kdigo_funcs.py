@@ -31,7 +31,7 @@ def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs,
             if dia_m[row, hd_locs[0]]:
                 if str(dia_m[row, hd_locs[0]]) != 'nan' and \
                         str(dia_m[row, hd_locs[1]]) != 'nan':
-                    if this_date > dia_m[row, hd_locs[0]] and this_date < \
+                    if this_date > dia_m[   row, hd_locs[0]] and this_date < \
                             dia_m[row, hd_locs[1]] + datetime.timedelta(2):
                         mask[i] = 2
             if dia_m[row,pd_locs[0]]:
@@ -121,7 +121,7 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
     bsln_gfr = []
     count=0
     gfr_count=0
-    no_bsln_count=0
+    no_admit_info_count=0
     no_recs_count=0
     gap_icu_count=0
     kid_xplt_count=0
@@ -133,19 +133,31 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
         print('Patient ID,\tBaseline,\tTotal no. records,\tno. selected records')
         log.write('Patient ID,\tBaseline,\tTotal no. records,\tno. selected records\n')
     for idx in ids:
-        skip = False
-        ### Get Baseline
-        bsln_idx = np.where(bsln_m[:,0] == idx)[0]
-        bsln = bsln_m[bsln_idx,bsln_scr_loc][0]
-        bsln_date = bsln_m[bsln_idx,bsln_date_loc][0]
-        #remove if no baseline
-        if str(bsln) == 'nan' or str(bsln_date).lower() == 'nat':
-            np.delete(ids,bsln_idx)
-            no_bsln_count+=1
+        skip = False            #required to skip patients
+                                #where exclusion is found in interior loop
+        all_rows = np.where(scr_all_m[:,0] == idx)[0]
+        sel = np.where(mask[all_rows] != 0)[0]
+        keep = all_rows[sel]
+        #Ensure this patient has values in time period of interest
+        if len(sel) == 0:
+            np.delete(ids,count)
+            no_recs_count+=1
             if v:
-                print('Patient '+str(idx)+' removed due to missing baseline')
-                log.write('Patient '+str(idx)+' removed due to missing baseline\n')
+                print('Patient '+str(idx)+' removed due to no values in the time period of interest')
+                log.write('Patient '+str(idx)+' removed due to no values in the time period of interest\n')
             continue
+
+        # Get Baseline or remove if no admit dates provided
+        bsln_idx = np.where(bsln_m[:,0] == idx)[0][0]
+        if bsln_idx.size == 0:
+            np.delete(ids,bsln_idx)
+            no_admit_info_count+=1
+            if v:
+                print('Patient '+str(idx)+' removed due to missing admission info')
+                log.write('Patient '+str(idx)+' removed due to missing admission info\n')
+            continue
+        bsln = bsln_m[bsln_idx,bsln_scr_loc]
+        bsln_date = bsln_m[bsln_idx,bsln_date_loc]
 
         #remove if ESRD status
         esrd_idx = np.where(esrd_m[:,0]==idx)[0]
@@ -161,6 +173,7 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
                     break
         if skip:
             continue
+
         #get dob, sex, and race
         if idx not in dob_m[:,0] or idx not in dem_m[:,0]:
             np.delete(ids,bsln_idx)
@@ -177,6 +190,8 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
             dem_idx = dem_idx[0]
         sex = dem_m[dem_idx,sex_loc]
         race = dem_m[dem_idx,eth_loc]
+
+        #remove patients with required demographics missing
         if str(sex) == 'nan' or str(race) == 'nan':
             np.delete(ids,bsln_idx)
             dem_count+=1
@@ -185,6 +200,7 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
                 log.write('Patient '+str(idx)+' removed due to missing demographics\n')
             continue
 
+        #remove patients with baseline GFR < 15
         gfr = calc_gfr(bsln,bsln_date,sex,race,dob)
         if gfr < 15:
             np.delete(ids,bsln_idx)
@@ -193,17 +209,8 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
                 print('Patient '+str(idx)+' removed due to initial GFR too low')
                 log.write('Patient '+str(idx)+' removed due to initial GFR too low\n')
             continue
-        all_rows = np.where(scr_all_m[:,0] == idx)[0]
-        sel = np.where(mask[all_rows] != 0)[0]
-        if len(sel) == 0:
-            np.delete(ids,count)
-            no_recs_count+=1
-            if v:
-                print('Patient '+str(idx)+' removed due to no values in the time period of interest')
-                log.write('Patient '+str(idx)+' removed due to no values in the time period of interest\n')
-            continue
 
-        #test for kidney transplant
+        #remove patients with kidney transplant
         x_rows=np.where(xplt_m[:,0] == idx)         #rows in surgery sheet
         for row in x_rows:
             str_des = str(xplt_m[row,xplt_des_loc]).upper()
@@ -239,8 +246,7 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
                 break
         if skip:
             continue
-        #
-        keep = all_rows[sel]
+
         all_drows = np.where(date_m[:,id_loc] == idx)[0]
         delta = datetime.timedelta(0)
         for i in range(len(all_drows)):
@@ -273,9 +279,6 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
                 log.write('Patient '+str(idx)+' removed due to  death within 48 hours of admission\n')
             continue
 
-
-        #### If current time is > 7 days after start time, continue to
-        # next patient
         #get duration vector
         tdates = scr_all_m[keep,scr_date_loc]
         duration = [datetime.timedelta(0)] + [tdates[x] - tdates[0] for x in range(1,len(tdates))]
@@ -287,7 +290,7 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
         #i.e. set any points in 'keep' corresponding to points > 7 days
         #from start to 0
         d_disp.append(disch_disp)
-        bslns.append(bsln_m[bsln_idx,bsln_scr_loc][0])
+        bslns.append(bsln_m[bsln_idx,bsln_scr_loc])
         bsln_gfr.append(gfr)
         if v:
             print('%d,\t\t%f,\t\t%d,\t\t%d' % (idx,bsln,len(all_rows),len(sel)))
@@ -305,14 +308,14 @@ def get_patients(scr_all_m,scr_val_loc,scr_date_loc,d_disp_loc,\
         print('# Patients Kept: '+str(count))
         print('# Patients removed for ESRD: '+str(esrd_count))
         print('# Patients w/ GFR < 15: '+str(gfr_count))
-        print('# Patients w/ no baseline: '+str(no_bsln_count))
+        print('# Patients w/ no admit info: '+str(no_admit_info_count))
         print('# Patients w/ no ICU records: '+str(no_recs_count))
         print('# Patients w/ gap in ICU > 3 days: '+str(gap_icu_count))
         print('# Patients w/ kidney transplant: '+str(kid_xplt_count))
         log.write('# Patients Kept: '+str(count)+'\n')
         log.write('# Patients removed for ESRD: '+str(esrd_count)+'\n')
         log.write('# Patients w/ GFR < 15: '+str(gfr_count)+'\n')
-        log.write('# Patients w/ no baseline: '+str(no_bsln_count)+'\n')
+        log.write('# Patients w/ no admit info: '+str(no_admit_info_count)+'\n')
         log.write('# Patients w/ no ICU records: '+str(no_recs_count)+'\n')
         log.write('# Patients w/ gap in ICU > 3 days: '+str(gap_icu_count)+'\n')
         log.write('# Patients w/ kidney transplant: '+str(kid_xplt_count)+'\n')
@@ -513,7 +516,7 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc,scr_de
             pre_out_rows = np.intersect1d(pre_admit_rows,out_rows)
             pre_out_rows = list(all_rows[pre_out_rows])
 
-            d_lim = datetime.timedelta(2)
+            d_lim = datetime.timedelta(1)
             y_lim = datetime.timedelta(365)
 
             #default values
@@ -530,7 +533,7 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc,scr_de
                 row = pre_out_rows.pop(-1)
                 this_date = scr_all_m[row,scr_date_loc]
                 delta = admit-this_date
-                #find latest point that is > 48 hrs prior to admission
+                #find latest point that is > 24 hrs prior to admission
                 while delta < d_lim and len(pre_out_rows) > 0:
                     row = pre_out_rows.pop(-1)
                     this_date = scr_all_m[row,scr_date_loc]

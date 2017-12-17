@@ -15,7 +15,7 @@ import os
 
 #%% Calculate Baselines from Raw Data in Excel and store in CSV
 def calc_baselines():
-    inFile = "/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/KDIGO_full.xlsx"
+    inFile = "/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/KDIGO_test.xlsx"
     sort_id = 'STUDY_PATIENT_ID'
     sort_id_date = 'SCR_ENTERED'
 

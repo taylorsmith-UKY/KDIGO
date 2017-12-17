@@ -4,11 +4,11 @@ import datetime
 import os
 
 #------------------------------- PARAMETERS ----------------------------------#
-basePath = "/Users/taylorsmith/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/"
+basePath = "/media/taylor/HDD_1/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/"
 t_analyze = 'ICU'
-xl_file = "KDIGO_test.xlsx"
+xl_file = "KDIGO_full.xlsx"
 timescale = 6       #in hours
-id_ref = 'all_ids.csv'#default is all
+id_ref = 'all_ids.csv'#specify different file with subset of IDs if desired
 
 #-----------------------------------------------------------------------------#
 
