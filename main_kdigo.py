@@ -2,24 +2,26 @@ import kdigo_funcs as kf
 import numpy as np
 import datetime
 import os
+import pandas as pd
 
 #------------------------------- PARAMETERS ----------------------------------#
-basePath = "/media/taylor/HDD_1/Google Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/"
+basePath = "../"
 t_analyze = 'ICU'
 xl_file = "KDIGO_full.xlsx"
 timescale = 6       #in hours
-id_ref = 'all_ids.csv'#specify different file with subset of IDs if desired
-
+id_ref = 'icu_valid_ids.csv'#specify different file with subset of IDs if desired
+incl_0 = False
 #-----------------------------------------------------------------------------#
 
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 dataPath = basePath + "DATA/"
-outPath = dataPath + t_analyze.lower() + '/7days/'
-resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days/'
+outPath = dataPath + t_analyze.lower() + '/7days_keep3daygap/'
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_keep3daygap/'
 inFile = dataPath + xl_file
 id_ref = outPath + id_ref
-
+baseline_file = dataPath + 'baselines_redo.csv'
+str2csv
 def main():
     if not os.path.exists(outPath):
         os.makedirs(outPath)
@@ -39,7 +41,8 @@ def main():
             _,dates = kf.load_csv(outPath+'dates.csv',ids,fmt=datetime.datetime)
             _,masks = kf.load_csv(outPath+'masks.csv',ids,fmt='%d')
             _,dmasks = kf.load_csv(outPath+'dialysis.csv',ids,fmt='%d')
-            _,baselines = kf.load_csv(outPath+'baselines.csv',ids)
+            bsln_m = pd.read_csv(baseline_file)
+            baselines = bsln_m['bsln_val'].as_matrix()
             print('Loaded previously extracted raw data')
 
             #Interpolate missing values
@@ -97,14 +100,8 @@ def main():
         scr_all_m = kf.get_mat(inFile,'SCR_ALL_VALUES',[sort_id,sort_id_date])
         scr_date_loc = scr_all_m.columns.get_loc('SCR_ENTERED')
         scr_val_loc = scr_all_m.columns.get_loc('SCR_VALUE')
+        scr_desc_loc = scr_all_m.columns.get_loc('SCR_ENCOUNTER_TYPE')
         scr_all_m = scr_all_m.as_matrix()
-
-        #Baselines
-        print('Loading baselines...')
-        bsln_m = kf.get_mat(inFile,'BASELINE_SCR',[sort_id])
-        bsln_scr_loc = bsln_m.columns.get_loc('BASELINE_VALUE')
-        bsln_date_loc = bsln_m.columns.get_loc('BASELINE_DATE')
-        bsln_m = bsln_m.as_matrix()
 
         #Demographics
         print('Loading demographics...')
@@ -126,9 +123,6 @@ def main():
         #Get mask indicating whether each point was in hospital or ICU
         t_mask=kf.get_t_mask(scr_all_m,scr_date_loc,scr_val_loc,date_m,hosp_locs,icu_locs)
 
-        #Get mask for all patients with ESRD
-        #esrd_mask=kf.get_esrd_mask(scr_all_m,id_loc,esrd_m,esrd_locs)
-
         #Get mask for the desired data
         mask=np.zeros(len(scr_all_m))
         for i in range(len(scr_all_m)):
@@ -144,6 +138,24 @@ def main():
                         mask[i]=-1
                     else:
                         mask[i]=1
+
+        #Baselines
+
+        print('Loading baselines...')
+        try:
+            bsln_m = pd.read_csv(baseline_file)
+            bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
+            bsln_date_loc = bsln_m.columns.get_loc('bsln_date')
+            bsln_m = bsln_m.as_matrix()
+
+        except:
+            kf.get_baselines(date_m,hosp_locs,scr_all_m,scr_val_loc,scr_date_loc,scr_desc_loc,dia_m,crrt_locs,hd_locs,pd_locs,baseline_file)
+
+            bsln_m = pd.read_csv(baseline_file)
+            bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
+            bsln_date_loc = bsln_m.columns.get_loc('bsln_date')
+            bsln_m = bsln_m.as_matrix()
+
 
         count_log = open(outPath+'record_counts.csv','w')
         #Extract patients into separate list elements
@@ -177,9 +189,9 @@ def main():
         #Convert SCr to KDIGO
         print('Converting to KDIGO')
         kdigo = kf.scr2kdigo(post_interpo,baselines,dmasks_interp)
-        kf.arr2csv(outPath+'kdigo.csv',kdigo,ids)
+        kf.arr2csv(outPath+'kdigo.csv',kdigo,ids,fmt='%d')
 
     #Get KDIGO Distance Matrix
-    kf.pairwise_dtw_dist(kdigo,ids,resPath+'kdigo_dm.csv',resPath+'kdigo_dtwlog.csv')
+    kf.pairwise_dtw_dist(kdigo,ids,resPath+'kdigo_dm.csv',resPath+'kdigo_dtwlog.csv',incl_0=False)
 
 main()
