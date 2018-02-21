@@ -9,10 +9,9 @@ import numpy as np
 from scipy.cluster.hierarchy import dendrogram, fcluster
 from sklearn.cluster import DBSCAN
 import fastcluster as fc
-import matplotlib.pyplot as plt
 from kdigo_funcs import arr2csv
-from scipy.spatial.distance import  squareform
-
+from scipy.spatial.distance import squareform
+import matplotlib.pyplot as plt
 
 # %%
 def cluster(X, ids, fname, method='ward', metric='euclidean', title='Clustering Dendrogram', eps=0.5, leaf_size=30):
@@ -23,7 +22,9 @@ def cluster(X, ids, fname, method='ward', metric='euclidean', title='Clustering 
         db = DBSCAN(eps=eps, n_jobs=-1, metric='precomputed', leaf_size=leaf_size)
         db.fit_predict(ds)
         lbls = db.labels_
-        return lbls
+        idxs = db.core_sample_indices_
+        np.savetxt(fname, np.hstack((ids, lbls)), fmt='%d')
+        return lbls, idxs
     else:
         link = fc.linkage(X, method=method, metric=metric)
         dend = dendrogram(link,labels=ids)
@@ -34,8 +35,11 @@ def cluster(X, ids, fname, method='ward', metric='euclidean', title='Clustering 
         plt.ylabel('Distance')
         plt.suptitle(title, fontweight='bold', fontsize=14)
         plt.show()
-        np.savetxt(fname,link)
+        np.savetxt(fname, link)
         return link
+
+
+
 
 
 def clust_grps(link_file, n_clusts):

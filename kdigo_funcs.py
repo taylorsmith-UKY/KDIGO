@@ -31,11 +31,11 @@ def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs, v
             if dia_m[row, hd_locs[0]]:
                 if str(dia_m[row, hd_locs[0]]) != 'nan' and \
                         str(dia_m[row, hd_locs[1]]) != 'nan':
-                    if this_date > dia_m[   row, hd_locs[0]] and this_date < dia_m[row, hd_locs[1]] + datetime.timedelta(2):
+                    if this_date > dia_m[row, hd_locs[0]] and this_date < dia_m[row, hd_locs[1]] + datetime.timedelta(2):
                         mask[i] = 2
             if dia_m[row,pd_locs[0]]:
                 if str(dia_m[row,pd_locs[0]]) != 'nan' and str(dia_m[row,pd_locs[1]]) != 'nan':
-                    if this_date > dia_m[row,pd_locs[0]] and this_date < dia_m[row,pd_locs[1]] + datetime.timedelta(2):
+                    if this_date > dia_m[row, pd_locs[0]] and this_date < dia_m[row, pd_locs[1]] + datetime.timedelta(2):
                         mask[i] = 3
     if v:
         nwo = len(np.where(mask == 0)[0])

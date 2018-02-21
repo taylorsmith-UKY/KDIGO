@@ -8,6 +8,85 @@ Created on Sun Dec  3 16:41:19 2017
 
 import matplotlib.pyplot as plt
 import numpy as np
+import plotly.plotly as py
+from plotly.graph_objs import *
+from sklearn.manifold import MDS
+from scipy.spatial.distance import squareform
+
+
+def network_vis(dm, ids, lbls, edge_thresh=0.2, title='', annot=''):
+    mds = MDS(dissimilarity='precomputed', n_jobs=-1)
+    sq_dist = squareform(dm[:,2])
+    fit = mds.fit(sq_dist)
+    coords = fit.embedding_
+    edges = np.array([dm[x, :2] for x in range(len(dm)) if dm[x, 0] < edge_thresh])
+    for i in range(len(edges)):
+        edges[i, 0] = np.where(ids == edges[i, 0])[0][0]
+        edges[i, 1] = np.where(ids == edges[i, 1])[0][0]
+
+    edge_trace = Scatter(
+        x=[],
+        y=[],
+        line=Line(width=0.5, color='#888'),
+        hoverinfo='none',
+        mode='lines')
+
+    for edge in edges:
+        x0, y0 = coords[edge[0]]
+        x1, y1 = coords[edge[1]]
+        edge_trace['x'] += [x0, x1, None]
+        edge_trace['y'] += [y0, y1, None]
+
+    node_trace = Scatter(
+        x=[],
+        y=[],
+        text=[],
+        mode='markers',
+        hoverinfo='text',
+        marker=Marker(
+            showscale=True,
+            # colorscale options
+            # 'Greys' | 'Greens' | 'Bluered' | 'Hot' | 'Picnic' | 'Portland' |
+            # Jet' | 'RdBu' | 'Blackbody' | 'Earth' | 'Electric' | 'YIOrRd' | 'YIGnBu'
+            colorscale='YIGnBu',
+            reversescale=True,
+            color=[],
+            size=10,
+            colorbar=dict(
+                thickness=15,
+                title='Node Connections',
+                xanchor='left',
+                titleside='right'
+            ),
+            line=dict(width=2)))
+
+    for node in coords:
+        x, y = node
+        node_trace['x'].append(x)
+        node_trace['y'].append(y)
+
+    for lbl in lbls:
+        node_trace['marker']['color'].append(lbl)
+        node_info = 'cluster ID: ' + str(lbl)
+        node_trace['text'].append(node_info)
+
+    fig = Figure(data=Data([edge_trace, node_trace]),
+                 layout=Layout(
+                     title=title,
+                     titlefont=dict(size=16),
+                     showlegend=False,
+                     hovermode='closest',
+                     margin=dict(b=20, l=5, r=5, t=40),
+                     annotations=[dict(
+                         text=annot,
+                         showarrow=False,
+                         xref="paper", yref="paper",
+                         x=0.005, y=-0.002)],
+                     xaxis=XAxis(showgrid=False, zeroline=False, showticklabels=False),
+                     yaxis=YAxis(showgrid=False, zeroline=False, showticklabels=False)))
+
+    py.iplot(fig, filename='networkx')
+
 
 #%%Plot histogram from data in file f
 def hist(f,figName,title,op=None,bins=50,skip_row=False,skip_col=True,x_lbl='',y_lbl='',x_rng=None,y_rng=None):
@@ -68,3 +147,4 @@ def plot(x,y,idx,title,path,x_lbl='',y_lbl='',x_rng=None,y_rng=None):
     plt.ylabel(y_lbl)
     plt.savefig(path+title+'-'+str(idx)+'.pdf')
     plt.clf()
+
