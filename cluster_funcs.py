@@ -14,7 +14,7 @@ from scipy.spatial.distance import squareform
 import matplotlib.pyplot as plt
 
 # %%
-def cluster(X, ids, fname, method='ward', metric='euclidean', title='Clustering Dendrogram', eps=0.5, leaf_size=30):
+def cluster(X, ids, fname, method='ward', metric='precomputed', title='Clustering Dendrogram', eps=0.5, leaf_size=30):
     # if X is 1-D, it is condensed distance matrix, otherwise it is assumed to be
     # an array of m observations of n dimensions
     if method == 'dbscan':
@@ -27,7 +27,7 @@ def cluster(X, ids, fname, method='ward', metric='euclidean', title='Clustering 
         return lbls, idxs
     else:
         link = fc.linkage(X, method=method, metric=metric)
-        dend = dendrogram(link,labels=ids)
+        dend = dendrogram(link,p=50,truncate_mode='lastp')
         order = np.array(dend['leaves'],dtype=int)
         c_ids = ids[order]
         np.savetxt('ids_cluster_order.txt', c_ids, fmt='%d')
