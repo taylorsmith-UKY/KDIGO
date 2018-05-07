@@ -9,19 +9,20 @@ basePath = "../"
 t_analyze = 'ICU'
 xl_file = "KDIGO_full.xlsx"
 timescale = 6       #in hours
-id_ref = 'icu_valid_ids.csv'#specify different file with subset of IDs if desired
+id_ref = 'icu_valid_ids.csv'    #specify different file with subset of IDs if desired
 incl_0 = False
 #-----------------------------------------------------------------------------#
 
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 dataPath = basePath + "DATA/"
-outPath = dataPath + t_analyze.lower() + '/7days_keep3daygap/'
-resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_keep3daygap/'
+outPath = dataPath + t_analyze.lower() + '/7days_pub/'
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_pub/'
 inFile = dataPath + xl_file
 id_ref = outPath + id_ref
-baseline_file = dataPath + 'baselines_redo.csv'
-str2csv
+baseline_file = dataPath + 'baselines_7-365_mdrd.csv'
+
+
 def main():
     if not os.path.exists(outPath):
         os.makedirs(outPath)
@@ -30,19 +31,18 @@ def main():
 
     #Try to load previously extracted data
     try:
-        ids = np.loadtxt(id_ref,dtype=int)
+        ids = np.loadtxt(id_ref, dtype=int)
         #try to load final KDIGO values
         try:
             _,kdigo = kf.load_csv(outPath+'kdigo.csv',ids)
             print('Loaded previously extracted KDIGO vectors')
         #try to load extracted raw data
         except:
-            _,scr = kf.load_csv(outPath+'scr_raw.csv',ids)
-            _,dates = kf.load_csv(outPath+'dates.csv',ids,fmt=datetime.datetime)
-            _,masks = kf.load_csv(outPath+'masks.csv',ids,fmt='%d')
-            _,dmasks = kf.load_csv(outPath+'dialysis.csv',ids,fmt='%d')
-            bsln_m = pd.read_csv(baseline_file)
-            baselines = bsln_m['bsln_val'].as_matrix()
+            _, scr = kf.load_csv(outPath+'scr_raw.csv', ids)
+            _, dates = kf.load_csv(outPath+'dates.csv', ids, dt=str)
+            _, masks = kf.load_csv(outPath+'masks.csv', ids, dt=int)
+            _, dmasks = kf.load_csv(outPath+'dialysis.csv', ids, dt=int)
+            _, baselines = kf.load_csv(outPath+'baselines.csv', ids, skip_header=True, sel=1)
             print('Loaded previously extracted raw data')
 
             #Interpolate missing values
@@ -62,11 +62,11 @@ def main():
         print('Loading encounter info...')
         #Get IDs and find indices of all used metrics
         date_m = kf.get_mat(inFile,'ADMISSION_INDX',[sort_id])
-        id_loc=date_m.columns.get_loc("STUDY_PATIENT_ID")
-        hosp_locs=[date_m.columns.get_loc("HOSP_ADMIT_DATE"),date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
-        icu_locs=[date_m.columns.get_loc("ICU_ADMIT_DATE"),date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
+        id_loc = date_m.columns.get_loc("STUDY_PATIENT_ID")
+        hosp_locs = [date_m.columns.get_loc("HOSP_ADMIT_DATE"),date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
+        icu_locs = [date_m.columns.get_loc("ICU_ADMIT_DATE"),date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
         adisp_loc = date_m.columns.get_loc('DISCHARGE_DISPOSITION')
-        date_m=date_m.as_matrix()
+        date_m = date_m.as_matrix()
 
         ### GET SURGERY SHEET AND LOCATION
         print('Loading surgery information...')
@@ -112,16 +112,16 @@ def main():
 
         #DOB
         print('Loading birthdates...')
-        dob_m = kf.get_mat(inFile,'DOB',[sort_id])
+        dob_m = kf.get_mat(inFile, 'DOB', [sort_id])
         birth_loc = dob_m.columns.get_loc("DOB")
         dob_m = dob_m.as_matrix()
         ###### Get masks for ESRD, dialysis, etc.
 
         #Get mask inidicating which points are during dialysis
-        dia_mask=kf.get_dialysis_mask(scr_all_m,scr_date_loc,dia_m,crrt_locs,hd_locs,pd_locs)
+        dia_mask = kf.get_dialysis_mask(scr_all_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs)
 
         #Get mask indicating whether each point was in hospital or ICU
-        t_mask=kf.get_t_mask(scr_all_m,scr_date_loc,scr_val_loc,date_m,hosp_locs,icu_locs)
+        t_mask = kf.get_t_mask(scr_all_m, scr_date_loc, scr_val_loc, date_m, hosp_locs, icu_locs)
 
         #Get mask for the desired data
         mask=np.zeros(len(scr_all_m))
@@ -129,15 +129,15 @@ def main():
             if t_analyze == 'ICU':
                 if t_mask[i] == 2:
                     if dia_mask[i]:
-                        mask[i]=-1
+                        mask[i] = -1
                     else:
-                        mask[i]=1
+                        mask[i] = 1
             elif t_analyze == 'HOSP':
                 if t_mask[i] >= 1:
                     if dia_mask[i]:
-                        mask[i]=-1
+                        mask[i] = -1
                     else:
-                        mask[i]=1
+                        mask[i] = 1
 
         #Baselines
 
@@ -149,16 +149,17 @@ def main():
             bsln_m = bsln_m.as_matrix()
 
         except:
-            kf.get_baselines(date_m,hosp_locs,scr_all_m,scr_val_loc,scr_date_loc,scr_desc_loc,dia_m,crrt_locs,hd_locs,pd_locs,baseline_file)
+            kf.get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc,
+                             dia_m, crrt_locs, hd_locs, pd_locs, dem_m, sex_loc, eth_loc, dob_m, birth_loc,
+                             baseline_file, min_diff=7, max_diff=365)
 
             bsln_m = pd.read_csv(baseline_file)
             bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
             bsln_date_loc = bsln_m.columns.get_loc('bsln_date')
             bsln_m = bsln_m.as_matrix()
 
-
         count_log = open(outPath+'record_counts.csv','w')
-        #Extract patients into separate list elements
+        # Extract patients into separate list elements
         ids,scr,dates,masks,dmasks,baselines,bsln_gfr,d_disp = kf.get_patients(scr_all_m,scr_val_loc,scr_date_loc,adisp_loc,\
                                                             mask,dia_mask,\
                                                             dx_m,dx_loc,\

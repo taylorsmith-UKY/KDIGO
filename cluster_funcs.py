@@ -1,5 +1,3 @@
-#!/usr/bin/env python2
-# -*- coding: utf-8 -*-
 """
 Created on Fri Jan 19 14:31:03 2018
 
@@ -14,60 +12,66 @@ from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, h
 import fastcluster as fc
 from kdigo_funcs import arr2csv
 import matplotlib.pyplot as plt
+import h5py
 
 
 # %%
-def cluster(X, ids, fname, method='ward', metric='precomputed', title='Clustering Dendrogram',
-            eps=0.5, leaf_size=30, n_clusters = 5):
+def cluster(X, ids, fname, hfile, method='ward', metric='precomputed', title='Clustering Dendrogram',
+            eps=0.5, leaf_size=30, n_clusters=5):
     # if X is 1-D, it is condensed distance matrix, otherwise it is assumed to be
     # an array of m observations of n dimensions
     if method == 'dbscan':
         db = DBSCAN(eps=eps, n_jobs=-1, metric='precomputed', leaf_size=leaf_size)
         db.fit_predict(X)
         lbls = db.labels_
+        n_clust = str(len(set(lbls)) - 1)
+        cgrp_name = n_clust+'clust'
+        try:
+            mgrp = hfile['clusters'][method]
+        except:
+            mgrp = hfile['clusters'].create_group(method)
+            mgrp.create_dataset('ids', data=ids, dtype=int)
+        mgrp.create_dataset(cgrp_name, data=lbls, dtype=int)
         np.savetxt(fname, np.transpose(np.vstack(ids, lbls)), fmt='%d')
         return lbls
     elif method == 'spectral':
         db = SpectralClustering(n_clusters=n_clusters, affinity='precomputed')
         db.fit_predict(X)
         lbls = db.labels_
+        n_clust = str(len(set(lbls)))
+        cgrp_name = n_clust + 'clust'
+        try:
+            mgrp = hfile['clusters'][method]
+        except:
+            mgrp = hfile['clusters'].create_group(method)
+            mgrp.create_dataset('ids', data=ids, dtype=int)
+        mgrp.create_dataset(cgrp_name, data=lbls, dtype=int)
         np.savetxt(fname, np.transpose(np.vstack(ids, lbls)), fmt='%d')
         return lbls
     else:
         link = fc.linkage(X, method=method, metric=metric)
-        dend = dendrogram(link,p=50,truncate_mode='lastp')
-        order = np.array(dend['leaves'],dtype=int)
-        c_ids = ids[order]
-        np.savetxt('ids_cluster_order.txt', c_ids, fmt='%d')
+        mgrp = hfile['clusters'].create_group(method)
+        mgrp.create_dataset('linkage',data=link)
+        mgrp.create_dataset('ids', data=ids, dtype=int)
+        np.savetxt(fname, link)
+        dendrogram(link, p=50, truncate_mode='lastp')
         plt.xlabel('Patient ID')
         plt.ylabel('Distance')
         plt.suptitle(title, fontweight='bold', fontsize=14)
         plt.show()
-        np.savetxt(fname, link)
         return link
 
 
-def clust_grps(link_file, id_file, n_clusts):
-    dend = np.loadtxt(link_file)
-    ids = np.loadtxt(id_file)
-    grps = fcluster(dend, n_clusts, 'maxclust')
-    np.savetxt('clusters_'+str(n_clusts)+'grps.txt', np.transpose(np.vstack(ids, grps)), fmt='%d')
+def linkage_clust_grps(in_file, cluster_method, n_clusts):
+    if type(in_file) == str:
+        f = h5py.File(in_file, 'r+')
+    else:
+        f = in_file
+    grp_name = str(n_clusts)+'clusts'
+    link = f['clusters'][cluster_method]['linkage']
+    grps = fcluster(link, n_clusts, 'maxclust')
+    f['clusters'][cluster_method].create_dataset(grp_name, data=grps, dtype=int)
     return grps
-
-
-def filter_dist_val(kdigo_dm_fname, out_fname, val=0.0, keep=True):
-    # val = x and keep = True returns all examples where dist = x
-    # val = x and keep = False returns all examples EXCEPT thos where dist = x
-    f = open(kdigo_dm_fname, 'r')
-    out = open(out_fname, 'w')
-    for line in f:
-        l = line.rstrip().split(',')
-        if float(l[2]) == val and keep:
-            out.write(line)
-        elif float(l[2]) != val and not keep:
-            out.write(line)
-    f.close()
-    out.close()
 
 
 def zero_dist_clusters(zero_dist_file, out_fname, val_trans=False):
@@ -109,11 +113,16 @@ def zero_dist_clusters(zero_dist_file, out_fname, val_trans=False):
     outFile.close()
 
 
-def eval_clusters(dist_file, clust_file, labels_true=None):
-    dm = np.loadtxt(dist_file, delimiter=',', usecols=2)
-    sqdm = squareform(dm)
-    cdata = np.loadtxt(clust_file, dtype=int)
-    clusters = cdata[:, 1]
+def eval_clusters(data_file, cluster_method, cg_name, sel=None, labels_true=None):
+    if type(data_file) == str:
+        f = h5py.File(data_file, 'r')
+    else:
+        f = data_file
+    sqdm = f['square'][:]
+    if sel is not None:
+        cidx = np.ix_(sel, sel)
+        sqdm = sqdm[cidx]
+    clusters = f['clusters'][cluster_method][cg_name]
     ss = silhouette_score(sqdm, clusters, metric='precomputed')
     chs = calinski_harabaz_score(sqdm, clusters)
     if labels_true is None:
@@ -139,22 +148,24 @@ def eval_clusters(dist_file, clust_file, labels_true=None):
         return ss, chs, ars, nmi, hs, cs, vms, fms
 
 
-def inter_intra_dist(dm_file, clust_file, op='mean', out_file='inter_intra_dist.txt', sqdm=np.array([])):
-    if sqdm.size == 0:
-        dm = np.loadtxt(dm_file, delimiter=',', usecols=2)
-        sqdm = squareform(dm)
-        del dm
+def inter_intra_dist(in_file, dm, cluster_method, n_clust, op='mean', out_path='', plot='both'):
+    if type(in_file) == str:
+        f = h5py.File(in_file, 'r')
+    else:
+        f = in_file
+    if type(dm) == str:
+        sqdm = f[dm][:]
+    else:
+        sqdm = np.copy(dm[:])
+    if sqdm.ndim == 1:
+        sqdm = squareform(sqdm)
+
     np.fill_diagonal(sqdm, np.nan)
-    cd = np.loadtxt(clust_file, dtype=int)
-    ids = cd[:, 0]
-    clusters = cd[:, 1]
+    ids = f['clusters'][cluster_method]['ids'][:]
+    clusters = f['clusters'][cluster_method][n_clust][:]
 
     lbls = np.unique(clusters)
     n_clusters = len(lbls)
-
-    all_cids = []
-    for i in range(n_clusters):
-        all_cids.append(np.where(clusters == lbls[i])[0])
 
     if op == 'mean':
         func = lambda x: np.nanmean(x)
@@ -180,22 +191,55 @@ def inter_intra_dist(dm_file, clust_file, op='mean', out_file='inter_intra_dist.
     for i in range(n_clusters):
         clust = lbls[i]
         cidx = np.where(clusters == clust)[0]
-        plt.figure(i+1)
-        plt.subplot(121)
-        plt.hist(all_inter[cidx], bins=50)
-        plt.title('Inter-Cluster')
-        plt.subplot(122)
-        plt.hist(all_intra[cidx], bins=50)
-        plt.title('Intra-Cluster')
-        if clust >= 0:
-            plt.suptitle('Cluster ' + str(clust + 1) + ' Separation')
-            plt.savefig('cluster' + str(clust + 1) + '_separation_hist.png')
-        else:
-            plt.suptitle('Noise Point Separation')
-            plt.savefig('noise_separation_hist.png')
+        plt.figure()
+        if plot == 'both':
+            plt.subplot(121)
+        if plot == 'both' or plot == 'inter':
+            plt.hist(all_inter[cidx], bins=50)
+            plt.xlim((0, 1))
+            plt.title('Inter-Cluster')
+        if plot == 'both':
+            plt.subplot(122)
+        if plot == 'both' or plot == 'intra':
+            plt.hist(all_intra[cidx], bins=50)
+            plt.xlim((0, 1))
+            plt.title('Intra-Cluster')
+        if plot == 'nosave':
+            plt.subplot(121)
+            plt.hist(all_inter[cidx], bins=50)
+            plt.xlim((0, 1))
+            plt.title('Inter-Cluster')
+            plt.subplot(122)
+            plt.hist(all_intra[cidx], bins=50)
+            plt.xlim((0, 1))
+            plt.title('Intra-Cluster')
+            plt.suptitle('Cluster ' + str(clust) + ' Separation')
+            plt.show()
+        if plot == 'both':
+            if clust >= 0:
+                plt.suptitle('Cluster ' + str(clust) + ' Separation')
+                plt.savefig(out_path+'cluster' + str(clust) + '_separation_hist.png')
+            else:
+                plt.suptitle(out_path+'Noise Point Separation')
+                plt.savefig(out_path+'noise_separation_hist.png')
+        elif plot == 'inter':
+            plt.savefig(out_path + 'cluster' + str(clust) + '_inter_dist_hist.png')
+        elif plot == 'intra':
+            plt.savefig(out_path + 'cluster' + str(clust) + '_intra_dist_hist.png')
+        plt.close()
 
-    np.savetxt(out_file, np.transpose(np.vstack((all_inter, all_intra))))
+    np.savetxt(out_path+'inter_intra_dist.txt', np.transpose(np.vstack((all_inter, all_intra))))
     return sqdm, all_inter, all_intra
+
+
+def assign_feature_vectors(lbls, reference_vectors):
+    n_pts = len(lbls)
+    n_feats = reference_vectors.shape[1]
+    features = np.zeros((n_pts, n_feats))
+    for i in range(len(lbls)):
+        lbl = lbls[i]
+        features[i, :] = reference_vectors[lbl - 1, :]
+    return features
 
 
 def dm_to_sim(dist_file, out_name, beta=1, eps=1e-6):

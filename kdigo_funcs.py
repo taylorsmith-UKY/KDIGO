@@ -9,6 +9,13 @@ from dateutil import relativedelta as rdelta
 from numpy.random import permutation as permute
 import re
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler as mms
+from sklearn.svm import SVC, LinearSVC
+from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
+from sklearn.feature_selection import SelectFromModel, SelectKBest, chi2, VarianceThreshold, RFECV
+from sklearn.model_selection import StratifiedKFold
+import h5py
 
 
 # %%
@@ -401,11 +408,12 @@ def nbins(start, stop, scale):
 
 
 # %%
-def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc,scr_desc_loc,
-                    dia_m, crrt_locs, hd_locs, pd_locs, fname):
+def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc,
+                  dia_m, crrt_locs, hd_locs, pd_locs, dem_m, sex_loc, eth_loc, dob_m, dob_loc,
+                  fname, min_diff=7, max_diff=365):
 
     log = open(fname, 'w')
-    log.write('ID,bsln_val,bsln_type,bsln_date\n')
+    log.write('ID,bsln_val,bsln_type,bsln_date,time_delta\n')
     cur_id = None
     for i in range(len(date_m)):
         idx = date_m[i, 0]
@@ -420,7 +428,7 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc,scr_de
                     admit = date_m[did,hosp_locs[0]]
 
             # find indices of all SCr values for this patient
-            all_rows = np.where(scr_all_m[:,0] == idx)[0]
+            all_rows = np.where(scr_all_m[:, 0] == idx)[0]
 
             # extract record types
             # i.e. indexed admission, before indexed, after indexed
@@ -446,14 +454,15 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc,scr_de
             pre_out_rows = np.intersect1d(pre_admit_rows,out_rows)
             pre_out_rows = list(all_rows[pre_out_rows])
 
-            d_lim = datetime.timedelta(1)
-            y_lim = datetime.timedelta(365)
+            d_lim = datetime.timedelta(min_diff)
+            y_lim = datetime.timedelta(max_diff)
             dia_lim = datetime.timedelta(2)
 
             # default values
             bsln_val = None
             bsln_date = None
             bsln_type = None
+            bsln_delta = None
             # find the baseline
             if len(idx_rows) == 0:  # no indexed tpts, so disregard entirely
                 bsln_type = 'No_indexed_values'
@@ -474,12 +483,13 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc,scr_de
                     bsln_date = this_date
                     bsln_val = scr_all_m[row, scr_val_loc]
                     bsln_type = 'OUTPATIENT'
+                    bsln_delta = delta.total_seconds()/(60*60*24)
             # no valid outpatient, so look for valid inpatient
             if len(pre_inp_rows) != 0 and bsln_type is None:
                 row = pre_inp_rows.pop(-1)
-                this_date = scr_all_m[row,scr_date_loc]
+                this_date = scr_all_m[row, scr_date_loc]
                 delta = admit-this_date
-                # find latest point that is > 48 hrs prior to admission
+                # find latest point that is > 24 hrs prior to admission
                 while delta < d_lim and len(pre_inp_rows) > 0:
                     row = pre_inp_rows.pop(-1)
                     this_date = scr_all_m[row,scr_date_loc]
@@ -489,50 +499,70 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc,scr_de
                     bsln_date = this_date
                     bsln_val = scr_all_m[row,scr_val_loc]
                     bsln_type = 'INPATIENT'
-                    # no values prior to admission, find minimum during
+                    bsln_delta = delta.total_seconds() / (60 * 60 * 24)
+                    # no values prior to admission, calculate MDRD derived
             if bsln_type is None:
-                bsln_val = np.min(scr_all_m[idx_rows, scr_val_loc])
-                row = np.argmin(scr_all_m[idx_rows, scr_val_loc])
-                row = idx_rows[row]
-                bsln_date = scr_all_m[row, scr_date_loc]
-                bdt = bsln_date.to_pydatetime()
-                c = 1
-                if str(bsln_val) != 'nan':
-                    drows = np.where(dia_m[:,0] == idx)[0]
-                    if len(drows) > 0:
-                        bad = True
-                        while bad and c <= len(idx_rows):
-                            bad = False
-                            for drow in drows:
-                                # crrt
-                                if str(dia_m[drow, crrt_locs[0]]) != 'NaT':
-                                    if bdt > dia_m[drow, crrt_locs[0]].to_pydatetime():
-                                        if bdt < (dia_m[drow, crrt_locs[1]].to_pydatetime() + dia_lim):
-                                            bad = True
-                                # hd
-                                if str(dia_m[drow, hd_locs[0]]) != 'NaT':
-                                    if bdt > dia_m[drow, hd_locs[0]].to_pydatetime():
-                                        if bdt < (dia_m[drow, hd_locs[1]].to_pydatetime() + dia_lim):
-                                            bad = True
-                                # pd
-                                if str(dia_m[drow, pd_locs[0]]) != 'NaT':
-                                    if bdt > dia_m[drow, pd_locs[0]].to_pydatetime():
-                                        if bdt < (dia_m[drow, pd_locs[1]].to_pydatetime() + dia_lim):
-                                            bad = True
-                            if bad and c < len(idx_rows):
-                                bsln_val = np.sort(scr_all_m[idx_rows, scr_val_loc])[c]
-                                row = np.where(scr_all_m[idx_rows, scr_val_loc] == bsln_val)[0]
-                                row = idx_rows[row]
-                            c += 1
-                        if bad:
-                            bsln_val = 'nan'
-                            bsln_type = 'none'
-                            bsln_date = 'all_RRT'
-                        else:
-                            bsln_type = scr_all_m[row,scr_desc_loc].upper()
-                    else:
-                        bsln_type = scr_all_m[row,scr_desc_loc].upper()
-            log.write(str(bsln_val)+',' + str(bsln_type) + ',' + str(bsln_date) + '\n')
+                dem_idx = np.where(dem_m[:, 0] == cur_id)[0]
+                dob_idx = np.where(dob_m[:, 0] == cur_id)[0]
+                sex = dem_idx[dem_idx, sex_loc]
+                eth = dem_idx[dem_idx, eth_loc]
+                dob = dob_m[dob_idx, dob_loc].to_pydatetime()
+                age = float((admit.to_pydatetime() - dob).days) / 365
+                bsln_val = baseline_est_gfr_mdrd(75, sex, eth, age)
+                bsln_date = admit
+                bsln_type = 'mdrd'
+                bsln_delta = 'na'
+                # bsln_val = np.min(scr_all_m[idx_rows, scr_val_loc])
+                # row = np.argmin(scr_all_m[idx_rows, scr_val_loc])
+                # row = idx_rows[row]
+                # bsln_date = scr_all_m[row, scr_date_loc]
+                # bdt = bsln_date.to_pydatetime()
+                # c = 1
+                # if str(bsln_val) != 'nan':
+                #     drows = np.where(dia_m[:,0] == idx)[0]
+                #     if len(drows) > 0:
+                #         bad = True
+                #         while bad and c <= len(idx_rows):
+                #             bad = False
+                #             for drow in drows:
+                #                 # crrt
+                #                 if str(dia_m[drow, crrt_locs[0]]) != 'NaT':
+                #                     try:
+                #                         if bdt > dia_m[drow, crrt_locs[0]].to_pydatetime():
+                #                             if bdt < (dia_m[drow, crrt_locs[1]].to_pydatetime() + dia_lim):
+                #                                 bad = True
+                #                     except:
+                #                         bad = True
+                #                 # hd
+                #                 if str(dia_m[drow, hd_locs[0]]) != 'NaT':
+                #                     try:
+                #                         if bdt > dia_m[drow, hd_locs[0]].to_pydatetime():
+                #                             if bdt < (dia_m[drow, hd_locs[1]].to_pydatetime() + dia_lim):
+                #                                 bad = True
+                #                     except:
+                #                         bad = True
+                #                 # pd
+                #                 if str(dia_m[drow, pd_locs[0]]) != 'NaT':
+                #                     try:
+                #                         if bdt > dia_m[drow, pd_locs[0]].to_pydatetime():
+                #                             if bdt < (dia_m[drow, pd_locs[1]].to_pydatetime() + dia_lim):
+                #                                 bad = True
+                #                     except:
+                #                         bad = True
+                #             if bad and c < len(idx_rows):
+                #                 bsln_val = np.sort(scr_all_m[idx_rows, scr_val_loc])[c]
+                #                 row = np.where(scr_all_m[idx_rows, scr_val_loc] == bsln_val)[0]
+                #                 row = idx_rows[row]
+                #             c += 1
+                #         if bad:
+                #             bsln_val = 'nan'
+                #             bsln_type = 'none'
+                #             bsln_date = 'all_RRT'
+                #         else:
+                #             bsln_type = scr_all_m[row,scr_desc_loc].upper()
+                #     else:
+                #         bsln_type = scr_all_m[row,scr_desc_loc].upper()
+            log.write(str(bsln_val)+',' + str(bsln_type) + ',' + str(bsln_date) + str(bsln_delta) + '\n')
     log.close()
 
 
@@ -565,6 +595,64 @@ def calc_gfr(bsln, date_base, sex, race, dob):
     age_power = math.pow(0.993, age)
     GFR = 141 * min_power * max_power * age_power * f_value * race_value
     return GFR
+
+
+# %%
+def baseline_est_gfr_epi(gfr, sex, race, age):
+    race_value = 1
+    sel = 0
+    if sex:
+        k_value = 0.9
+        a_value = -0.411
+        f_value = 1
+    else:  # female
+        k_value = 0.7
+        a_value = -0.329
+        f_value = 1.018
+    if sex and not race and age >= 109:
+        sel = 1
+    if sex and race and age >= 88:
+        sel = 1
+    if not sex and not race and age >= 90:
+        sel = 1
+    if not sex and race and age >= 111:
+        sel = 1
+
+    if race:
+        race_value = 1.159
+    if sel == 0:
+        a_value = -1.209
+    numerator = gfr * math.pow(k_value, a_value)
+    denominator = 141 * math.pow(0.993, age) * f_value * race_value
+    scr = math.pow((numerator / denominator), 1./a_value)
+
+    return scr
+
+
+def load_bsln_dates(bsln_file):
+    bsln_dates = np.loadtxt(bsln_file, delimiter=',', usecols=3, dtype=str)
+    b_dates = []
+    for i in range(len(bsln_dates)):
+        try:
+            b_dates.append(datetime.datetime.strptime(bsln_dates[i].split('.')[0], '%Y-%m-%d %H:%M:%S'))
+        except:
+            b_dates.append(datetime.datetime(1, 1, 1))
+    b_dates = np.array(b_dates)
+    return b_dates
+
+
+def baseline_est_gfr_mdrd(gfr, sex, race, age):
+    race_value = 1
+    if sex:
+        f_value = 1
+    else:  # female
+        f_value = 0.742
+    if race:
+        race_value = 1.212
+    numerator = gfr
+    denominator = 175 * age**(-0.203) * f_value * race_value
+    scr = (numerator / denominator)**(1./-1.154)
+    return scr
 
 
 # %%
@@ -639,17 +727,6 @@ def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True):
 
 
 # %%
-def sparsify(fname, outname, thresh):
-    inf = open(fname, 'r')
-    out = open(outname, 'w')
-    for l in inf:
-        dist = float(l.rstrip().split(',')[-1])
-        if dist < thresh:
-            out.write(l)
-    return
-
-
-# %%
 def count_bsln_types(bsln_file, outfname):
     pre_outp = 0
     pre_inp = 0
@@ -716,58 +793,11 @@ def rel_scr(scr_fname, bsln_fname):
     arr2csv('scr_abs_chg.csv', abs_chg, ids)
 
 
-#%%
-def mort_subset_ids(n_pts=300, path='../DATA/icu/',set_name='subset2'):
-    n_alive = 0
-    n_lt = 0
-    n_gt = 0
-    n_xfer = 0
-    n_ama = 0
-    n_unk = 0
-    alive_ids = []
-    dead_ids = []
-    f = open(path+'disch_disp.csv', 'r')
-    for line in f:
-        l = line.strip()
-        idx = int(l.split(',')[0])
-        str_disp = l.split(',')[1].upper()
-        if re.search('EXP', str_disp):
-            dead_ids.append(idx)
-            if re.search('LESS', str_disp):
-                n_lt += 1
-            elif re.search('MORE', str_disp):
-                n_gt += 1
-        elif re.search('ALIVE', str_disp):
-            alive_ids.append(idx)
-            n_alive += 1
-        elif re.search('XFER', str_disp) or re.search('TRANS', str_disp):
-            n_xfer += 1
-        elif re.search('AMA', str_disp):
-            n_ama += 1
-        else:
-            n_unk += 1
-    fname = path + set_name + '_ids.csv'
-    np.savetxt(path+'inp_died_ids.csv',dead_ids, fmt='%d')
-    np.savetxt(path+'alive_ids.csv',alive_ids, fmt='%d')
-    if len(alive_ids)*2 < n_pts or len(dead_ids)*2 < n_pts:
-        print('Change number of desired patients')
-        print('Current: %d' % n_pts)
-        print('Number died: %d' % len(dead_ids))
-        print('Number alive: %d' % len(alive_ids))
-    else:
-        alive = permute(alive_ids)[:(n_pts/2)]
-        dead = permute(dead_ids)[:(n_pts/2)]
-        ids = permute(np.concatenate((alive, dead)))
-        np.savetxt(fname, ids, fmt='%d')
-
-
 # %%
 def arr2csv(fname, inds, ids, fmt='%f', header=False):
     outFile = open(fname, 'w')
     if header:
-        outFile.write('id')
-        for idx in ids:
-            outFile.write(',%d' % idx)
+        outFile.write(header)
         outFile.write('\n')
     try:
         for i in range(len(inds)):
@@ -820,13 +850,490 @@ def get_mat(fname, page_name, sort_id):
 
 
 # %%
-def load_csv(fname, ids, dt=float):
+def load_csv(fname, ids, dt=float, skip_header=False, sel=None):
     res = []
     rid = []
     f = open(fname, 'r')
+    if skip_header:
+        _ = f.readline()
     for line in f:
         l = line.rstrip()
-        if int(l.split(',')[0]) in ids or ids is None:
-            res.append(np.array(l.split(',')[1:], dtype=dt))
+        if ids is None or int(l.split(',')[0]) in ids:
+            if sel is None:
+                res.append(np.array(l.split(',')[1:], dtype=dt))
+            else:
+                res.append(np.array(l.split(',')[sel], dtype=dt))
             rid.append(int(l.split(',')[0]))
     return rid, res
+
+
+def descriptive_trajectory_features(kdigos, ids, filename='descriptive_features.csv'):
+    npts = len(kdigos)
+    features = np.zeros((npts, 26))
+    header = 'id,no_AKI,peak_at_KDIGO1,peak_at_KDIGO2,peak_at_KDIGO3,peak_at_KDIGO3D,KDIGO1_at_admit,KDIGO2_at_admit,' +\
+             'KDIGO3_at_admit,KDIGO3D_at_admit,KDIGO1_at_disch,KDIGO2_at_disch,KDIGO3_at_disch,KDIGO3D_at_disch,' +\
+             'onset_lt_3days,onset_gte_3days,complete_recovery_lt_3days,multiple_hits,KDIGO1_gt_24hrs,KDIGO2_gt_24hrs,' +\
+             'KDIGO3_gt_24hrs,KDIGO4_gt_24hrs,flat,strictly_increase,strictly_decrease,slope_posTOneg,slope_negTOpos'
+    for i in range(len(kdigos)):
+        kdigo = np.array(kdigos[i])
+        kdigo1 = np.where(kdigo == 1)[0]
+        kdigo2 = np.where(kdigo == 2)[0]
+        kdigo3 = np.where(kdigo == 3)[0]
+        kdigo4 = np.where(kdigo == 4)[0]
+        # No AKI
+        if np.all(kdigo == 0):
+            features[i, 0] = 1
+        # KDIGO 1 Peak
+        temp = 0
+        direction = 0   # 1: Increased     -1: Decreased
+        for j in range(len(kdigo)):
+            if kdigo[j] < temp:
+                if direction == 1:
+                    features[i, temp] = 1
+                direction = -1
+            elif kdigo[j] > temp:
+                direction = 1
+            temp = kdigo[j]
+        if direction == 1:
+            features[i, temp] = 1
+        '''
+        if kdigo[0] > 0:
+            temp = kdigo[0]
+            i = 1
+            while i < len(kdigo):
+                if kdigo[i] > temp:
+                    break
+                elif kdigo[i] < temp:
+                    if temp == 1:
+                        features[i, 1] = 1
+                    elif temp == 2:
+                        features[i, 2] = 1
+                    elif temp == 3:
+                        features[i, 3] = 1
+                    elif temp == 4:
+                        features[i, 4] = 1
+                    break
+                i += 1
+        '''
+        # KDIGO @ admit
+        if kdigo[0] == 1:
+            features[i, 5] = 1
+        elif kdigo[0] == 2:
+            features[i, 6] = 1
+        elif kdigo[0] == 3:
+            features[i, 7] = 1
+        elif kdigo[0] == 4:
+            features[i, 8] = 1
+
+        # KDIGO @ discharge
+        if kdigo[-1] == 1:
+            features[i, 9] = 1
+        elif kdigo[-1] == 2:
+            features[i, 10] = 1
+        elif kdigo[-1] == 3:
+            features[i, 11] = 1
+        elif kdigo[-1] == 4:
+            features[i, 12] = 1
+
+        # AKI onset <3 days after admit
+        if kdigo[0] == 0 and np.any(kdigo[:12] > 0):
+            features[i, 13] = 1
+
+        # AKI onset >=3 days after admit
+        if np.all(kdigo[:12] == 0) and np.any(kdigo[12:] > 0):
+            features[i, 14] = 1
+
+        # Complete recovery within 3 days
+        if len(kdigo) >= 12:
+            if np.any(kdigo > 0) and np.all(kdigo[12:] == 0):
+                features[i, 15] = 1
+        else:
+            if kdigo[-1] == 0:
+                features[i, 15] = 1
+
+        # Multiple hits separated by >= 24 hrs
+        temp = 0
+        count = 0
+        for j in range(len(kdigo)):
+            if kdigo[j] > 0:
+                if temp == 0:
+                    if count >= 4:
+                        features[i, 16] = 1
+                temp = 1
+                count = 0
+            else:
+                if temp == 1:
+                    count = 1
+                temp = 0
+                if count > 0:
+                    count += 1
+
+
+        # >=24 hrs at KDIGO 1
+        if len(kdigo1) >= 4:
+            features[i, 17] = 1
+        # >=24 hrs at KDIGO 2
+        if len(kdigo2) >= 4:
+            features[i, 18] = 1
+        # >=24 hrs at KDIGO 3
+        if len(kdigo3) >= 4:
+            features[i, 19] = 1
+        # >=24 hrs at KDIGO 3D
+        if len(kdigo4) >= 4:
+            features[i, 20] = 1
+        # Flat trajectory
+        if np.all(kdigo == kdigo[0]):
+            features[i, 21] = 1
+
+        # KDIGO strictly increases
+        diff = kdigo[1:] - kdigo[:-1]
+        if np.any(diff > 0):
+            if np.all(diff >= 0):
+                features[i, 22] = 1
+        '''
+        j = 1
+        while j < len(kdigo):
+            if kdigo[j] < kdigo[j-1]:
+                break
+            if j == len(kdigo) - 1:
+                if kdigo[j] >= kdigo[0]:
+                    features[i, 22] = 1
+            j += 1
+        '''
+
+        # KDIGO strictly decreases
+        if np.any(diff < 0):
+            if np.all(diff <= 0):
+                features[i, 23] = 1
+        '''
+        j = 1
+        while j < len(kdigo):
+            if kdigo[j] > kdigo[j - 1]:
+                break
+            if j == len(kdigo) - 1:
+                if kdigo[j] <= kdigo[0]:
+                    features[i, 23] = 1
+            j += 1
+        '''
+
+        # Slope changes sign
+        direction = 0
+        temp = kdigo[0]
+        for j in range(len(kdigo)):
+            if kdigo[j] < temp:
+                # Pos to neg
+                if direction == 1:
+                    features[i, 24] = 1
+                direction = -1
+            elif kdigo[j] > temp:
+                # Neg to pos
+                if direction == -1:
+                    features[i, 25] = 1
+                direction = 1
+            temp = kdigo[j]
+    arr2csv(filename, features, ids, fmt='%d', header=header)
+    return features
+
+
+def template_trajectory_features(kdigos, ids, filename='template_trajectory_features.csv', scores=np.array([0, 1, 2, 3, 4], dtype=int), npoints=3):
+    combination = scores
+    for i in range(npoints - 1):
+        combination = np.vstack((combination, scores))
+    npts = len(kdigos)
+    templates = cartesian(combination)
+    header = 'id'
+    for i in range(len(templates)):
+        header += ','+str(templates[i])
+    features = np.zeros((npts, len(templates)), dtype=int)
+    for i in range(npts):
+        kdigo = np.array(kdigos[i])
+        nwin = len(kdigo) - npoints + 1
+        for j in range(nwin):
+            tk = kdigo[j:j + npoints]
+            sel = np.where(templates[:, 0] == tk[0])[0]
+            loc = [x for x in sel if np.all(templates[x, :] == tk)]
+            features[i, loc] += 1
+    arr2csv(filename, features, ids, fmt='%d', header=header)
+    return features
+
+
+def slope_trajectory_features(kdigos, ids, scores=np.array([0, 1, 2, 3, 4]), filename='slope_features.csv'):
+    slopes = []
+    header = 'ids'
+    for i in range(len(scores)):
+        slopes.append(scores[i] - scores[0])
+        header += ',%d' % (scores[i] - scores[0])
+    for i in range(len(slopes)):
+        if slopes[i] > 0:
+            slopes.append(-slopes[i])
+            header += ',%d' % (-slopes[i])
+    slopes = np.array(slopes)
+    npts = len(kdigos)
+    features = np.zeros((npts, len(slopes)), dtype=int)
+    for i in range(npts):
+        kdigo = np.array(kdigos[i])
+        nwin = len(kdigo) - 1
+        for j in range(nwin):
+            ts = kdigo[j+1] - kdigo[j]
+            loc = np.where(slopes == ts)[0][0]
+            features[i, loc] += 1
+    arr2csv(filename, features, ids, fmt='%d', header=header)
+    return features
+
+
+def normalize_features(ds):
+    norm = mms()
+    nds = norm.fit_transform(ds)
+    return nds
+
+
+def feature_voting(ds):
+    features = np.zeros(ds.shape[1])
+    flags = np.zeros(ds.shape[1])
+    for i in range(ds.shape[1]):
+        avg = np.mean(ds[:, i], axis=0)
+        std = np.std(ds[:, i], axis=0)
+        if avg > 0.5:
+            features[i] = 1
+        if avg < 2*std:
+            flags[i] = 1
+    print('Features with High Variability:')
+    sel = np.where(flags)[0]
+    for idx in sel:
+        print('Feature #'+str(idx))
+    return features
+
+
+def perf_measure(y_actual, y_hat):
+    tp = 0
+    fp = 0
+    tn = 0
+    fn = 0
+    for i in range(len(y_hat)):
+        if y_actual[i]==y_hat[i]==1:
+           tp += 1
+        if y_hat[i]==1 and y_actual[i]!=y_hat[i]:
+           fp += 1
+        if y_actual[i]==y_hat[i]==0:
+           tn += 1
+        if y_hat[i]==0 and y_actual[i]!=y_hat[i]:
+           fn += 1
+    prec = precision_score(y_actual, y_hat)
+    rec = recall_score(y_actual, y_hat)
+    f1 = f1_score(y_actual, y_hat)
+    return np.array((prec, rec, f1, tp, fp, tn, fn))
+
+
+def cartesian(arrays, out=None):
+    """
+    Generate a cartesian product of input arrays.
+    Parameters
+    ----------
+    arrays : list of array-like
+        1-D arrays to form the cartesian product of.
+    out : ndarray
+        Array to place the cartesian product in.
+    Returns
+    -------
+    out : ndarray
+        2-D array of shape (M, len(arrays)) containing cartesian products
+        formed of input arrays.
+    Examples
+    --------
+    >>> cartesian(([1, 2, 3], [4, 5], [6, 7]))
+    array([[1, 4, 6],
+           [1, 4, 7],
+           [1, 5, 6],
+           [1, 5, 7],
+           [2, 4, 6],
+           [2, 4, 7],
+           [2, 5, 6],
+           [2, 5, 7],
+           [3, 4, 6],
+           [3, 4, 7],
+           [3, 5, 6],
+           [3, 5, 7]])
+    """
+    arrays = [np.asarray(x) for x in arrays]
+    dtype = arrays[0].dtype
+    n = np.prod([x.size for x in arrays])
+    if out is None:
+        out = np.zeros([n, len(arrays)], dtype=dtype)
+    m = int(n / arrays[0].size)
+    out[:, 0] = np.repeat(arrays[0], m)
+    if arrays[1:]:
+        cartesian(arrays[1:], out=out[0:m, 1:])
+        for j in range(1, arrays[0].size):
+            out[j * m:(j + 1) * m, 1:] = out[0:m, 1:]
+    return out
+
+def feature_selection(data, lbls, method='univariate', params=[]):
+    '''
+
+    :param data: Matrix of the form n_samples x n_features
+    :param lbls: n_samples binary features
+    :param method: {'variance', 'univariate', 'recursive', 'FromModel'}
+
+    :param params: variance     - [float pct]
+                   univariate   - [int n_feats, function scoring]
+                   recursive    - [obj estimator, int cv]
+                   FromModel
+                        linear  - [float c]
+                        tree    - []
+
+    :return:
+    '''
+
+    if method == 'variance':
+        assert len(params) == 1
+        pct = params[0]
+        sel = VarianceThreshold(threshold=(pct * (1 - pct)))
+        sf = sel.fit_transform(data)
+        return sf
+
+    elif method == 'univariate':
+        assert len(params) == 2
+        n_feats = params[0]
+        scoring = params[1]
+        sf = SelectKBest(scoring, k=n_feats).fit_transform(data, lbls)
+        return sf
+
+    elif method == 'resursive':
+        assert len(params) == 2
+        estimator = params[0]
+        cv = params[1]
+        rfecv = RFECV(estimator=estimator, step=1, cv=StratifiedKFold(cv),
+                      scoring='accuracy')
+        rfecv.fit(data, lbls)
+        sel = rfecv.support_
+        sf = data[:, sel]
+        return sf
+
+    elif method == 'linear':
+        assert len(params) == 1
+        c = params[0]
+        lsvc = LinearSVC(C=c, penalty='l1', dual=False).fit(data, lbls)
+        model = SelectFromModel(lsvc, prefit=True)
+        sf = model.transform(data)
+        return sf
+
+    elif method == 'tree':
+        assert params == []
+        clf = ExtraTreesClassifier()
+        clf.fit(data, lbls)
+        model = SelectFromModel(clf, prefit=True)
+        sf = model.transform(data)
+        return sf
+
+    else:
+        print("Please select one of the following methods:")
+        print("[variance, univariate, recursive, linear, tree")
+
+
+def excel_to_h5(file_name, h5_name, keep_dic, append=False):
+    xl = pd.read_excel(file_name, sheetname=None, header=0)
+    if append:
+        f = h5py.File(h5_name, 'r+')
+    else:
+        f = h5py.File(h5_name, 'w')
+
+    for sheet in keep_dic.keys():
+        grp = f.create_group(sheet)
+        sheet_len = len(xl[sheet])
+        for col in keep_dic[sheet]:
+            if sheet == 'DIAGNOSIS' and col[1] == 'transplant':
+                vals = xl[sheet][col[0]]
+                ds = grp.create_dataset(col[1], data=np.zeros(sheet_len,), dtype=int)
+                for i in range(len(vals)):
+                    if type(vals[i]) == unicode:
+                        if 'KID' in vals[i] and 'TRANS' in vals[i]:
+                            ds[i] = 1
+            elif type(xl[sheet][col[0]][0]) == pd.tslib.Timestamp:
+                ds = grp.create_dataset(col[1], shape=(sheet_len,), dtype='|S19')
+                vals = xl[sheet][col[0]].values
+                if vals.dtype == 'O':
+                    val = val.astype(str)
+                for i in range(len(vals)):
+                    ds[i] = str(vals[i]).split('.')[0]
+            else:
+                try:
+                    grp.create_dataset(col[1], data=xl[sheet][col[0]].values)
+                except:
+                    grp.create_dataset(col[1], data=xl[sheet][col[0]].values.astype(str))
+
+
+def combine_labels(lbls):
+    '''
+    :param lbls: -   Tuple of cluster labels
+                     lbls[0] contains the list of cluster labels for the initial clustering
+                     lbls[1:] contain two entries:
+                        lbls[n][0] = list of parent clusters
+                                     i.e. if this corresponds to breaking down cluster 2, followed by the corresponding
+                                     cluster 5, this would be (2, 5)
+                        lbls[n][1] = corresponding labels for further stratification
+    :return:
+    '''
+    out = np.array(lbls[0], dtype=int)
+    lbl_sets = {'root': out}
+    for i in range(1, len(lbls)):
+        shift = np.max(out)
+        p = lbls[i][0]
+        nlbls = lbls[i][1]
+        lbl_key = '%d' % p[0]
+        for j in range(1, len(p)):
+            lbl_key += ('%d,' % p[j])
+        lbl_sets[lbl_key] = nlbls
+
+        sel = sel[np.where(nlbls == p[0])[0]]
+        if len(p) == 1:
+            nlbls += shift
+            out[sel] = nlbls
+        else:
+            lbl_key_temp = '%d' % p[0]
+            for j in range(1, len(p)):
+                sel = sel[np.where(lbl_sets[lbl_key_temp] == p[j])]
+                lbl_key_temp += ('%d,' % p[j])
+            nlbls += shift
+            out[sel] = nlbls
+    all_lbls = np.unique(out)
+    for i in range(len(all_lbls)-1):
+        if all_lbls[i + 1] - all_lbls[i] > 1:
+            gap = all_lbls[i + 1] - all_lbls[i] - 1
+            out[np.where(out > all_lbls[i])] -= gap
+    return out
+
+
+def cross_val_classify(features, labels, n_splits=10, clf_type='svm', clf_params=[5, 'entropy', 'sqrt']):
+    X = features[:]
+    y = labels[:]
+
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=1)
+
+    perf = np.array((n_splits, 7))
+    for i, (train_idx, val_idx) in enumerate(skf.split(X, y)):
+        X_train = data[train_idx]
+        y_train = labels[train_idx]
+        X_val = data[val_idx]
+        y_val = labels[val_idx]
+        if clf_type == 'svm':
+            if len(clf_params) != 3:
+                print('SVM requires 3 parameter arguments:')
+                print('Kernel (\'rbf\', \'linear\', \'poly\', \'sigmoid\')')
+                print('Gamma (float)')
+                print('C (float)')
+            clf = SVC(kernel=clf_params[0], gamma=clf_params[1], C=clf_params[2])
+        elif clf_type == 'rf':
+            if len(clf_params) != 3:
+                print('RF requires 3 parameter arguments:')
+                print('Num_Estimators (int)')
+                print('Criterion (\'gini\', \'entropy\')')
+                print('Max_Features (\'auto\', \'sqrt\',\'log2\')')
+            clf = RandomForestClassifier(n_estimators=clf_params[0], criterion=clf_params[1], max_features=clf_params[2])
+        else:
+            print('Currently only supports SVM and RF')
+
+        clf.fit(X_train, y_train)
+        predicted = clf.predict(X_val)
+        perf[i, :] = perf_measure(y_val, predicted)
+
+    return perf

@@ -11,16 +11,14 @@ import datetime
 import numpy as np
 import re
 import matplotlib.pyplot as plt
+import h5py
 
 
-def summarize_stats(data_path, out_name):
+def summarize_stats(data_path, out_name, grp_name='meta'):
     all_ids = np.loadtxt(data_path + 'icu_valid_ids.csv', dtype=int)
 
     # load KDIGO and discharge dispositions
     k_ids, kdigos = load_csv(data_path + 'kdigo.csv', all_ids, dt=int)
-    d_ids, d_disp = load_csv(data_path + 'disch_disp.csv', all_ids, dt='|S')
-    k_ids = np.array(k_ids, dtype=int)
-    d_ids = np.array(d_ids, dtype=int)
 
     # load genders
     dem_m = get_mat('../DATA/KDIGO_full.xlsx', 'DEMOGRAPHICS_INDX', 'STUDY_PATIENT_ID')
@@ -82,49 +80,53 @@ def summarize_stats(data_path, out_name):
     for i in range(len(dd)):
         dd[i] = dd[i].split()[0]
 
-    f = open(data_path + 'kdigo.csv', 'r')
-    kdigos = []
-    kids = []
     n_eps = []
-    for line in f:
-        l = line.rstrip().split(',')
-        kids.append(int(l[0]))
-        kdigo = np.array(l[1:], dtype=int)
-        n_eps.append(count_eps(kdigo))
-        kdigos.append(int(np.max(kdigo)))
+    for i in range(len(kdigos)):
+        n_eps.append(count_eps(kdigos[i]))
 
-    kdigos = np.array(kdigos)
-    f.close()
-
-    # clust = np.loadtxt('../RESULTS/icu/7days_final/8clusts_sorted.csv', dtype=int)
-    # cids = np.loadtxt('../RESULTS/icu/7days_final/ids_8clust.csv', dtype=int)
-
-    f = open(out_name, 'w')
-    f.write('Patient_ID,Age,Gender,Max_KDIGO,Died_Inp,Number_Eps,Hosp_LOS,ICU_LOS,SOFA,APACHE,Sepsis,Net_Fluid,Gross_Fluid,Charlson_Score,Elixhauser_Score,Mech_Vent_Free_Days\n')
-    
+    ages = []
+    genders = []
+    mks = []
+    dieds = []
+    nepss = []
+    hosp_frees = []
+    icu_frees = []
+    sofas = []
+    apaches = []
+    sepsiss = []
+    net_fluids = []
+    gross_fluids = []
+    c_scores = []
+    e_scores = []
+    mv_frees = []
     for i in range(len(all_ids)):
         idx = all_ids[i]
-        mk = kdigos[i]
+        mk = np.max(kdigos[i])
         died = int(dd[i] == 'EXPIRED')
-        if died:
-            hlos = 0
-            ilos = 0
-            mech = 0
+        hlos, ilos = get_los(idx, date_m, hosp_locs, icu_locs)
+        hfree = 28 - hlos
+        ifree = 28 - ilos
+        if hfree < 0:
+            hfree = 0
+        if ifree < 0:
+            ifree = 0
+
+        mech_idx = np.where(mech_m[:, 0] == idx)[0]
+        if mech_idx.size > 0:
+            mech = 28 - int(mech_m[mech_idx, mech_loc])
         else:
-            hlos, ilos = get_los(idx, date_m, hosp_locs, icu_locs)
-            hlos = 28 - hlos
-            ilos = 28 - ilos
-            mech_idx = np.where(mech_m[:,0] == idx)[0]
-            if mech_idx.size > 0:
-                mech = 28 - int(mech_m[mech_idx, mech_loc])
-            else:
-                mech = 28
-            if mech < 0:
+            mech = 28
+        if mech < 0:
+            mech = 0
+
+        if died:
+            if mech < 28:
                 mech = 0
-            if hlos < 0:
-                hlos = 0
-            if ilos < 0:
-                ilos = 0
+            if hfree < 28:
+                hfree = 0
+            if ifree < 28:
+                ifree = 0
+
         eps = n_eps[i]
 
         sepsis = 0
@@ -185,51 +187,147 @@ def summarize_stats(data_path, out_name):
         else:
             elix = np.nan
 
-        f.write('%d,%.2f,%d,%d,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%.2f,%.2f,%.2f,%.2f,%d\n' %
-                (idx, age, male, mk, died, eps, hlos, ilos, sofa, apache, sepsis, net, tot, charl, elix, mech))
+        ages.append(age)
+        genders.append(male)
+        mks.append(mk)
+        dieds.append(died)
+        nepss.append(eps)
+        hosp_frees.append(hfree)
+        icu_frees.append(ifree)
+        sofas.append(sofa)
+        apaches.append(apache)
+        sepsiss.append(sepsis)
+        net_fluids.append(net)
+        gross_fluids.append(tot)
+        c_scores.append(charl)
+        e_scores.append(elix)
+        mv_frees.append(mech)
+    ages=np.array(ages, dtype=float)
+    genders=np.array(genders, dtype=int)
+    mks=np.array(mks, dtype=int)
+    dieds=np.array(dieds, dtype=int)
+    nepss=np.array(nepss, dtype=int)
+    hosp_frees=np.array(hosp_frees, dtype=float)
+    icu_frees=np.array(icu_frees, dtype=float)
+    sofas=np.array(sofas, dtype=int)
+    apaches=np.array(apaches, dtype=int)
+    sepsiss=np.array(sepsis, dtype=int)
+    net_fluids=np.array(net_fluids, dtype=float)
+    gross_fluids=np.array(gross_fluids, dtype=float)
+    c_scores=np.array(c_scores, dtype=int)
+    e_scores=np.array(e_scores, dtype=int)
+    mv_frees=np.array(mv_frees, dtype=float)
+    try:
+        f = h5py.File(out_name, 'r+')
+    except:
+        f = h5py.File(out_name, 'w')
+
+    try:
+        meta = f[grp_name]
+    except:
+        meta = f.create_group(grp_name)
+
+    meta.create_dataset('ids', data=all_ids, dtype=int)
+    meta.create_dataset('age', data=ages, dtype=float)
+    meta.create_dataset('gender', data=genders, dtype=bool)
+    meta.create_dataset('max_kdigo', data=mks, dtype=int)
+    meta.create_dataset('died_inp', data=dieds, dtype=bool)
+    meta.create_dataset('n_episodes', data=nepss, dtype=int)
+    meta.create_dataset('hosp_free_days', data=hosp_frees, dtype=float)
+    meta.create_dataset('icu_free_days', data=icu_frees, dtype=float)
+    meta.create_dataset('sofa', data=sofas, dtype=int)
+    meta.create_dataset('apache', data=apaches, dtype=int)
+    meta.create_dataset('sepsis', data=sepsiss, dtype=bool)
+    meta.create_dataset('net_fluid', data=net_fluids, dtype=int)
+    meta.create_dataset('gross_fluid', data=gross_fluids, dtype=int)
+    meta.create_dataset('charlson', data=c_scores, dtype=int)
+    meta.create_dataset('elixhauser', data=e_scores, dtype=int)
+    meta.create_dataset('mv_free_days', data=mv_frees, dtype=int)
+
     f.close()
 
 
 # %%
-def get_cstats(in_file, clust_file, out_name, plot_hist=False, report_kdigo0=True):
+def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, report_kdigo0=True, meta_grp='meta'):
     # get IDs and Clusters in order from cluster file
     # ids = np.loadtxt(id_file, dtype=int, delimiter=',')
-    all_data = np.loadtxt(in_file, skiprows=1,delimiter=',')
-    ids = all_data[:, 0]
-    ages = all_data[:, 1]
-    genders = all_data[:, 2]
-    m_kdigos = all_data[:, 3]
-    died_inp = all_data[:, 4]
-    n_eps = all_data[:, 5]
-    hosp_los = all_data[:, 6]
-    icu_los = all_data[:, 7]
-    sofa = all_data[:, 8]
-    apache = all_data[:, 9]
-    sepsis = all_data[:, 10]
-    net_fluid = all_data[:,11]
-    gross_fluid = all_data[:,12]
-    charlson = all_data[:,13]
-    elixhauser = all_data[:,14]
-    mech_vent = all_data[:,15]
+    if type(in_file) == str:
+        f = h5py.File(in_file, 'r')
+    else:
+        f = in_file
+    meta = f[meta_grp]
+    ids = meta['ids'][:]
+    if report_kdigo0:
+        ages = meta['age'][:]
+        genders = meta['gender'][:]
+        m_kdigos = meta['max_kdigo'][:]
+        died_inp = meta['died_inp'][:]
+        n_eps = meta['n_episodes'][:]
+        hosp_los = meta['hosp_free_days'][:]
+        icu_los = meta['icu_free_days'][:]
+        sofa = meta['sofa'][:]
+        apache = meta['apache'][:]
+        # sepsis = meta['sepsis'][:]
+        net_fluid = meta['net_fluid'][:]
+        gross_fluid = meta['gross_fluid'][:]
+        # charlson = meta['charlson'][:]
+        # elixhauser = meta['elixhauser'][:]
+        mech_vent = meta['mv_free_days'][:]
 
-    clust_data = np.loadtxt(clust_file,dtype=int)
-    cids = clust_data[:, 0]
-    clust = clust_data[:, 1]
-    clusters = np.zeros(len(ids))
-    for cid, c in zip(cids,clust):
-        idx = np.where(ids == cid)[0][0]
-        if c < 0:
-            clusters[idx] = c
-        else:
-            clusters[idx] = c+1
+        cids = f['clusters'][cluster_method]['ids'][:]
+        clust = f['clusters'][cluster_method][n_clust][:]
+        cmin = np.min(clust)
+
+        clusters = np.zeros(len(ids))
+        for cid, c in zip(cids, clust):
+            idx = np.where(ids == cid)[0][0]
+            if c >= 0 and cmin == 0:
+                clusters[idx] = c + 1
+            else:
+                clusters[idx] = c
+
+    else:
+        cids = f['clusters'][cluster_method]['ids'][:]
+        clust = f['clusters'][cluster_method][n_clust][:]
+        pt_mask = np.zeros(len(ids), dtype=bool)
+        for i in range(len(ids)):
+            if ids[i] in cids:
+                pt_mask[i] = 1
+
+        ages = meta['age'][pt_mask]
+        genders = meta['gender'][pt_mask]
+        m_kdigos = meta['max_kdigo'][pt_mask]
+        died_inp = meta['died_inp'][pt_mask]
+        n_eps = meta['n_episodes'][pt_mask]
+        hosp_los = meta['hosp_free_days'][pt_mask]
+        icu_los = meta['icu_free_days'][pt_mask]
+        sofa = meta['sofa'][pt_mask]
+        apache = meta['apache'][pt_mask]
+        # sepsis = meta['sepsis'][pt_mask]
+        net_fluid = meta['net_fluid'][pt_mask]
+        gross_fluid = meta['gross_fluid'][pt_mask]
+        # charlson = meta['charlson'][pt_mask]
+        # elixhauser = meta['elixhauser'][pt_mask]
+        mech_vent = meta['mv_free_days'][pt_mask]
+
+        clusters = clust[np.argsort(cids)]
+        if np.min(clusters) == 0:
+            for i in range(len(clusters)):
+                if clusters[i] >= 0:
+                    clusters[i] += 1
 
     lbls = np.unique(clusters)
 
-    c_header = 'cluster_id,count,mort_avg,mort_std,n_kdigo_0,n_kdigo_1,n_kdigo_2,n_kdigo_3,n_kdigo_3D,' + \
+    # c_header = 'cluster_id,count,mort_pct,n_kdigo_0,n_kdigo_1,n_kdigo_2,n_kdigo_3,n_kdigo_3D,' + \
+    #            'n_eps_mean,n_eps_std,hosp_free_median,hosp_free_25,hosp_free_75,icu_free_median,' + \
+    #            'icu_free_25,icu_free_75,sofa_mean,sofa_std,apache_mean,apache_std,age_mean,age_std,' + \
+    #            'percent_male,percent_sepsis,fluid_overload_mean,fluid_overload_std,gross_fluid_mean,gross_fluid_std,' + \
+    #            'charlson_mean,charlson_std,elixhauser_mean,elixhauser_std,mech_vent_free_med,mech_vent_25,mech_vent_75\n'
+    c_header = 'cluster_id,count,mort_pct,n_kdigo_0,n_kdigo_1,n_kdigo_2,n_kdigo_3,n_kdigo_3D,' + \
                'n_eps_mean,n_eps_std,hosp_free_median,hosp_free_25,hosp_free_75,icu_free_median,' + \
                'icu_free_25,icu_free_75,sofa_mean,sofa_std,apache_mean,apache_std,age_mean,age_std,' + \
-               'percent_male,percent_sepsis,fluid_overload_mean,fluid_overload_std,gross_fluid_mean,gross_fluid_std,' +\
-               'charlson_mean,charlson_std,elixhauser_mean,elixhauser_std,mech_vent_free_med,mech_vent_25,mech_vent_75\n'
+               'percent_male,fluid_overload_mean,fluid_overload_std,gross_fluid_mean,gross_fluid_std,' + \
+               'mech_vent_free_med,mech_vent_25,mech_vent_75\n'
 
     f = open(out_name, 'w')
     f.write(c_header)
@@ -239,7 +337,7 @@ def get_cstats(in_file, clust_file, out_name, plot_hist=False, report_kdigo0=Tru
             continue
         rows = np.where(clusters == cluster_id)[0]
         count = len(rows)
-        mort = float(len(np.where(died_inp[rows])[0]))/len(rows)
+        mort = float(len(np.where(died_inp[rows])[0]))/count
         k_counts = np.zeros(5)
         for i in range(5):
             k_counts[i] = len(np.where(m_kdigos[rows] == i)[0])
@@ -257,16 +355,16 @@ def get_cstats(in_file, clust_file, out_name, plot_hist=False, report_kdigo0=Tru
         apache_std = np.std(apache[rows])
         age_mean = np.mean(ages[rows])
         age_std = np.std(ages[rows])
-        pct_male = float(len(np.where(genders[rows])[0]))/len(rows)
-        pct_septic = float(len(np.where(sepsis[rows])[0]))/len(rows)
+        pct_male = float(len(np.where(genders[rows])[0]))/count
+        # pct_septic = float(len(np.where(sepsis[rows])[0]))/count
         net_mean = np.nanmean(net_fluid[rows])
         net_std = np.nanstd(net_fluid[rows])
         gross_mean = np.nanmean(gross_fluid[rows])
         gross_std = np.nanstd(gross_fluid[rows])
-        charl_mean = np.nanmean(charlson[rows])
-        charl_std = np.nanstd(charlson[rows])
-        elix_mean = np.nanmean(elixhauser[rows])
-        elix_std = np.nanstd(elixhauser[rows])
+        # charl_mean = np.nanmean(charlson[rows])
+        # charl_std = np.nanstd(charlson[rows])
+        # elix_mean = np.nanmean(elixhauser[rows])
+        # elix_std = np.nanstd(elixhauser[rows])
         mech_med = np.nanmedian(mech_vent[rows])
         mech_25 = np.nanpercentile(mech_vent[rows], 25)
         mech_75 = np.nanpercentile(mech_vent[rows], 75)
@@ -310,11 +408,16 @@ def get_cstats(in_file, clust_file, out_name, plot_hist=False, report_kdigo0=Tru
             plt.suptitle('Cluster '+str(cluster_id)+' Distributions')
             plt.tight_layout()
             plt.savefig('cluster'+str(cluster_id)+'dist.png')
-        f.write('%d,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
+        # f.write('%d,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
+        #         (cluster_id, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
+        #          n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
+        #          sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, pct_septic, net_mean, net_std,
+        #          gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
+        f.write('%d,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
                 (cluster_id, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
                  n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
-                 sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, pct_septic, net_mean, net_std,
-                 gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
+                 sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, net_mean, net_std,
+                 gross_mean, gross_std, mech_med, mech_25, mech_75))
 
 
 # %%
