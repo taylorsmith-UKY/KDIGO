@@ -128,8 +128,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             np.delete(ids,count)
             no_recs_count += 1
             if v:
-                print('Patient '+str(idx)+' removed due to not enough values in the time period of interest')
-                log.write('Patient '+str(idx)+' removed due to not enough values in the time period of interest\n')
+                print(str(idx)+', removed due to not enough values in the time period of interest')
+                log.write(str(idx)+', removed due to not enough values in the time period of interest\n')
             continue
 
         # Get Baseline or remove if no admit dates provided
@@ -138,16 +138,24 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             np.delete(ids, bsln_idx)
             no_admit_info_count += 1
             if v:
-                print('Patient '+str(idx)+' removed due to missing admission info')
-                log.write('Patient '+str(idx)+' removed due to missing admission info\n')
+                print(str(idx)+', removed due to missing admission info')
+                log.write(str(idx)+', removed due to missing admission info\n')
             continue
         bsln = bsln_m[bsln_idx, bsln_scr_loc]
         if str(bsln).lower() == 'nan' or str(bsln).lower() == 'none' or str(bsln).lower() == 'nat':
             np.delete(ids,bsln_idx)
             no_bsln_count += 1
             if v:
-                print('Patient '+str(idx)+' removed due to missing baseline')
-                log.write('Patient '+str(idx)+' removed due to missing baseline\n')
+                print(str(idx)+', removed due to missing baseline')
+                log.write(str(idx)+', removed due to missing baseline\n')
+            continue
+        bsln = float(bsln)
+        if bsln >= 4.0:
+            np.delete(ids,bsln_idx)
+            no_bsln_count += 1
+            if v:
+                print(str(idx)+', removed due to baseline SCr > 4.0')
+                log.write(str(idx)+', removed due to baseline SCr > 4.0\n')
             continue
         bsln = float(bsln)
         bsln_date = bsln_m[bsln_idx,bsln_date_loc].split('.')[0]
@@ -162,8 +170,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                     np.delete(ids,bsln_idx)
                     esrd_count+=1
                     if v:
-                        print('Patient '+str(idx)+' removed due to ESRD status')
-                        log.write('Patient '+str(idx)+' removed due to ESRD status\n')
+                        print(str(idx)+', removed due to ESRD status')
+                        log.write(str(idx)+', removed due to ESRD status\n')
                     break
         if skip:
             continue
@@ -173,8 +181,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             np.delete(ids,bsln_idx)
             dem_count += 1
             if v:
-                print('Patient '+str(idx)+' removed due to missing DOB')
-                log.write('Patient '+str(idx)+' removed due to missing DOB\n')
+                print(str(idx)+', removed due to missing DOB')
+                log.write(str(idx)+', removed due to missing DOB\n')
             continue
         birth_idx = np.where(dob_m[:, 0] == idx)[0]
         dob = dob_m[birth_idx, birth_loc][0].to_pydatetime()
@@ -190,8 +198,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             np.delete(ids,bsln_idx)
             dem_count += 1
             if v:
-                print('Patient '+str(idx)+' removed due to missing demographics')
-                log.write('Patient '+str(idx)+' removed due to missing demographics\n')
+                print(str(idx)+', removed due to missing demographics')
+                log.write(str(idx)+', removed due to missing demographics\n')
             continue
 
         # remove patients with baseline GFR < 15
@@ -200,8 +208,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             np.delete(ids,bsln_idx)
             gfr_count += 1
             if v:
-                print('Patient '+str(idx)+' removed due to initial GFR too low')
-                log.write('Patient '+str(idx)+' removed due to initial GFR too low\n')
+                print(str(idx)+', removed due to initial GFR too low')
+                log.write(str(idx)+', removed due to initial GFR too low\n')
             continue
 
         # remove patients with kidney transplant
@@ -213,8 +221,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                 kid_xplt_count += 1
                 np.delete(ids, count)
                 if v:
-                    print('Patient '+str(idx)+' removed due to kidney transplant')
-                    log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
+                    print(str(idx)+', removed due to kidney transplant')
+                    log.write(str(idx)+', removed due to kidney transplant\n')
                 break
         if skip:
             continue
@@ -227,16 +235,16 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                 kid_xplt_count += 1
                 np.delete(ids,count)
                 if v:
-                    print('Patient '+str(idx)+' removed due to kidney transplant')
-                    log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
+                    print(str(idx)+', removed due to kidney transplant')
+                    log.write(str(idx)+', removed due to kidney transplant\n')
                 break
             elif 'KID' in str_des and 'TRANS' in str_des:
                 skip = True
                 np.delete(ids, count)
                 kid_xplt_count += 1
                 if v:
-                    print('Patient '+str(idx)+' removed due to kidney transplant')
-                    log.write('Patient '+str(idx)+' removed due to kidney transplant\n')
+                    print(str(idx)+', removed due to kidney transplant')
+                    log.write(str(idx)+', removed due to kidney transplant\n')
                 break
         if skip:
             continue
@@ -266,8 +274,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             np.delete(ids,count)
             gap_icu_count+=1
             if v:
-                print('Patient '+str(idx)+' removed due to different ICU stays > 3 days apart')
-                log.write('Patient '+str(idx)+' removed due to different ICU stays > 3 days apart\n')
+                print(str(idx)+', removed due to different ICU stays > 3 days apart')
+                log.write(str(idx)+', removed due to different ICU stays > 3 days apart\n')
             continue
         '''
         # remove patients who died <48 hrs after indexed admission
@@ -276,8 +284,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             np.delete(ids, count)
             lt48_count += 1
             if v:
-                print('Patient '+str(idx)+' removed due to death within 48 hours of admission')
-                log.write('Patient '+str(idx)+' removed due to  death within 48 hours of admission\n')
+                print(str(idx)+', removed due to death within 48 hours of admission')
+                log.write(str(idx)+', removed due to  death within 48 hours of admission\n')
             continue
 
         # get duration vector
