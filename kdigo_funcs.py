@@ -293,6 +293,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         duration = [tdates[x] - admit for x in range(len(tdates))]
         duration = np.array(duration)
         dkeep = np.where(duration < datetime.timedelta(7))[0]
+        duration = duration[dkeep]
         keep = keep[dkeep]
 
         # points to keep = where duration < 7 days
