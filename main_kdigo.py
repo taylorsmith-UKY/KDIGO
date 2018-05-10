@@ -160,7 +160,7 @@ def main():
 
         count_log = open(outPath+'record_counts.csv','w')
         # Extract patients into separate list elements
-        ids,scr,dates,masks,dmasks,baselines,bsln_gfr,d_disp = kf.get_patients(scr_all_m,scr_val_loc,scr_date_loc,adisp_loc,\
+        ids,scr,dates,masks,dmasks,baselines,bsln_gfr,d_disp,t_range = kf.get_patients(scr_all_m,scr_val_loc,scr_date_loc,adisp_loc,\
                                                             mask,dia_mask,\
                                                             dx_m,dx_loc,\
                                                             esrd_m,esrd_locs,\
@@ -171,12 +171,13 @@ def main():
                                                             dob_m,birth_loc,count_log)
         count_log.close()
         kf.arr2csv(outPath+'scr_raw.csv',scr,ids)
-        kf.str2csv(outPath+'dates.csv',dates,ids)
+        kf.arr2csv(outPath+'dates.csv',dates,ids, fmt='%s')
         kf.arr2csv(outPath+'masks.csv',masks,ids,fmt='%d')
         kf.arr2csv(outPath+'dialysis.csv',dmasks,ids,fmt='%d')
         kf.arr2csv(outPath+'baselines.csv',baselines,ids)
         kf.arr2csv(outPath+'baseline_gfr.csv',bsln_gfr,ids)
-        kf.str2csv(outPath+'disch_disp.csv',d_disp,ids)
+        kf.arr2csv(outPath + 'time_ranges.csv', t_range, ids)
+        kf.arr2csv(outPath+'disch_disp.csv',d_disp,ids, fmt='%s')
         np.savetxt(id_ref,ids,fmt='%d')
 
         #Interpolate missing values

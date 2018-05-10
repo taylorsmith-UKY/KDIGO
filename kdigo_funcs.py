@@ -104,6 +104,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
     ids_out = []
     bslns = []
     bsln_gfr = []
+    t_range = []
     count = 0
     gfr_count = 0
     no_admit_info_count = 0
@@ -132,7 +133,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             continue
 
         # Get Baseline or remove if no admit dates provided
-        bsln_idx = np.where(bsln_m[:,0] == idx)[0][0]
+        bsln_idx = np.where(bsln_m[:, 0] == idx)[0][0]
         if bsln_idx.size == 0:
             np.delete(ids, bsln_idx)
             no_admit_info_count += 1
@@ -242,6 +243,10 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
 
 
         all_drows = np.where(date_m[:,id_loc] == idx)[0]
+        admit = datetime.datetime.now()
+        for i in range(len(all_drows)):
+            if date_m[all_drows[i], icu_locs[0]].to_pydatetime() < admit:
+                admit = date_m[all_drows[i], icu_locs[0]].to_pydatetime()
         '''
         delta = datetime.timedelta(0)
         for i in range(len(all_drows)):
@@ -276,8 +281,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             continue
 
         # get duration vector
-        tdates = scr_all_m[keep,scr_date_loc]
-        duration = [datetime.timedelta(0)] + [tdates[x] - tdates[0] for x in range(1, len(tdates))]
+        tdates = scr_all_m[keep, scr_date_loc]
+        duration = [tdates[x] - admit for x in range(len(tdates))]
         duration = np.array(duration)
         dkeep = np.where(duration < datetime.timedelta(7))[0]
         keep = keep[dkeep]
@@ -297,7 +302,11 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         dmasks.append(dmask)
         scr.append(scr_all_m[keep,scr_val_loc])
         dates.append(scr_all_m[keep,scr_date_loc])
+
+        tmin = duration[0].total_seconds() / (60 * 60)
+        tmax = duration[-1].total_seconds() / (60 * 60)
         ids_out.append(idx)
+        t_range.append([tmin, tmax])
         count += 1
     bslns = np.array(bslns)
     if v:
@@ -326,7 +335,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
     del xplt_m
     del dem_m
     del dob_m
-    return ids_out, scr, dates, tmasks, dmasks, bslns, bsln_gfr, d_disp
+    return ids_out, scr, dates, tmasks, dmasks, bslns, bsln_gfr, d_disp, t_range
 
 
 # %%
@@ -471,12 +480,12 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_d
             # first look for valid outpatient values before admission
             if len(pre_out_rows) != 0 and bsln_type == None:
                 row = pre_out_rows.pop(-1)
-                this_date = scr_all_m[row,scr_date_loc]
+                this_date = scr_all_m[row, scr_date_loc]
                 delta = admit-this_date
                 # find latest point that is > 24 hrs prior to admission
                 while delta < d_lim and len(pre_out_rows) > 0:
                     row = pre_out_rows.pop(-1)
-                    this_date = scr_all_m[row,scr_date_loc]
+                    this_date = scr_all_m[row, scr_date_loc]
                     delta = admit-this_date
                 # if valid point found save it
                 if y_lim > delta > d_lim:
@@ -502,16 +511,21 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_d
                     bsln_delta = delta.total_seconds() / (60 * 60 * 24)
                     # no values prior to admission, calculate MDRD derived
             if bsln_type is None:
-                dem_idx = np.where(dem_m[:, 0] == cur_id)[0]
+                dem_idx = np.where(dem_m[:, 0] == cur_id)[0][0]
                 dob_idx = np.where(dob_m[:, 0] == cur_id)[0]
-                sex = dem_idx[dem_idx, sex_loc]
-                eth = dem_idx[dem_idx, eth_loc]
-                dob = dob_m[dob_idx, dob_loc].to_pydatetime()
-                age = float((admit.to_pydatetime() - dob).days) / 365
-                bsln_val = baseline_est_gfr_mdrd(75, sex, eth, age)
-                bsln_date = admit
-                bsln_type = 'mdrd'
-                bsln_delta = 'na'
+                if dob_idx.size == 0:
+                    bsln_type = 'no_dob'
+                else:
+                    dob_idx = dob_idx[0]
+                    sex = dem_m[dem_idx, sex_loc]
+                    eth = dem_m[dem_idx, eth_loc]
+                    dob = dob_m[dob_idx, dob_loc]
+                    age = float((admit - dob).total_seconds()) / (60 * 60 * 24 * 365)
+                    if age > 0:
+                        bsln_val = baseline_est_gfr_mdrd(75, sex, eth, age)
+                        bsln_date = admit
+                        bsln_type = 'mdrd'
+                        bsln_delta = 'na'
                 # bsln_val = np.min(scr_all_m[idx_rows, scr_val_loc])
                 # row = np.argmin(scr_all_m[idx_rows, scr_val_loc])
                 # row = idx_rows[row]
@@ -656,16 +670,16 @@ def baseline_est_gfr_mdrd(gfr, sex, race, age):
 
 
 # %%
-def scr2kdigo(scr, base, masks):
+def scr2kdigo(scr, base, greatest_scr_last_48hrs, masks):
     kdigos = []
     for i in range(len(scr)):
-        kdigo = np.zeros(len(scr[i]),dtype=int)
+        kdigo = np.zeros(len(scr[i]), dtype=int)
         for j in range(len(scr[i])):
             if masks[i][j] > 0:
                 kdigo[j] = 4
                 continue
             elif scr[i][j] <= (1.5 * base[i]):
-                if scr[i][j] >= base[i] + 0.3:
+                if scr[i][j] >= greatest_scr_last_48hrs + 0.3:
                     kdigo[j] = 1
                 else:
                     kdigo[j] = 0
