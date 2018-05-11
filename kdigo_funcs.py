@@ -296,6 +296,14 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         duration = duration[dkeep]
         keep = keep[dkeep]
 
+        if len(dkeep) < 2:
+            np.delete(ids,count)
+            no_recs_count += 1
+            if v:
+                print(str(idx)+', removed due to not enough values in the time period of interest')
+                log.write(str(idx)+', removed due to not enough values in the time period of interest\n')
+            continue
+
         # points to keep = where duration < 7 days
         # i.e. set any points in 'keep' corresponding to points > 7 days
         # from start to 0
