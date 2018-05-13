@@ -687,7 +687,7 @@ def baseline_est_gfr_mdrd(gfr, sex, race, age):
 
 
 # %%
-def scr2kdigo(scr, base, greatest_scr_last_48hrs, masks):
+def scr2kdigo(scr, base, masks, pts_per_day=4):
     kdigos = []
     for i in range(len(scr)):
         kdigo = np.zeros(len(scr[i]), dtype=int)
@@ -696,15 +696,16 @@ def scr2kdigo(scr, base, greatest_scr_last_48hrs, masks):
                 kdigo[j] = 4
                 continue
             elif scr[i][j] <= (1.5 * base[i]):
-                if scr[i][j] >= greatest_scr_last_48hrs + 0.3:
-                    kdigo[j] = 1
-                else:
-                    kdigo[j] = 0
-            elif scr[i][j] < (2*base[i]):
+                if j > 2 * pts_per_day:
+                    if scr[i][j] >= np.max(scr[i][j-2*pts_per_day:j]) + 0.3:
+                        kdigo[j] = 1
+                    else:
+                        kdigo[j] = 0
+            elif scr[i][j] < (2 * base[i]):
                 kdigo[j] = 1
             elif scr[i][j] < (3 * base[i]):
                 kdigo[j] = 2
-            elif scr[i][j] >= (3 * base[i]):
+            elif (scr[i][j] >= (3 * base[i])) or (scr[i][j] >= 4.0):
                 kdigo[j] = 3
             elif scr[i][j] >= 4.0:
                 kdigo[j] = 3
