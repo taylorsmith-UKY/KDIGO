@@ -45,13 +45,17 @@ def main():
             _, baselines = kf.load_csv(outPath+'baselines.csv', ids, skip_header=True, sel=1)
             print('Loaded previously extracted raw data')
 
-            #Interpolate missing values
-            print('Interpolating missing values')
-            interpo_log = open(outPath+'interpo_log.txt','w')
-            post_interpo,dmasks_interp=kf.linear_interpo(scr,ids,dates,masks,dmasks,timescale,interpo_log)
-            kf.arr2csv(outPath+'scr_interp.csv',post_interpo,ids)
-            kf.arr2csv(outPath+'dmasks_interp.csv',dmasks_interp,ids,fmt='%d')
-            interpo_log.close()
+            try:
+                post_interpo = kf.load_csv(outPath+'scr_interp.csv', ids)
+                dmasks_interp = kf.load_csv(outPath+'dmasks_interp.csv', ids, dt=int)
+            except:
+                #Interpolate missing values
+                print('Interpolating missing values')
+                interpo_log = open(outPath+'interpo_log.txt','w')
+                post_interpo,dmasks_interp=kf.linear_interpo(scr,ids,dates,masks,dmasks,timescale,interpo_log)
+                kf.arr2csv(outPath+'scr_interp.csv',post_interpo,ids)
+                kf.arr2csv(outPath+'dmasks_interp.csv',dmasks_interp,ids,fmt='%d')
+                interpo_log.close()
             print('Converting to KDIGO')
             #Convert SCr to KDIGO
             kdigo = kf.scr2kdigo(post_interpo,baselines,dmasks_interp)
