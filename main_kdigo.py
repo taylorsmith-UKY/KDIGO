@@ -46,8 +46,9 @@ def main():
             print('Loaded previously extracted raw data')
 
             try:
-                post_interpo = kf.load_csv(outPath+'scr_interp.csv', ids)
-                dmasks_interp = kf.load_csv(outPath+'dmasks_interp.csv', ids, dt=int)
+                _, post_interpo = kf.load_csv(outPath+'scr_interp.csv', ids)
+                _, dmasks_interp = kf.load_csv(outPath+'dmasks_interp.csv', ids, dt=int)
+                print('Loaded previously interpolated values')
             except:
                 #Interpolate missing values
                 print('Interpolating missing values')

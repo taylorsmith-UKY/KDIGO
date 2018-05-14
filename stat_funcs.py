@@ -137,6 +137,7 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
                 if 'sep' in str(diag_m[tid, diag_loc]).lower():
                     if int(diag_m[tid, diag_nb_loc]) == 1:
                         sepsis = 1
+                        break
             except:
                 sepsis = 0
 
@@ -214,8 +215,8 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     sepsiss=np.array(sepsis, dtype=int)
     net_fluids=np.array(net_fluids, dtype=float)
     gross_fluids=np.array(gross_fluids, dtype=float)
-    c_scores=np.array(c_scores, dtype=int)
-    e_scores=np.array(e_scores, dtype=int)
+    c_scores=np.array(c_scores, dtype=float)    # Float bc possible NaNs
+    e_scores=np.array(e_scores, dtype=float)    # Float bc possible NaNs
     mv_frees=np.array(mv_frees, dtype=float)
     try:
         f = h5py.File(out_name, 'r+')

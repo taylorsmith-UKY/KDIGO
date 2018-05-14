@@ -55,7 +55,6 @@ def cluster(X, ids, fname, hfile, method='ward', metric='precomputed', title='Cl
         mgrp.create_dataset('ids', data=ids, dtype=int)
         np.savetxt(fname, link)
         dendrogram(link, p=50, truncate_mode='lastp')
-        plt.xlabel('Patient ID')
         plt.ylabel('Distance')
         plt.suptitle(title, fontweight='bold', fontsize=14)
         plt.show()
