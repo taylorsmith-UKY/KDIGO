@@ -317,7 +317,8 @@ def post_dm_process(h5_fname, csv_fname, output_base_path):
 
     for i in range(len(bkdn_nums)):
         print('Breaking down prior cluster '+str(bkdn_nums[i]))
-        lbl_list = ward_breakdown(f, sqdm, lbls, ids, bkdn_nums[i], cg, 'dbscan'+str(bkdn_nums[i]), output_base_path, bkdn_nums, lbl_list)
+        lbl_list = ward_breakdown(f, sqdm, lbls, ids, bkdn_nums[i], cg, 'dbscan'+str(bkdn_nums[i]),
+                                  output_base_path + 'dbscan/', (bkdn_nums[i],), lbl_list)
     comp = combine_labels(lbl_list)
     return comp
 
@@ -328,9 +329,10 @@ def ward_breakdown(f, sqdm, lbls, prev_ids, bkdn_num, clust_grp, base_name, outp
     idx = np.ix_(sel, sel)
     sqdm = sqdm[idx]
     condensed = squareform(sqdm)
-    f.create_dataset(base_name+'_dm', data=condensed)
+    # f.create_dataset(base_name+'_dm', data=condensed)
     cgrp_name = base_name + '_ward'
-    os.makedirs(output_base_path + cgrp_name)
+    outpath = output_base_path + '/ward' + str(bkdn_num) + '/'
+    os.makedirs(outpath)
     cgrp = clust_grp.create_group(cgrp_name)
     cgrp.create_dataset('ids', data=ids)
     link = ward(condensed)
@@ -341,7 +343,7 @@ def ward_breakdown(f, sqdm, lbls, prev_ids, bkdn_num, clust_grp, base_name, outp
     plt.close('all')
     dendrogram(link, 50, truncate_mode='lastp', color_threshold=thresh)
     plt.title(cgrp_name+'\nWard\'s Method')
-    plt.savefig(output_base_path+cgrp_name+'/dendrogram.png')
+    plt.savefig(outpath+'/dendrogram.png')
     plt.show()
     cont = 1
     while cont:
@@ -355,16 +357,17 @@ def ward_breakdown(f, sqdm, lbls, prev_ids, bkdn_num, clust_grp, base_name, outp
         if ctext.lower()[0] == 'n':
             cont = 0
 
-    dpath = output_base_path + cgrp_name + '/' + clust_name
+    dpath = outpath + '/' + clust_name + '/'
     os.makedirs(dpath)
-    os.makedirs(dpath + '/max_dist/')
+    os.makedirs(dpath + 'max_dist/')
+    np.savetxt(dpath + 'clusters.txt', nlbls)
     plt.close('all')
     inter_intra_dist(f, sqdm, cgrp_name, clust_name, op='max', out_path=dpath + '/max_dist/', plot='both')
     get_cstats(f, cluster_method=cgrp_name, n_clust=clust_name,
                out_name=dpath + '/cluster_stats.csv', report_kdigo0=False, meta_grp='meta')
 
     ctext = raw_input('Cluster IDs to break-down(id separated by comma (no space); N/n to quit): ')
-    lbl_list.append((parents, lbls))
+    lbl_list.append((parents, nlbls))
     if ctext.lower()[0] == 'n':
         return lbl_list
     if len(ctext) == 1:
@@ -374,7 +377,7 @@ def ward_breakdown(f, sqdm, lbls, prev_ids, bkdn_num, clust_grp, base_name, outp
     for i in range(len(bkdn_nums)):
         base_temp = base_name + '_ward' + str(bkdn_nums[i])
         lbl_list = ward_breakdown(f, sqdm, nlbls, ids, bkdn_nums[i], clust_grp, base_temp,
-                                  output_base_path, parents + (bkdn_nums[i],), lbl_list)
+                                  outpath, parents + (bkdn_nums[i],), lbl_list)
     return lbl_list
 
 

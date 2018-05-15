@@ -1230,7 +1230,7 @@ def feature_selection(data, lbls, method='univariate', params=[]):
         sf = SelectKBest(scoring, k=n_feats).fit_transform(data, lbls)
         return sf
 
-    elif method == 'resursive':
+    elif method == 'recursive':
         assert len(params) == 2
         estimator = params[0]
         cv = params[1]
@@ -1305,18 +1305,17 @@ def combine_labels(lbls):
                         lbls[n][1] = corresponding labels for further stratification
     :return:
     '''
-    out = np.array(lbls[0], dtype=int)
-    lbl_sets = {'root': out}
+    out = np.array(lbls[0], dtype=int, copy=True)
+    lbl_sets = {'root': np.array(out, copy=True)}
     for i in range(1, len(lbls)):
         shift = np.max(out)
         p = lbls[i][0]
         nlbls = lbls[i][1]
         lbl_key = '%d' % p[0]
         for j in range(1, len(p)):
-            lbl_key += ('%d,' % p[j])
-        lbl_sets[lbl_key] = nlbls
-
-        sel = sel[np.where(nlbls == p[0])[0]]
+            lbl_key += (',%d' % p[j])
+        lbl_sets[lbl_key] = np.array(nlbls, copy=True)
+        sel = np.where(lbls[0] == p[0])[0]
         if len(p) == 1:
             nlbls += shift
             out[sel] = nlbls
@@ -1324,11 +1323,15 @@ def combine_labels(lbls):
             lbl_key_temp = '%d' % p[0]
             for j in range(1, len(p)):
                 sel = sel[np.where(lbl_sets[lbl_key_temp] == p[j])]
-                lbl_key_temp += ('%d,' % p[j])
+                lbl_key_temp += (',%d' % p[j])
             nlbls += shift
             out[sel] = nlbls
     all_lbls = np.unique(out)
+    glob_shift = np.min(out[np.where(out >= 0)]) - 1
+    out[np.where(out >= 0)] -= glob_shift
     for i in range(len(all_lbls)-1):
+        if all_lbls[i] < 0:
+            continue
         if all_lbls[i + 1] - all_lbls[i] > 1:
             gap = all_lbls[i + 1] - all_lbls[i] - 1
             out[np.where(out > all_lbls[i])] -= gap

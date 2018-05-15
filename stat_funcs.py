@@ -73,7 +73,7 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     for line in f:
         l = line.rstrip().split(',')
         ddids.append(int(l[0]))
-        dd.append(l[1])
+        dd.append(l[1] + l[2] + l[3] + l[4] + l[5])
 
     f.close()
     dd = np.array(dd)
@@ -102,7 +102,7 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     for i in range(len(all_ids)):
         idx = all_ids[i]
         mk = np.max(kdigos[i])
-        died = int(dd[i] == 'EXPIRED')
+        died = int(dd[i] == 'EXPIR')
         hlos, ilos = get_los(idx, date_m, hosp_locs, icu_locs)
         hfree = 28 - hlos
         ifree = 28 - ilos
