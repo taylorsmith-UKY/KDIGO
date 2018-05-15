@@ -271,8 +271,8 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
         # sepsis = meta['sepsis'][:]
         net_fluid = meta['net_fluid'][:]
         gross_fluid = meta['gross_fluid'][:]
-        # charlson = meta['charlson'][:]
-        # elixhauser = meta['elixhauser'][:]
+        charlson = meta['charlson'][:]
+        elixhauser = meta['elixhauser'][:]
         mech_vent = meta['mv_free_days'][:]
 
         cids = f['clusters'][cluster_method]['ids'][:]
@@ -307,8 +307,8 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
         # sepsis = meta['sepsis'][pt_mask]
         net_fluid = meta['net_fluid'][pt_mask]
         gross_fluid = meta['gross_fluid'][pt_mask]
-        # charlson = meta['charlson'][pt_mask]
-        # elixhauser = meta['elixhauser'][pt_mask]
+        charlson = meta['charlson'][pt_mask]
+        elixhauser = meta['elixhauser'][pt_mask]
         mech_vent = meta['mv_free_days'][pt_mask]
 
         clusters = clust[np.argsort(cids)]
@@ -328,7 +328,7 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
                'n_eps_mean,n_eps_std,hosp_free_median,hosp_free_25,hosp_free_75,icu_free_median,' + \
                'icu_free_25,icu_free_75,sofa_mean,sofa_std,apache_mean,apache_std,age_mean,age_std,' + \
                'percent_male,fluid_overload_mean,fluid_overload_std,gross_fluid_mean,gross_fluid_std,' + \
-               'mech_vent_free_med,mech_vent_25,mech_vent_75\n'
+               'charlson_mean,charlson_std,elixhauser_mean,elixhauser_std,mech_vent_free_med,mech_vent_25,mech_vent_75\n'
 
     f = open(out_name, 'w')
     f.write(c_header)
@@ -362,10 +362,10 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
         net_std = np.nanstd(net_fluid[rows])
         gross_mean = np.nanmean(gross_fluid[rows])
         gross_std = np.nanstd(gross_fluid[rows])
-        # charl_mean = np.nanmean(charlson[rows])
-        # charl_std = np.nanstd(charlson[rows])
-        # elix_mean = np.nanmean(elixhauser[rows])
-        # elix_std = np.nanstd(elixhauser[rows])
+        charl_mean = np.nanmean(charlson[rows])
+        charl_std = np.nanstd(charlson[rows])
+        elix_mean = np.nanmean(elixhauser[rows])
+        elix_std = np.nanstd(elixhauser[rows])
         mech_med = np.nanmedian(mech_vent[rows])
         mech_25 = np.nanpercentile(mech_vent[rows], 25)
         mech_75 = np.nanpercentile(mech_vent[rows], 75)
@@ -414,11 +414,11 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
         #          n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
         #          sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, pct_septic, net_mean, net_std,
         #          gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
-        f.write('%d,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
+        f.write('%d,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
                 (cluster_id, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
                  n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
                  sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, net_mean, net_std,
-                 gross_mean, gross_std, mech_med, mech_25, mech_75))
+                 gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
 
 
 # %%
@@ -631,8 +631,6 @@ def get_sofa(id_file, in_name, out_name):
         scr_rows = np.where(scr_agg[:, 0] == idx)[0]
         mv_rows = np.where(organ_sup[:, 0] == idx)[0]
 
-        admit = admit_info[admit_rows[0][0], date]
-
         s1_pa = blood_gas[bg_rows, pa_o2]
         # s1_fi = clinical_oth[co_rows,fi_o2]
         # s1_vent = organ_sup[mv_rows,mech_vent]
@@ -683,19 +681,21 @@ def get_sofa(id_file, in_name, out_name):
         s3 = s3_map
         dopa = 0
         epi = 0
-        for i in range(len(s3_med)):
-            med_typ = s3_med[i]
-            dm = med_typ[0][0].lower()
-            start = s3_date[i]
-            stop = start + datetime.timedelta(s3_dur[i])
-            if 'dopamine' in dm or 'dobutamine' in dm:
-                if start <= admit:
-                    if admit <= stop:
-                        dopa = 1
-            elif 'epinephrine' in dm:
-                if start <= admit:
-                    if admit <= stop:
-                        epi = 1
+        try:
+            admit = admit_info[admit_rows[0][0], date]
+            for i in range(len(s3_med)):
+                med_typ = s3_med[i]
+                dm = med_typ[0][0].lower()
+                start = s3_date[i]
+                stop = start + datetime.timedelta(s3_dur[i])
+                if 'dopamine' in dm or 'dobutamine' in dm:
+                    if start <= admit:
+                        if admit <= stop:
+                            dopa = 1
+                elif 'epinephrine' in dm:
+                    if start <= admit:
+                        if admit <= stop:
+                            epi = 1
         if epi:
             score[2] = 3
         elif dopa:

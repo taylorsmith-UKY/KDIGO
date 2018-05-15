@@ -233,17 +233,18 @@ def inter_intra_dist(in_file, dm, cluster_method, n_clust, op='mean', out_path='
 
 def assign_feature_vectors(lbls, reference_vectors):
     n_pts = len(lbls)
+    all_lbls = np.unique(lbls)
     n_feats = reference_vectors.shape[1]
     features = np.zeros((n_pts, n_feats))
-    for i in range(len(lbls)):
-        lbl = lbls[i]
-        features[i, :] = reference_vectors[lbl - 1, :]
+    for i in range(len(all_lbls)):
+        idx = np.where(lbls == all_lbls[i])[0]
+        features[idx, :] = reference_vectors[i, :]
     return features
 
 
 def dm_to_sim(dist_file, out_name, beta=1, eps=1e-6):
     dm = np.loadtxt(dist_file, delimiter=',')
-    dm_std = np.std(dm[:,2])
+    dm_std = np.std(dm[:, 2])
     out = open(out_name, 'w')
     for i in range(np.shape(dm)[0]):
         sim = np.exp(-beta * dm[i, 2] / dm_std) + eps
