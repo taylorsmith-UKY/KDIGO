@@ -696,6 +696,8 @@ def get_sofa(id_file, in_name, out_name):
                     if start <= admit:
                         if admit <= stop:
                             epi = 1
+        except:
+            s3 = s3
         if epi:
             score[2] = 3
         elif dopa:

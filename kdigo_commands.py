@@ -315,11 +315,14 @@ def post_dm_process(h5_fname, csv_fname, output_base_path):
             cont = 0
             lbl_list.append(lbls)
 
-    for i in range(len(bkdn_nums)):
-        print('Breaking down prior cluster '+str(bkdn_nums[i]))
-        lbl_list = ward_breakdown(f, sqdm, lbls, ids, bkdn_nums[i], cg, 'dbscan'+str(bkdn_nums[i]),
-                                  output_base_path + 'dbscan/', (bkdn_nums[i],), lbl_list)
-    comp = combine_labels(lbl_list)
+    try:
+        for i in range(len(bkdn_nums)):
+            print('Breaking down prior cluster '+str(bkdn_nums[i]))
+            lbl_list = ward_breakdown(f, sqdm, lbls, ids, bkdn_nums[i], cg, 'dbscan'+str(bkdn_nums[i]),
+                                      output_base_path + 'dbscan/', (bkdn_nums[i],), lbl_list)
+        comp = combine_labels(lbl_list)
+    except:
+        comb = lbls
     return comp
 
 
