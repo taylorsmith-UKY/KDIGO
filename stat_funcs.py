@@ -23,6 +23,7 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     # load genders
     dem_m = get_mat('../DATA/KDIGO_full.xlsx', 'DEMOGRAPHICS_INDX', 'STUDY_PATIENT_ID')
     sex_loc = dem_m.columns.get_loc("GENDER")
+    eth_loc = dem_m.columns.get_loc('RACE')
     dem_m = dem_m.as_matrix()
 
     # load dates of birth
@@ -73,12 +74,10 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     for line in f:
         l = line.rstrip().split(',')
         ddids.append(int(l[0]))
-        dd.append(l[1] + l[2] + l[3] + l[4] + l[5])
+        dd.append(l[1])
 
     f.close()
     dd = np.array(dd)
-    for i in range(len(dd)):
-        dd[i] = dd[i].split()[0]
 
     n_eps = []
     for i in range(len(kdigos)):
@@ -99,10 +98,15 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     c_scores = []
     e_scores = []
     mv_frees = []
+    eths = []
     for i in range(len(all_ids)):
         idx = all_ids[i]
         mk = np.max(kdigos[i])
-        died = int(dd[i] == 'EXPIR')
+        died = 0
+        if 'EXPIRED' in dd[i]:
+            died += 1
+            if 'LESS' in dd[i]:
+                died += 1
         hlos, ilos = get_los(idx, date_m, hosp_locs, icu_locs)
         hfree = 28 - hlos
         ifree = 28 - ilos
@@ -156,19 +160,25 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
         tage = admit - dob
         age = tage[0].total_seconds() / (60 * 60 * 24 * 365)
 
+        race = dem_m[dem_idx, eth_loc]
+        if race == "BLACK/AFR AMERI":
+            eth = 1
+        else:
+            eth = 0
+
         sofa_idx = np.where(all_sofa[:, 0] == idx)[0]
         sofa = np.sum(all_sofa[sofa_idx, 1:])
 
         apache_idx = np.where(all_apache[:, 0] == idx)[0]
         apache = np.sum(all_apache[apache_idx, 1:])
 
-        io_idx = np.where(io_m[:,0] == idx)[0]
+        io_idx = np.where(io_m[:, 0] == idx)[0]
         if io_idx.size > 0:
             try:
-                net = np.nansum((io_m[io_idx, 1], io_m[io_idx,3], io_m[io_idx,5])) -\
-                        np.nansum((io_m[io_idx, 2], io_m[io_idx,4], io_m[io_idx,6]))
-                tot = np.nansum((io_m[io_idx, 1], io_m[io_idx,3], io_m[io_idx,5])) +\
-                        np.nansum((io_m[io_idx, 2], io_m[io_idx,4], io_m[io_idx,6]))
+                net = np.nansum((io_m[io_idx, 1], io_m[io_idx, 3], io_m[io_idx, 5])) - \
+                      np.nansum((io_m[io_idx, 2], io_m[io_idx, 4], io_m[io_idx, 6]))
+                tot = np.nansum((io_m[io_idx, 1], io_m[io_idx, 3], io_m[io_idx, 5])) + \
+                      np.nansum((io_m[io_idx, 2], io_m[io_idx, 4], io_m[io_idx, 6]))
             except:
                 net = np.nan
                 tot = np.nan
@@ -176,13 +186,13 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
             net = np.nan
             tot = np.nan
 
-        charl_idx = np.where(charl_m[:,0] == idx)[0]
+        charl_idx = np.where(charl_m[:, 0] == idx)[0]
         if charl_idx.size > 0:
             charl = charl_m[charl_idx, charl_loc]
         else:
             charl = np.nan
 
-        elix_idx = np.where(elix_m[:,0] == idx)[0]
+        elix_idx = np.where(elix_m[:, 0] == idx)[0]
         if elix_idx.size > 0:
             elix = elix_m[elix_idx, elix_loc]
         else:
@@ -203,21 +213,23 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
         c_scores.append(charl)
         e_scores.append(elix)
         mv_frees.append(mech)
-    ages=np.array(ages, dtype=float)
-    genders=np.array(genders, dtype=int)
-    mks=np.array(mks, dtype=int)
-    dieds=np.array(dieds, dtype=int)
-    nepss=np.array(nepss, dtype=int)
-    hosp_frees=np.array(hosp_frees, dtype=float)
-    icu_frees=np.array(icu_frees, dtype=float)
-    sofas=np.array(sofas, dtype=int)
-    apaches=np.array(apaches, dtype=int)
-    sepsiss=np.array(sepsis, dtype=int)
-    net_fluids=np.array(net_fluids, dtype=float)
-    gross_fluids=np.array(gross_fluids, dtype=float)
-    c_scores=np.array(c_scores, dtype=float)    # Float bc possible NaNs
-    e_scores=np.array(e_scores, dtype=float)    # Float bc possible NaNs
-    mv_frees=np.array(mv_frees, dtype=float)
+        eths.append(eth)
+    ages = np.array(ages, dtype=float)
+    genders = np.array(genders, dtype=int)
+    mks = np.array(mks, dtype=int)
+    dieds = np.array(dieds, dtype=int)
+    nepss = np.array(nepss, dtype=int)
+    hosp_frees = np.array(hosp_frees, dtype=float)
+    icu_frees = np.array(icu_frees, dtype=float)
+    sofas = np.array(sofas, dtype=int)
+    apaches = np.array(apaches, dtype=int)
+    sepsiss = np.array(sepsis, dtype=int)
+    net_fluids = np.array(net_fluids, dtype=float)
+    gross_fluids = np.array(gross_fluids, dtype=float)
+    c_scores = np.array(c_scores, dtype=float)  # Float bc possible NaNs
+    e_scores = np.array(e_scores, dtype=float)  # Float bc possible NaNs
+    mv_frees = np.array(mv_frees, dtype=float)
+    eths = np.array(eths, dtype=bool)
     try:
         f = h5py.File(out_name, 'r+')
     except:
@@ -230,9 +242,10 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
 
     meta.create_dataset('ids', data=all_ids, dtype=int)
     meta.create_dataset('age', data=ages, dtype=float)
+    meta.create_dataset('race', data=eths, dtype=bool)
     meta.create_dataset('gender', data=genders, dtype=bool)
     meta.create_dataset('max_kdigo', data=mks, dtype=int)
-    meta.create_dataset('died_inp', data=dieds, dtype=bool)
+    meta.create_dataset('died_inp', data=dieds, dtype=int)
     meta.create_dataset('n_episodes', data=nepss, dtype=int)
     meta.create_dataset('hosp_free_days', data=hosp_frees, dtype=float)
     meta.create_dataset('icu_free_days', data=icu_frees, dtype=float)
@@ -338,7 +351,7 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
             continue
         rows = np.where(clusters == cluster_id)[0]
         count = len(rows)
-        mort = float(len(np.where(died_inp[rows])[0]))/count
+        mort = float(len(np.where(died_inp[rows])[0])) / count
         k_counts = np.zeros(5)
         for i in range(5):
             k_counts[i] = len(np.where(m_kdigos[rows] == i)[0])
@@ -356,7 +369,7 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
         apache_std = np.std(apache[rows])
         age_mean = np.mean(ages[rows])
         age_std = np.std(ages[rows])
-        pct_male = float(len(np.where(genders[rows])[0]))/count
+        pct_male = float(len(np.where(genders[rows])[0])) / count
         # pct_septic = float(len(np.where(sepsis[rows])[0]))/count
         net_mean = np.nanmean(net_fluid[rows])
         net_std = np.nanstd(net_fluid[rows])
@@ -406,19 +419,20 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
             plt.ylabel('# of Patients')
             plt.xlabel('Mililiters')
             plt.title('Fluid Overload')
-            plt.suptitle('Cluster '+str(cluster_id)+' Distributions')
+            plt.suptitle('Cluster ' + str(cluster_id) + ' Distributions')
             plt.tight_layout()
-            plt.savefig('cluster'+str(cluster_id)+'dist.png')
+            plt.savefig('cluster' + str(cluster_id) + 'dist.png')
         # f.write('%d,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
         #         (cluster_id, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
         #          n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
         #          sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, pct_septic, net_mean, net_std,
         #          gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
-        f.write('%d,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
-                (cluster_id, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
-                 n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
-                 sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, net_mean, net_std,
-                 gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
+        f.write(
+            '%d,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
+            (cluster_id, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
+             n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
+             sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, net_mean, net_std,
+             gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
 
 
 # %%
@@ -454,7 +468,7 @@ def count_eps(kdigo, t_gap=48, timescale=6):
         return 0
     gap_ct = t_gap / timescale
     for i in range(1, len(aki)):
-        if (aki[i] - aki[i-1]) >= gap_ct:
+        if (aki[i] - aki[i - 1]) >= gap_ct:
             count += 1
     return count
 
@@ -517,8 +531,8 @@ def get_los(pid, date_m, hosp_locs, icu_locs):
     for i in range(len(icu)):
         icu_dur += icu[i][1].to_pydatetime() - icu[i][0].to_pydatetime()
 
-    h_dur = h_dur.total_seconds() / (60*60*24)
-    icu_dur = icu_dur.total_seconds() / (60*60*24)
+    h_dur = h_dur.total_seconds() / (60 * 60 * 24)
+    icu_dur = icu_dur.total_seconds() / (60 * 60 * 24)
 
     return h_dur, icu_dur
 
@@ -566,11 +580,11 @@ def get_disch_summary(id_file, stat_file, ids=None):
             n_oth += 1
     f.close()
 
-    sf.write('All Alive: %d\n' % (n_alive+n_xfer+n_ama))
+    sf.write('All Alive: %d\n' % (n_alive + n_xfer + n_ama))
     sf.write('Alive - Routine: %d\n' % n_alive)
     sf.write('Transferred: %d\n' % n_xfer)
     sf.write('Against Medical Advice: %d\n' % n_ama)
-    sf.write('Died: %d\n' % (n_lt+n_gt))
+    sf.write('Died: %d\n' % (n_lt + n_gt))
     sf.write('   <48 hrs: %d\n' % n_lt)
     sf.write('   >48 hrs: %d\n\n' % n_gt)
     sf.write('Other: %d\n' % n_oth)
@@ -626,10 +640,17 @@ def get_sofa(id_file, in_name, out_name):
         bg_rows = np.where(blood_gas[:, 0] == idx)[0]
         co_rows = np.where(clinical_oth[:, 0] == idx)[0]
         cv_rows = np.where(clinical_vit[:, 0] == idx)[0]
-        lab_rows = np.where(labs[:, 0] == idx)[0]
+        lab_rows = np.where(labs[:, 0] == idx)[0][0]
         med_rows = np.where(medications[:, 0] == idx)[0]
         scr_rows = np.where(scr_agg[:, 0] == idx)[0]
         mv_rows = np.where(organ_sup[:, 0] == idx)[0]
+
+        admit = datetime.datetime.now()
+        for did in admit_rows:
+            if admit_info[did, date] < admit:
+                admit = admit_info[did, date]
+        if type(admit) == np.ndarray:
+            admit = admit[0]
 
         s1_pa = blood_gas[bg_rows, pa_o2]
         # s1_fi = clinical_oth[co_rows,fi_o2]
@@ -666,17 +687,18 @@ def get_sofa(id_file, in_name, out_name):
         elif s1_pa < 400:
             score[0] = 1
 
-        s2 = s2_gcs
-        if not np.isnan(s2):
-            s2 = s2.split('-')[0]
-            if s2 < 6:
-                score[1] = 4
-            elif s2 < 10:
-                score[1] = 3
-            elif s2 < 13:
-                score[1] = 2
-            elif s2 < 15:
-                score[1] = 1
+        if s2_gcs.size > 0:
+            s2_gcs = s2_gcs[0]
+            s2 = float(str(s2_gcs).split('-')[0])
+            if not np.isnan(s2):
+                if s2 < 6:
+                    score[1] = 4
+                elif s2 < 10:
+                    score[1] = 3
+                elif s2 < 13:
+                    score[1] = 2
+                elif s2 < 15:
+                    score[1] = 1
 
         s3 = s3_map
         dopa = 0
@@ -738,6 +760,7 @@ def get_sofa(id_file, in_name, out_name):
         out.write(',%d,%d,%d,%d,%d,%d\n' % (score[0], score[1], score[2], score[3], score[4], score[5]))
         print(np.sum(score))
 
+
 def get_apache(id_file, in_name, out_name):
     ids = np.loadtxt(id_file, dtype=int)
 
@@ -794,13 +817,13 @@ def get_apache(id_file, in_name, out_name):
     for idx in ids:
         out.write('%d' % idx)
 
-        bg_rows = np.where(blood_gas[:, 0] == idx)
-        co_rows = np.where(clinical_oth[:, 0] == idx)
-        cv_rows = np.where(clinical_vit[:, 0] == idx)
-        lab_rows = np.where(labs[:, 0] == idx)
-        scr_rows = np.where(scr_agg[:, 0] == idx)
-        dob_rows = np.where(dob[:, 0] == idx)
-        bsln_rows = np.where(bsln[:, 0] == idx)
+        bg_rows = np.where(blood_gas[:, 0] == idx)[0]
+        co_rows = np.where(clinical_oth[:, 0] == idx)[0]
+        cv_rows = np.where(clinical_vit[:, 0] == idx)[0]
+        lab_rows = np.where(labs[:, 0] == idx)[0]
+        scr_rows = np.where(scr_agg[:, 0] == idx)[0]
+        dob_rows = np.where(dob[:, 0] == idx)[0]
+        bsln_rows = np.where(bsln[:, 0] == idx)[0]
 
         s1_low = clinical_vit[cv_rows, temp[0]]
         s1_high = clinical_vit[cv_rows, temp[1]]
@@ -818,15 +841,15 @@ def get_apache(id_file, in_name, out_name):
         s5_pco = blood_gas[bg_rows, pa_co2[1]]
         s5_f = blood_gas[bg_rows, fi_o2[1]]
         if not np.isnan(s5_po):
-            s5_po = float(s5_po)/100
+            s5_po = float(s5_po) / 100
         else:
             s5_po = np.nan
         if not np.isnan(s5_pco):
-            s5_pco = float(s5_pco)/100
+            s5_pco = float(s5_pco) / 100
         else:
             s5_pco = np.nan
         if not np.isnan(s5_f):
-            s5_f = float(s5_f)/100
+            s5_f = float(s5_f) / 100
         else:
             s5_f = np.nan
 
@@ -847,7 +870,7 @@ def get_apache(id_file, in_name, out_name):
         s11_low = labs[lab_rows, w_b_c[0]]
         s11_high = labs[lab_rows, w_b_c[1]]
 
-        s12 = clinical_oth[co_rows, gcs]
+        s12_gcs = clinical_oth[co_rows, gcs]
 
         s13_dob = dob[dob_rows, dob_idx]
         s13_admit = bsln[bsln_rows, bsln_date]
@@ -887,7 +910,7 @@ def get_apache(id_file, in_name, out_name):
             score[3] = 1
 
         if s5_f >= 0.5:
-            aado2 = s5_f*713 - (s5_pco/0.8) - s5_po
+            aado2 = s5_f * 713 - (s5_pco / 0.8) - s5_po
             if aado2 > 4:
                 score[4] = 4
             elif aado2 > 3.5:
@@ -950,12 +973,14 @@ def get_apache(id_file, in_name, out_name):
         elif s11_high >= 15:
             score[10] = 1
 
-        if not np.isnan(gcs):
-            gcs = int(s12.split('-')[0])
-            score[11] = 15 - gcs
+        if s12_gcs.size > 0:
+            s12_gcs = s12_gcs[0]
+            s12 = float(str(s12_gcs).split('-')[0])
+            if not np.isnan(s12):
+                score[11] = 15 - s12
 
-        age = s13_admit[0][0]-s13_dob[0][0]
-        if age >= datetime.timedelta(75*365):
+        age = s13_admit[0][0] - s13_dob[0][0]
+        if age >= datetime.timedelta(75 * 365):
             score[12] = 6
         elif datetime.timedelta(65 * 365) <= age < datetime.timedelta(75 * 365):
             score[12] = 5

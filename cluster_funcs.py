@@ -6,6 +6,7 @@ Created on Fri Jan 19 14:31:03 2018
 import numpy as np
 from scipy.spatial.distance import squareform
 from scipy.cluster.hierarchy import dendrogram, fcluster
+from scipy.stats.mstats import normaltest
 from sklearn.cluster import DBSCAN, SpectralClustering
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, homogeneity_score, completeness_score,\
     v_measure_score, fowlkes_mallows_score, silhouette_score, calinski_harabaz_score
@@ -187,9 +188,15 @@ def inter_intra_dist(in_file, dm, cluster_method, n_clust, op='mean', out_path='
         all_intra.append(intrad)
     all_inter = np.array(all_inter)
     all_intra = np.array(all_intra)
+    print('Normal tests:')
     for i in range(n_clusters):
         clust = lbls[i]
         cidx = np.where(clusters == clust)[0]
+        if len(cidx) < 8:
+            print('Cluster ' + str(clust) + ':\tLess Than 8 Samples')
+        else:
+            n = normaltest(all_intra[cidx].flatten())
+            print('Cluster ' + str(clust) + ':\t' + str(n))
         plt.figure()
         if plot == 'both':
             plt.subplot(121)

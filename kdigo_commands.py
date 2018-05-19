@@ -305,6 +305,18 @@ def post_dm_process(h5_fname, csv_fname, output_base_path):
             inter_intra_dist(f, sqdm, 'dbscan', grp_name, op='max', out_path=dpath, plot='both')
             get_cstats(f, cluster_method='dbscan', n_clust=grp_name,
                        out_name=output_base_path + 'dbscan/' + grp_name + '/cluster_stats.csv', report_kdigo0=False, meta_grp='meta')
+            ctext = raw_input('Extra clusters to designate as noise (id separated by comma (no space); N/n to quit): ')
+            if ctext.lower()[0] != 'n':
+                if len(ctext) == 1:
+                    noise_nums = np.array((int(ctext),))
+                else:
+                    noise_nums = np.sort(np.array(ctext.split(','), dtype=int))
+                for i in range(len(noise_nums)):
+                    sel = np.where(lbls == noise_nums[i])[0]
+                    lbls[sel] = -1
+                for i in range(len(noise_nums)):
+                    sel = np.where(lbls > noise_nums[i])[0]
+                    lbls[sel] -= 1
             ctext = raw_input('Cluster IDs to break-down(id separated by comma (no space); N/n to quit): ')
             if ctext.lower()[0] == 'n':
                 return

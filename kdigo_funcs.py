@@ -5,9 +5,8 @@ import numpy as np
 import pandas as pd
 from scipy.spatial import distance
 import dtw
-from dateutil import relativedelta as rdelta
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler as mms
 from sklearn.svm import SVC, LinearSVC
 from sklearn.metrics import f1_score, precision_score, recall_score
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
@@ -257,6 +256,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             continue
 
         all_drows = np.where(date_m[:, id_loc] == idx)[0]
+        '''
         delta = datetime.timedelta(0)
         for i in range(len(all_drows)):
             start = str(date_m[all_drows[i], icu_locs[1]]).split('.')[0]
@@ -281,9 +281,13 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                 print(str(idx)+', removed due to different ICU stays > 3 days apart')
                 log.write(str(idx)+', removed due to different ICU stays > 3 days apart\n')
             continue
+        '''
 
         # # remove patients who died <48 hrs after indexed admission
-        disch_disp = str(date_m[all_drows[0], d_disp_loc]).upper()
+        disch_disp = date_m[all_drows[0], d_disp_loc]
+        if type(disch_disp) == np.ndarray:
+            disch_disp = disch_disp[0]
+        disch_disp = disch_disp.upper()
         # if 'LESS THAN' in disch_disp:
         #     np.delete(ids, count)
         #     lt48_count += 1
@@ -440,7 +444,7 @@ def nbins(start, stop, scale):
 
 # %%
 def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc,
-                  dem_m, sex_loc, eth_loc, dob_m, dob_loc, fname, outp_rng=(1,365), inp_rng=(7,365)):
+                  dem_m, sex_loc, eth_loc, dob_m, dob_loc, fname, outp_rng=(1, 365), inp_rng=(7, 365)):
 
     log = open(fname, 'w')
     log.write('ID,bsln_val,bsln_type,bsln_date,admit_date,time_delta\n')
@@ -460,6 +464,8 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_d
             for did in didx:
                 if date_m[did, hosp_locs[0]] < admit:
                     admit = date_m[did, hosp_locs[0]]
+            if type(admit) == np.ndarray:
+                admit = admit[0]
 
             # find indices of all SCr values for this patient
             all_rows = np.where(scr_all_m[:, 0] == idx)[0]
@@ -529,7 +535,7 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_d
                     delta = admit-this_date
                 # if valid point found save it
                 if inp_lim[0] < delta < inp_lim[1]:
-                    bsln_date = str(this_date).split('.'[0])
+                    bsln_date = str(this_date).split('.')[0]
                     bsln_val = scr_all_m[row, scr_val_loc]
                     bsln_type = 'INPATIENT'
                     bsln_delta = delta.total_seconds() / (60 * 60 * 24)
@@ -548,7 +554,7 @@ def get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_d
                     age = float((admit - dob).total_seconds()) / (60 * 60 * 24 * 365)
                     if age > 0:
                         bsln_val = baseline_est_gfr_mdrd(75, sex, eth, age)
-                        bsln_date = str(admit).split('.'[0])
+                        bsln_date = str(admit).split('.')[0]
                         bsln_type = 'mdrd'
                         bsln_delta = 'na'
             admit = str(admit).split('.')[0]
@@ -671,7 +677,7 @@ def scr2kdigo(scr, base, masks, pts_per_day=4):
                 continue
             elif scr[i][j] <= (1.5 * base[i]):
                 if j > 2 * pts_per_day:
-                    if scr[i][j] >= np.max(scr[i][j-2*pts_per_day:j]) + 0.3:
+                    if scr[i][j] >= np.min(scr[i][j-2*pts_per_day:j]) + 0.3:
                         kdigo[j] = 1
                     else:
                         kdigo[j] = 0
