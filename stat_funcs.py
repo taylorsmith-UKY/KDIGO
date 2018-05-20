@@ -6,12 +6,13 @@ Created on Wed Nov 29 13:15:39 2017
 @author: taylorsmith
 """
 from __future__ import division
-from kdigo_funcs import load_csv, get_mat
+from kdigo_funcs import load_csv, get_mat, calc_gfr
 import datetime
 import numpy as np
 import re
 import matplotlib.pyplot as plt
 import h5py
+import pandas as pd
 
 
 def summarize_stats(data_path, out_name, grp_name='meta'):
@@ -215,7 +216,7 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
         mv_frees.append(mech)
         eths.append(eth)
     ages = np.array(ages, dtype=float)
-    genders = np.array(genders, dtype=int)
+    genders = np.array(genders, dtype=bool)
     mks = np.array(mks, dtype=int)
     dieds = np.array(dieds, dtype=int)
     nepss = np.array(nepss, dtype=int)
@@ -223,7 +224,7 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     icu_frees = np.array(icu_frees, dtype=float)
     sofas = np.array(sofas, dtype=int)
     apaches = np.array(apaches, dtype=int)
-    sepsiss = np.array(sepsis, dtype=int)
+    sepsiss = np.array(sepsis, dtype=bool)
     net_fluids = np.array(net_fluids, dtype=float)
     gross_fluids = np.array(gross_fluids, dtype=float)
     c_scores = np.array(c_scores, dtype=float)  # Float bc possible NaNs
@@ -258,7 +259,7 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     meta.create_dataset('elixhauser', data=e_scores, dtype=int)
     meta.create_dataset('mv_free_days', data=mv_frees, dtype=int)
 
-    f.close()
+    return meta
 
 
 # %%
@@ -801,19 +802,14 @@ def get_apache(id_file, in_name, out_name):
              labs.columns.get_loc('WBC_D1_HIGH_VALUE')]
     labs = labs.as_matrix()
 
-    dob = get_mat(in_name, 'DOB', 'STUDY_PATIENT_ID')
-    dob_idx = dob.columns.get_loc('DOB')
-    dob = dob.as_matrix()
-
-    bsln = get_mat(in_name, 'BASELINE_SCR', 'STUDY_PATIENT_ID')
-    bsln_date = bsln.columns.get_loc('BASELINE_DATE')
-    bsln = bsln.as_matrix()
+    _, ages = load_csv('../DATA/icu/7days_inc_death_051918/ages.csv', ids)
 
     scr_agg = get_mat(in_name, 'SCR_INDX_AGG', 'STUDY_PATIENT_ID')
     s_c_r = scr_agg.columns.get_loc('DAY1_MAX_VALUE')
     scr_agg = scr_agg.as_matrix()
 
     out = open(out_name, 'w')
+    ct = 0
     for idx in ids:
         out.write('%d' % idx)
 
@@ -822,8 +818,6 @@ def get_apache(id_file, in_name, out_name):
         cv_rows = np.where(clinical_vit[:, 0] == idx)[0]
         lab_rows = np.where(labs[:, 0] == idx)[0]
         scr_rows = np.where(scr_agg[:, 0] == idx)[0]
-        dob_rows = np.where(dob[:, 0] == idx)[0]
-        bsln_rows = np.where(bsln[:, 0] == idx)[0]
 
         s1_low = clinical_vit[cv_rows, temp[0]]
         s1_high = clinical_vit[cv_rows, temp[1]]
@@ -837,19 +831,24 @@ def get_apache(id_file, in_name, out_name):
         s4_low = clinical_oth[co_rows, resp[0]]
         s4_high = clinical_oth[co_rows, resp[1]]
 
-        s5_po = blood_gas[bg_rows, pa_o2[1]]
-        s5_pco = blood_gas[bg_rows, pa_co2[1]]
-        s5_f = blood_gas[bg_rows, fi_o2[1]]
-        if not np.isnan(s5_po):
-            s5_po = float(s5_po) / 100
+        s5_po = blood_gas[bg_rows[0], pa_o2[1]]
+        s5_pco = blood_gas[bg_rows[0], pa_co2[1]]
+        s5_f = blood_gas[bg_rows[0], fi_o2[1]]
+        if type(s5_po) != str and type(s5_po) != unicode:
+            if not np.isnan(s5_po):
+                s5_po = float(s5_po) / 100
         else:
             s5_po = np.nan
-        if not np.isnan(s5_pco):
-            s5_pco = float(s5_pco) / 100
+
+        if type(s5_pco) != str and type(s5_pco) != unicode:
+            if not np.isnan(s5_pco):
+                s5_pco = float(s5_pco) / 100
         else:
             s5_pco = np.nan
-        if not np.isnan(s5_f):
-            s5_f = float(s5_f) / 100
+
+        if type(s5_f) != str and type(s5_f) != unicode:
+            if not np.isnan(s5_f):
+                s5_f = float(s5_f) / 100
         else:
             s5_f = np.nan
 
@@ -872,8 +871,7 @@ def get_apache(id_file, in_name, out_name):
 
         s12_gcs = clinical_oth[co_rows, gcs]
 
-        s13_dob = dob[dob_rows, dob_idx]
-        s13_admit = bsln[bsln_rows, bsln_date]
+        s13_age = float(ages[ct])
 
         score = np.zeros(13)
 
@@ -979,17 +977,142 @@ def get_apache(id_file, in_name, out_name):
             if not np.isnan(s12):
                 score[11] = 15 - s12
 
-        age = s13_admit[0][0] - s13_dob[0][0]
-        if age >= datetime.timedelta(75 * 365):
+        age = s13_age
+        if age >= 75:
             score[12] = 6
-        elif datetime.timedelta(65 * 365) <= age < datetime.timedelta(75 * 365):
+        elif 65 <= age < 75:
             score[12] = 5
-        elif datetime.timedelta(55 * 365) <= age < datetime.timedelta(65 * 365):
+        elif 55 <= age < 65:
             score[12] = 3
-        elif datetime.timedelta(45 * 365) <= age < datetime.timedelta(55 * 365):
+        elif 45 <= age < 55:
             score[12] = 2
 
         for i in range(len(score)):
             out.write(',%d' % (score[i]))
         out.write('\n')
         print(np.sum(score))
+
+
+def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25):
+    # load outcome data
+    date_m = get_mat(in_name, 'ADMISSION_INDX', 'STUDY_PATIENT_ID')
+    disch_loc = date_m.columns.get_loc("HOSP_DISCHARGE_DATE")
+    date_m = date_m.as_matrix()
+
+    # load death data
+    mort_m = get_mat(in_name, 'OUTCOMES', 'STUDY_PATIENT_ID')
+    mdate_loc = mort_m.columns.get_loc("DECEASED_DATE")
+    mort_m = mort_m.as_matrix()
+
+    # All SCR
+    print('Loading SCr values (may take a while)...')
+    scr_all_m = get_mat(in_name, 'SCR_ALL_VALUES', ['STUDY_PATIENT_ID', 'SCR_ENTERED'])
+    scr_date_loc = scr_all_m.columns.get_loc('SCR_ENTERED')
+    scr_val_loc = scr_all_m.columns.get_loc('SCR_VALUE')
+    scr_all_m = scr_all_m.as_matrix()
+
+    # Dialysis dates
+    print('Loading dialysis dates...')
+    dia_m = get_mat(in_name, 'RENAL_REPLACE_THERAPY', ['STUDY_PATIENT_ID'])
+    crrt_locs = [dia_m.columns.get_loc('CRRT_START_DATE'), dia_m.columns.get_loc('CRRT_STOP_DATE')]
+    hd_locs = [dia_m.columns.get_loc('HD_START_DATE'), dia_m.columns.get_loc('HD_STOP_DATE')]
+    pd_locs = [dia_m.columns.get_loc('PD_START_DATE'), dia_m.columns.get_loc('PD_STOP_DATE')]
+    dia_m = dia_m.as_matrix()
+
+    # Baseline data
+    bsln_m = pd.read_csv(bsln_file)
+    bsln_val_loc = bsln_m.columns.get_loc('bsln_val')
+    bsln_m = bsln_m.as_matrix()
+
+    ages = stats['age'][:]
+    races = stats['race'][:]
+    sexes = stats['gender'][:]
+
+    print('MAKE-90: GFR Thresh = %d\%' % pct_lim)
+    print('id,died,gfr_drop,new_dialysis')
+    out = open(out_file, 'w')
+    out.write('MAKE-90: GFR Thresh = %d\%\n' % pct_lim)
+    out.write('id,died,gfr_drop,new_dialysis\n')
+    for i in range(len(ids)):
+        idx = ids[i]
+        scr_locs = np.where(scr_all_m[:, 0] == idx)[0]
+        dia_locs = np.where(dia_m[:, 0] == idx)[0]
+        mort_locs = np.where(mort_m[:, 0] == idx)[0]
+        date_locs = np.where(date_m[:, 0] == idx)[0]
+        bsln_loc = np.where(bsln_m[:, 0] == idx)[0][0]
+
+        died = 0
+        gfr_drop = 0
+        new_dia = 0
+
+        bsln_scr = bsln_m[bsln_loc, bsln_val_loc]
+        age = ages[i]
+        race = races[i]
+        sex = sexes[i]
+        bsln_gfr = calc_gfr(bsln_scr, sex, race, age)
+
+        disch = datetime.datetime(1000, 1, 1)
+        for j in range(len(date_locs)):
+            tid = date_locs[j]
+            tdate = str(date_m[tid, disch_loc])
+            if len(tdate) > 3:
+                tdate = datetime.datetime.strptime(tdate.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                if tdate > disch:
+                    disch = tdate
+
+        min_gfr = 1000
+        for j in range(len(scr_locs)):
+            tdate = str(scr_all_m[scr_locs[j], scr_date_loc])
+            tdate = datetime.datetime.strptime(tdate.split('.')[0], '%Y-%m-%d %H:%M:%S')
+            if datetime.timedelta(0) < tdate - disch < datetime.timedelta(90):
+                tscr = scr_all_m[scr_locs[j], scr_val_loc]
+                tgfr = calc_gfr(tscr, sex, race, age)
+                if tgfr < min_gfr:
+                    min_gfr = tgfr
+
+        thresh = 100 - pct_lim
+        rel_pct = (min_gfr / bsln_gfr) * 100
+        if rel_pct < thresh:
+            gfr_drop = 1
+
+        for j in range(len(mort_locs)):
+            m = mort_m[mort_locs[j], mdate_loc]
+            try:
+                m = datetime.datetime.strptime(m.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                if datetime.timedelta(0) < m - disch < datetime.timedelta(90):
+                    died = 1
+            except:
+                continue
+
+        for j in range(len(dia_locs)):
+            tstart = dia_m[dia_locs[j], crrt_locs[0]]
+            try:
+                tstart = datetime.datetime.strptime(tstart.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                if tstart < disch:
+                    new_dia = -1
+                    break
+                elif datetime.timedelta(0) < tstart - disch < datetime.timedelta(90):
+                    new_dia = 1
+            except:
+                tstart = dia_m[dia_locs[j], pd_locs[0]]
+                try:
+                    tstart = datetime.datetime.strptime(tstart.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                    if tstart < disch:
+                        new_dia = -1
+                        break
+                    elif datetime.timedelta(0) < tstart - disch < datetime.timedelta(90):
+                        new_dia = 1
+                except:
+                    tstart = dia_m[dia_locs[j], hd_locs[0]]
+                    try:
+                        tstart = datetime.datetime.strptime(tstart.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                        if tstart < disch:
+                            new_dia = -1
+                            break
+                        elif datetime.timedelta(0) < tstart - disch < datetime.timedelta(90):
+                            new_dia = 1
+                    except:
+                        continue
+
+        print('%d,%d,%d,%d' % (idx, died, gfr_drop, new_dia))
+        out.write('%d,%d,%d,%d\n' % (idx, died, gfr_drop, new_dia))

@@ -1,8 +1,9 @@
 import kdigo_funcs as kf
+import stat_funcs as sf
 import numpy as np
-import datetime
 import os
 import pandas as pd
+import h5py
 
 # ------------------------------- PARAMETERS ----------------------------------#
 basePath = "../"
@@ -204,8 +205,36 @@ def main():
         kdigo = kf.scr2kdigo(post_interpo, baselines, dmasks_interp)
         kf.arr2csv(outPath + 'kdigo.csv', kdigo, ids, fmt='%d')
 
-    # Get KDIGO Distance Matrix
-    kf.pairwise_dtw_dist(kdigo, ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv', incl_0=False)
+    # Calculate clinical mortality prediction scores
+    sf.get_sofa(id_ref, inFile, outPath + 'sofa.csv')
+    sf.get_apache(id_ref, inFile, outPath + 'apache.csv')
+
+    # Get KDIGO Distance Matrix and summarize patient stats
+    try:
+        f = h5py.File(resPath + 'kdigo_dm.h5', 'r+')
+        try:
+            stats = f['meta']
+        except:
+            all_stats = sf.summarize_stats(dataPath, resPath + 'kdigo_dm.h5', grp_name='meta_all')
+            mk_all = all_stats['max_kdigo'][:]
+            aki_idx = np.where(mk_all > 0)[0]
+            stats = f.create_group('meta')
+            for k in list(all_stats):
+                temp = all_stats[k][:]
+                if temp.size > 0:
+                    stats.create_dataset(k, data=temp[aki_idx], dtype=all_stats[k].dtype)
+    except:
+        dm = kf.pairwise_dtw_dist(kdigo, ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv', incl_0=False)
+        f = h5py.File(resPath + 'kdigo_dm.h5', 'w')
+        f.create_dataset('dm', data=dm)
+        all_stats = sf.summarize_stats(dataPath, resPath + 'kdigo_dm.h5', grp_name='meta_all')
+        mk_all = all_stats['max_kdigo'][:]
+        aki_idx = np.where(mk_all > 0)[0]
+        stats = f.create_group('meta')
+        for k in list(all_stats):
+            temp = all_stats[k][:]
+            if temp.size > 0:
+                stats.create_dataset(k, data=temp[aki_idx], dtype=all_stats[k].dtype)
 
 
 main()
