@@ -1,9 +1,11 @@
+import os
+import h5py
+import numpy as np
+import pandas as pd
 import kdigo_funcs as kf
 import stat_funcs as sf
-import numpy as np
-import os
-import pandas as pd
-import h5py
+from cluster_funcs import assign_feature_vectors
+from kdigo_commands import post_dm_process
 
 # ------------------------------- PARAMETERS ----------------------------------#
 basePath = "../"
@@ -12,6 +14,7 @@ xl_file = "KDIGO_full.xlsx"
 timescale = 6  # in hours
 id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
+h5_name = 'kdigo_dm.h5'
 # -----------------------------------------------------------------------------#
 
 sort_id = 'STUDY_PATIENT_ID'
@@ -22,6 +25,7 @@ resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_pub/'
 inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 baseline_file = dataPath + 'baselines_7-365_mdrd.csv'
+h5_name = resPath + h5_name
 
 
 def main():
@@ -35,7 +39,7 @@ def main():
         ids = np.loadtxt(id_ref, dtype=int)
         # try to load final KDIGO values
         try:
-            _, kdigo = kf.load_csv(outPath + 'kdigo.csv', ids)
+            _, kdigos = kf.load_csv(outPath + 'kdigo.csv', ids)
             print('Loaded previously extracted KDIGO vectors')
         # try to load extracted raw data
         except:
@@ -60,8 +64,8 @@ def main():
                 interpo_log.close()
             print('Converting to KDIGO')
             # Convert SCr to KDIGO
-            kdigo = kf.scr2kdigo(post_interpo, baselines, dmasks_interp)
-            kf.arr2csv(outPath + 'kdigo.csv', kdigo, ids)
+            kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp)
+            kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids)
     # If data loading unsuccesful start from scratch
     except:
         ############ Get Indices for All Used Values ################
@@ -202,20 +206,16 @@ def main():
 
         # Convert SCr to KDIGO
         print('Converting to KDIGO')
-        kdigo = kf.scr2kdigo(post_interpo, baselines, dmasks_interp)
-        kf.arr2csv(outPath + 'kdigo.csv', kdigo, ids, fmt='%d')
-
-    # Calculate clinical mortality prediction scores
-    sf.get_sofa(id_ref, inFile, outPath + 'sofa.csv')
-    sf.get_apache(id_ref, inFile, outPath + 'apache.csv')
+        kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp)
+        kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids, fmt='%d')
 
     # Get KDIGO Distance Matrix and summarize patient stats
     try:
-        f = h5py.File(resPath + 'kdigo_dm.h5', 'r+')
+        f = h5py.File(h5_name, 'r+')
         try:
             stats = f['meta']
         except:
-            all_stats = sf.summarize_stats(dataPath, resPath + 'kdigo_dm.h5', grp_name='meta_all')
+            all_stats = sf.summarize_stats(dataPath, h5_name, grp_name='meta_all')
             mk_all = all_stats['max_kdigo'][:]
             aki_idx = np.where(mk_all > 0)[0]
             stats = f.create_group('meta')
@@ -224,10 +224,10 @@ def main():
                 if temp.size > 0:
                     stats.create_dataset(k, data=temp[aki_idx], dtype=all_stats[k].dtype)
     except:
-        dm = kf.pairwise_dtw_dist(kdigo, ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv', incl_0=False)
-        f = h5py.File(resPath + 'kdigo_dm.h5', 'w')
+        dm = kf.pairwise_dtw_dist(kdigos, ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv', incl_0=False)
+        f = h5py.File(h5_name, 'w')
         f.create_dataset('dm', data=dm)
-        all_stats = sf.summarize_stats(dataPath, resPath + 'kdigo_dm.h5', grp_name='meta_all')
+        all_stats = sf.summarize_stats(dataPath, h5_name, grp_name='meta_all')
         mk_all = all_stats['max_kdigo'][:]
         aki_idx = np.where(mk_all > 0)[0]
         stats = f.create_group('meta')
@@ -235,6 +235,85 @@ def main():
             temp = all_stats[k][:]
             if temp.size > 0:
                 stats.create_dataset(k, data=temp[aki_idx], dtype=all_stats[k].dtype)
+
+    # Calculate clinical mortality prediction scores
+    sofa = None
+    if not os.path.exists(dataPath + 'sofa.csv'):
+        sofa = sf.get_sofa(id_ref, inFile, dataPath + 'sofa.csv')
+
+    apache = None
+    if not os.path.exists(dataPath + 'apache.csv'):
+        apache = sf.get_apache(id_ref, inFile, dataPath + 'apache.csv')
+
+    try:
+        _ = stats['sofa']
+    except:
+        if sofa is None:
+            _, sofa = kf.load_csv(dataPath + 'sofa.csv', ids, dt=int)
+            sofa = np.array(sofa)
+            sofa = np.sum(sofa, axis=1)
+        _ = stats.create_dataset('sofa', data=sofa, dtype=int)
+
+    try:
+        _ = stats['apache']
+    except:
+        if apache is None:
+            _, apache = kf.load_csv(dataPath + 'apache.csv', ids, dt=int)
+            apache = np.array(apache)
+            apache = np.sum(apache, axis=1)
+        _ = stats.create_dataset('apache', data=apache, dtype=int)
+
+    # Calculate individual trajectory based statistics if not already done
+    try:
+        fg = f['features']
+    except:
+        fg = f.create_group('features')
+    try:
+        desc = fg['descriptive_individual'][:]
+    except:
+        desc = kf.descriptive_trajectory_features(kdigos, ids, filename=dataPath+'descriptive_features.csv')
+        _ = fg.create_dataset('descriptive_individual', data=desc, dtype=int)
+    try:
+        slope = fg['slope_individual'][:]
+    except:
+        slope = kf.slope_trajectory_features(kdigos, ids, filename=dataPath + 'slope_features.csv')
+        _ = fg.create_dataset('slope_individual', data=slope, dtype=int)
+    try:
+        temp = fg['template_individual'][:]
+    except:
+        temp = kf.template_trajectory_features(kdigos, ids, filename=dataPath + 'template_features.csv')
+        _ = fg.create_dataset('template_individual', data=temp, dtype=int)
+
+    # Load clusters or launch interactive clustering
+    try:
+        lbls = np.loadtxt(resPath + 'clusters/composite/clusters.txt', dtype=int)
+    except:
+        if not os.path.exists(resPath + 'clusters/'):
+            os.mkdir(resPath + 'clusters/')
+        lbls = post_dm_process(h5_name, '', output_base_path=resPath + 'clusters/')
+
+        if not os.path.exists(resPath + 'clusters/composite/'):
+            os.mkdir(resPath + 'clusters/composite/')
+        np.savetxt(resPath + 'clusters/composite/clusters.txt', lbls, fmt='%d')
+
+    # Get corresponding cluster features
+    try:
+        _ = fg['descriptive_clusters'][:]
+        _ = fg['template_clusters'][:]
+        _ = fg['slope_clusters'][:]
+    except:
+        desc_c, temp_c, slope_c = kf.cluster_feature_vectors(desc, temp, slope, lbls)
+        all_desc_c = assign_feature_vectors(lbls, desc_c)
+        all_temp_c = assign_feature_vectors(lbls, temp_c)
+        all_slope_c = assign_feature_vectors(lbls, slope_c)
+        fg.create_dataset('descriptive_clusters', data=all_desc_c, dtype=int)
+        fg.create_dataset('template_clusters', data=all_temp_c, dtype=float)
+        fg.create_dataset('slope_clusters', data=all_slope_c, dtype=float)
+
+    print('Ready for classification. Please run script \'classify_features.py\'')
+    print('Available features:')
+    for k in fg.keys():
+        print('\t' + k)
 
 
 main()

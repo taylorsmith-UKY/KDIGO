@@ -66,8 +66,6 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     date_all_ids = []
     for i in range(len(date_ids)):
         date_all_ids.append(date_ids[i])
-    all_apache = np.loadtxt('../DATA/icu/7days_final/apache.csv', delimiter=',', dtype=int)
-    all_sofa = np.loadtxt('../DATA/icu/7days_final/sofa.csv', delimiter=',', dtype=int)
 
     f = open(data_path + 'disch_disp.csv', 'r')
     dd = []
@@ -91,8 +89,6 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     nepss = []
     hosp_frees = []
     icu_frees = []
-    sofas = []
-    apaches = []
     sepsiss = []
     net_fluids = []
     gross_fluids = []
@@ -167,12 +163,6 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
         else:
             eth = 0
 
-        sofa_idx = np.where(all_sofa[:, 0] == idx)[0]
-        sofa = np.sum(all_sofa[sofa_idx, 1:])
-
-        apache_idx = np.where(all_apache[:, 0] == idx)[0]
-        apache = np.sum(all_apache[apache_idx, 1:])
-
         io_idx = np.where(io_m[:, 0] == idx)[0]
         if io_idx.size > 0:
             try:
@@ -206,8 +196,6 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
         nepss.append(eps)
         hosp_frees.append(hfree)
         icu_frees.append(ifree)
-        sofas.append(sofa)
-        apaches.append(apache)
         sepsiss.append(sepsis)
         net_fluids.append(net)
         gross_fluids.append(tot)
@@ -222,8 +210,6 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     nepss = np.array(nepss, dtype=int)
     hosp_frees = np.array(hosp_frees, dtype=float)
     icu_frees = np.array(icu_frees, dtype=float)
-    sofas = np.array(sofas, dtype=int)
-    apaches = np.array(apaches, dtype=int)
     sepsiss = np.array(sepsis, dtype=bool)
     net_fluids = np.array(net_fluids, dtype=float)
     gross_fluids = np.array(gross_fluids, dtype=float)
@@ -250,8 +236,6 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     meta.create_dataset('n_episodes', data=nepss, dtype=int)
     meta.create_dataset('hosp_free_days', data=hosp_frees, dtype=float)
     meta.create_dataset('icu_free_days', data=icu_frees, dtype=float)
-    meta.create_dataset('sofa', data=sofas, dtype=int)
-    meta.create_dataset('apache', data=apaches, dtype=int)
     meta.create_dataset('sepsis', data=sepsiss, dtype=bool)
     meta.create_dataset('net_fluid', data=net_fluids, dtype=int)
     meta.create_dataset('gross_fluid', data=gross_fluids, dtype=int)
@@ -831,24 +815,27 @@ def get_apache(id_file, in_name, out_name):
         s4_low = clinical_oth[co_rows, resp[0]]
         s4_high = clinical_oth[co_rows, resp[1]]
 
-        s5_po = blood_gas[bg_rows[0], pa_o2[1]]
-        s5_pco = blood_gas[bg_rows[0], pa_co2[1]]
-        s5_f = blood_gas[bg_rows[0], fi_o2[1]]
-        if type(s5_po) != str and type(s5_po) != unicode:
-            if not np.isnan(s5_po):
-                s5_po = float(s5_po) / 100
+        s5_po = blood_gas[bg_rows, pa_o2[1]]
+        s5_pco = blood_gas[bg_rows, pa_co2[1]]
+        s5_f = blood_gas[bg_rows, fi_o2[1]]
+        if s5_po.size > 0:
+            if type(s5_po) != str and type(s5_po) != unicode:
+                if not np.isnan(s5_po):
+                    s5_po = float(s5_po) / 100
         else:
             s5_po = np.nan
 
-        if type(s5_pco) != str and type(s5_pco) != unicode:
-            if not np.isnan(s5_pco):
-                s5_pco = float(s5_pco) / 100
+        if s5_pco.size > 0:
+            if type(s5_pco) != str and type(s5_pco) != unicode:
+                if not np.isnan(s5_pco):
+                    s5_pco = float(s5_pco) / 100
         else:
             s5_pco = np.nan
 
-        if type(s5_f) != str and type(s5_f) != unicode:
-            if not np.isnan(s5_f):
-                s5_f = float(s5_f) / 100
+        if s5_f.size > 0:
+            if type(s5_f) != str and type(s5_f) != unicode:
+                if not np.isnan(s5_f):
+                    s5_f = float(s5_f) / 100
         else:
             s5_f = np.nan
 

@@ -326,7 +326,7 @@ def post_dm_process(h5_fname, csv_fname, output_base_path):
                 bkdn_nums = np.array(ctext.split(','), dtype=int)
             cont = 0
             lbl_list.append(lbls)
-
+    np.savetxt(output_base_path + 'dbscan/' + grp_name + '/clusters.txt', lbls)
     try:
         for i in range(len(bkdn_nums)):
             print('Breaking down prior cluster '+str(bkdn_nums[i]))

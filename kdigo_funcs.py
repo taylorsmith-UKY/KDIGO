@@ -876,7 +876,11 @@ def load_csv(fname, ids, dt=float, skip_header=False, sel=None):
             else:
                 res.append(np.array(l.split(',')[sel], dtype=dt))
             rid.append(int(l.split(',')[0]))
-    return rid, res
+    if len(rid) != len(ids):
+        print('Missing ids in file: ' + fname)
+        return
+    else:
+        return rid, res
 
 
 def descriptive_trajectory_features(kdigos, ids, filename='descriptive_features.csv'):
@@ -1315,6 +1319,7 @@ def combine_labels(lbls):
         if all_lbls[i + 1] - all_lbls[i] > 1:
             gap = all_lbls[i + 1] - all_lbls[i] - 1
             out[np.where(out > all_lbls[i])] -= gap
+            all_lbls = np.unique(out)
     return out
 
 
@@ -1352,3 +1357,71 @@ def cross_val_classify(features, labels, n_splits=10, clf_type='svm', clf_params
         perf[i, :] = perf_measure(y_val, predicted)
 
     return perf
+
+
+def daily_max_kdigo(scr, dates, bsln, admit_date, dmask):
+    mk = []
+    temp = dates[0].day
+    tmax = 0
+    for i in range(len(scr)):
+        date = dates[i]
+        day = date.day
+        if day != temp:
+            mk.append(tmax)
+            tmax = 0
+            temp = day
+        if dmask[i] > 0:
+            tmax = 4
+        elif scr[i] <= (1.5 * bsln):
+            if date - admit_date >= datetime.timedelta(2):
+                minim = scr[i]
+                for j in range(i)[::-1]:
+                    delta = date - dates[j]
+                    if delta < datetime.timedelta(2):
+                        break
+                    if scr[i] >= minim + 0.3:
+                        if tmax < 1:
+                            tmax = 1
+                        break
+                    else:
+                        if scr[i] < minim:
+                            minim = scr[i]
+        elif scr[i] < (2 * bsln):
+            if tmax < 1:
+                tmax = 1
+        elif scr[i] < (3 * bsln):
+            if tmax < 2:
+                tmax = 2
+        elif (scr[i] >= (3 * bsln)) or (scr[i] >= 4.0):
+            if tmax < 3:
+                tmax = 3
+    mk.append(tmax)
+    return mk
+
+
+def cluster_feature_vectors(desc, temp, slope, lbls):
+    clbls = np.unique(lbls)
+    n_clust = len(clbls)
+    n_desc = desc.shape[1]
+    n_temp = temp.shape[1]
+    n_slope = slope.shape[1]
+    desc_c = np.zeros((n_clust, n_desc))
+    temp_c = np.zeros((n_clust, n_temp))
+    slope_c = np.zeros((n_clust, n_slope))
+    for i in range(n_clust):
+        idx = np.where(lbls == clbls[i])[0]
+        tdesc = desc[idx, :]
+        ttemp = temp[idx, :]
+        tslope = slope[idx, :]
+
+        tdesc = np.mean(tdesc, axis=0)
+        tdesc[np.where(tdesc >= 0.5)] = 1
+        tdesc[np.where(tdesc < 1)] = 0
+        ttemp = np.mean(ttemp, axis=0)
+        tslope = np.mean(tslope, axis=0)
+
+        desc_c[i, :] = tdesc
+        temp_c[i, :] = ttemp
+        slope_c[i, :] = tslope
+    return desc_c, temp_c, slope_c
+
