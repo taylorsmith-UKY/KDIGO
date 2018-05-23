@@ -14,11 +14,10 @@ from scipy import interp
 
 
 # --------------------------------------------------- PARAMETERS ----------------------------------------------------- #
-data_file = '../RESULTS/icu/7days_051118/kdigo_dm.h5'
-# features = ['sofa_norm', 'apache_norm', 'sofa_and_apache_norm', 'all_traj', 'all_traj_clusters', 'everything']
-features = ['sofa_norm', 'all_traj', 'all_traj_clusters']
+data_file = '../RESULTS/icu/7days_inc_death_051918/kdigo_dm.h5'
+features = ['sofa_norm', 'apache_norm', 'clinical_norm', 'all_trajectory_norm', 'all_trajectory_individual_norm', 'everything_individual', 'everything_clusters']
 lbls = '/meta/died_inp'
-basepath = '../RESULTS/icu/7days_051118/classification/'
+basepath = '../RESULTS/icu/7days_inc_death_051918/classification/'
 
 test_size = 0.2
 
@@ -54,8 +53,13 @@ def perf_measure(y_actual, y_hat):
 
 f = h5py.File(data_file, 'r')
 
+if not os.path.exists(basepath):
+    os.mkdir(basepath)
+
 for model in models:
     basepath += model + '/'
+    if not os.path.exists(basepath):
+        os.mkdir(basepath)
 
     # Set the parameters by cross-validation
     if model == 'svm':

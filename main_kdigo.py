@@ -199,14 +199,16 @@ def main():
         # Interpolate missing values
         print('Interpolating missing values')
         interpo_log = open(outPath + 'interpo_log.txt', 'w')
-        post_interpo, dmasks_interp = kf.linear_interpo(scr, ids, dates, masks, dmasks, timescale, interpo_log)
+        post_interpo, dmasks_interp, days_interp, interp_masks = kf.linear_interpo(scr, ids, dates, masks, dmasks, timescale, interpo_log)
         kf.arr2csv(outPath + 'scr_interp.csv', post_interpo, ids)
+        kf.arr2csv(outPath + 'days_interp.csv', days_interp, ids, fmt='%d')
+        kf.arr2csv(outPath + 'interp_masks.csv', interp_masks, ids, fmt='%d')
         kf.arr2csv(outPath + 'dmasks_interp.csv', dmasks_interp, ids, fmt='%d')
         interpo_log.close()
 
         # Convert SCr to KDIGO
         print('Converting to KDIGO')
-        kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp)
+        kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp, interp_masks)
         kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids, fmt='%d')
 
     # Get KDIGO Distance Matrix and summarize patient stats

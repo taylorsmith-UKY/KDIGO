@@ -595,12 +595,13 @@ def get_sofa(id_file, in_name, out_name):
     organ_sup = organ_sup.as_matrix()
 
     clinical_oth = get_mat(in_name, 'CLINICAL_OTHERS', 'STUDY_PATIENT_ID')
-    # fi_o2 = clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')
+    fi_o2 = clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')
     g_c_s = clinical_oth.columns.get_loc('GLASGOW_SCORE_D1_LOW_VALUE')
     clinical_oth = clinical_oth.as_matrix()
 
     clinical_vit = get_mat(in_name, 'CLINICAL_VITALS', 'STUDY_PATIENT_ID')
     m_a_p = clinical_vit.columns.get_loc('ART_MEAN_D1_LOW_VALUE')
+    cuff = clinical_vit.columns.get_loc('CUFF_MEAN_D1_LOW_VALUE')
     clinical_vit = clinical_vit.as_matrix()
 
     labs = get_mat(in_name, 'LABS_SET1', 'STUDY_PATIENT_ID')
@@ -638,12 +639,19 @@ def get_sofa(id_file, in_name, out_name):
             admit = admit[0]
 
         s1_pa = blood_gas[bg_rows, pa_o2]
-        # s1_fi = clinical_oth[co_rows,fi_o2]
-        # s1_vent = organ_sup[mv_rows,mech_vent]
+        s1_fi = clinical_oth[co_rows,fi_o2]
+        s1_vent = organ_sup[mv_rows,mech_vent]
+        s1_ratio = s1_pa / s1_fi
 
-        s2_gcs = clinical_oth[co_rows, g_c_s]
+        try:
+            s2_gcs = float(str(clinical_oth[co_rows, g_c_s][0]).split('-')[0])
+        except:
+            s2_gcs = None
 
         s3_map = clinical_vit[cv_rows, m_a_p]
+        if np.isnan(float(s3_map)):
+            s3_map = clinical_vit[cv_rows, cuff]
+
         s3_med = medications[med_rows, med_name]
         s3_date = medications[med_rows, med_date]
         s3_dur = medications[med_rows, med_dur]
@@ -652,6 +660,7 @@ def get_sofa(id_file, in_name, out_name):
 
         s5_plt = labs[lab_rows, pltlts]
 
+        # Find maximum value in day 0
         s6_scr = scr_agg[scr_rows, s_c_r]
 
         score = np.zeros(6, dtype=int)
@@ -663,18 +672,17 @@ def get_sofa(id_file, in_name, out_name):
                 if tmv[0] <= admit <= tmv[1]:
                     vent = 1
         if vent:
-            if s1_pa < 100:
+            if s1_ratio < 100:
                 score[0] = 4
-            elif s1_pa < 200:
+            elif s1_ratio < 200:
                 score[0] = 3
-        elif s1_pa < 300:
+        elif s1_ratio < 300:
             score[0] = 2
-        elif s1_pa < 400:
+        elif s1_ratio < 400:
             score[0] = 1
 
-        if s2_gcs.size > 0:
-            s2_gcs = s2_gcs[0]
-            s2 = float(str(s2_gcs).split('-')[0])
+        if s2_gcs is not None:
+            s2 = s2_gcs
             if not np.isnan(s2):
                 if s2 < 6:
                     score[1] = 4
@@ -735,11 +743,11 @@ def get_sofa(id_file, in_name, out_name):
         s6 = s6_scr
         if s6 > 5.0:
             score[5] = 4
-        if s6 > 3.5:
+        elif s6 > 3.5:
             score[5] = 3
-        if s6 > 2.0:
+        elif s6 > 2.0:
             score[5] = 2
-        if s6 > 1.2:
+        elif s6 > 1.2:
             score[5] = 1
 
         out.write(',%d,%d,%d,%d,%d,%d\n' % (score[0], score[1], score[2], score[3], score[4], score[5]))
@@ -754,6 +762,8 @@ def get_apache(id_file, in_name, out_name):
             clinical_vit.columns.get_loc('TEMPERATURE_D1_HIGH_VALUE')]
     m_ap = [clinical_vit.columns.get_loc('ART_MEAN_D1_LOW_VALUE'),
             clinical_vit.columns.get_loc('ART_MEAN_D1_HIGH_VALUE')]
+    cuff = [clinical_vit.columns.get_loc('CUFF_MEAN_D1_LOW_VALUE'),
+            clinical_vit.columns.get_loc('CUFF_MEAN_D1_HIGH_VALUE')]
     h_r = [clinical_vit.columns.get_loc('HEART_RATE_D1_LOW_VALUE'),
            clinical_vit.columns.get_loc('HEART_RATE_D1_HIGH_VALUE')]
     clinical_vit = clinical_vit.as_matrix()
@@ -803,11 +813,14 @@ def get_apache(id_file, in_name, out_name):
         lab_rows = np.where(labs[:, 0] == idx)[0]
         scr_rows = np.where(scr_agg[:, 0] == idx)[0]
 
-        s1_low = clinical_vit[cv_rows, temp[0]]
-        s1_high = clinical_vit[cv_rows, temp[1]]
+        s1_low = (clinical_vit[cv_rows, temp[0]] - 32) / 1.8
+        s1_high = (clinical_vit[cv_rows, temp[1]] - 32) / 1.8
 
         s2_low = clinical_vit[cv_rows, m_ap[0]]
         s2_high = clinical_vit[cv_rows, m_ap[1]]
+        if np.isnan(float(str(s2_low))):
+            s2_low = clinical_vit[cv_rows, cuff[0]]
+            s2_high = clinical_vit[cv_rows, cuff[1]]
 
         s3_low = clinical_vit[cv_rows, h_r[0]]
         s3_high = clinical_vit[cv_rows, h_r[1]]
@@ -817,7 +830,7 @@ def get_apache(id_file, in_name, out_name):
 
         s5_po = blood_gas[bg_rows, pa_o2[1]]
         s5_pco = blood_gas[bg_rows, pa_co2[1]]
-        s5_f = blood_gas[bg_rows, fi_o2[1]]
+        s5_f = clinical_oth[co_rows, fi_o2[1]]
         if s5_po.size > 0:
             if type(s5_po) != str and type(s5_po) != unicode:
                 if not np.isnan(s5_po):
@@ -839,8 +852,8 @@ def get_apache(id_file, in_name, out_name):
         else:
             s5_f = np.nan
 
-        s6_low = labs[lab_rows, p_h[0]]
-        s6_high = labs[lab_rows, p_h[1]]
+        s6_low = blood_gas[bg_rows, p_h[0]]
+        s6_high = blood_gas[bg_rows, p_h[1]]
 
         s7_low = labs[lab_rows, na[0]]
         s7_high = labs[lab_rows, na[1]]
@@ -856,7 +869,10 @@ def get_apache(id_file, in_name, out_name):
         s11_low = labs[lab_rows, w_b_c[0]]
         s11_high = labs[lab_rows, w_b_c[1]]
 
-        s12_gcs = clinical_oth[co_rows, gcs]
+        try:
+            s12_gcs = float(str(clinical_oth[co_rows, gcs]).split('-'))
+        except:
+            s12_gcs = np.nan
 
         s13_age = float(ages[ct])
 
@@ -896,18 +912,18 @@ def get_apache(id_file, in_name, out_name):
 
         if s5_f >= 0.5:
             aado2 = s5_f * 713 - (s5_pco / 0.8) - s5_po
-            if aado2 > 4:
+            if aado2 >= 500:
                 score[4] = 4
-            elif aado2 > 3.5:
+            elif aado2 > 350:
                 score[4] = 3
-            elif aado2 > 2:
+            elif aado2 > 200:
                 score[4] = 2
         else:
-            if s5_po < 0.55:
+            if s5_po < 55:
                 score[4] = 4
-            elif s5_po < 0.60:
+            elif s5_po < 60:
                 score[4] = 3
-            elif s5_po < 0.70:
+            elif s5_po < 70:
                 score[4] = 1
 
         if s6_low <= 7.15 or s6_high >= 7.7:
@@ -930,13 +946,14 @@ def get_apache(id_file, in_name, out_name):
 
         if s8_low < 2.5 or s8_high >= 7:
             score[7] = 4
-        elif s8_high <= 6:
+        elif s8_high >= 6:
             score[7] = 3
         elif s8_low < 3:
             score[7] = 2
         elif s8_low < 3.5 or s7_high >= 5.5:
             score[7] = 1
 
+        # Find maximum value in day 0
         if s9 >= 3.5:
             score[8] = 4
         elif s9 >= 2:
@@ -1015,7 +1032,7 @@ def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25):
     races = stats['race'][:]
     sexes = stats['gender'][:]
 
-    print('MAKE-90: GFR Thresh = %d\%' % pct_lim)
+    print('MAKE-90: GFR Thresh = %d%%' % pct_lim)
     print('id,died,gfr_drop,new_dialysis')
     out = open(out_file, 'w')
     out.write('MAKE-90: GFR Thresh = %d\%\n' % pct_lim)

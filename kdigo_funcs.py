@@ -303,6 +303,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         dkeep = np.where(duration < datetime.timedelta(7))[0]
         duration = duration[dkeep]
         keep = keep[dkeep]
+        tdates = scr_all_m[keep, scr_date_loc]
 
         if len(dkeep) < 2:
             np.delete(ids, count)
@@ -368,6 +369,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
 def linear_interpo(scr, ids, dates, masks, dmasks, scale, log, v=True):
     post_interpo = []
     dmasks_interp = []
+    days_interp = []
+    interp_masks = []
     count = 0
     if v:
         log.write('Raw SCr\n')
@@ -383,8 +386,10 @@ def linear_interpo(scr, ids, dates, masks, dmasks, scale, log, v=True):
         print(mask)
         tmin = dates[i][0]
         tmax = dates[i][-1]
+        tstart = tmin.hour
         n = nbins(tmin, tmax, scale)
         thisp = np.repeat(-1., n)
+        interp_mask = np.zeros(n, dtype=int)
         this_start = dates[i][0]
         thisp[0] = scr[i][0]
         dmask_i = np.repeat(-1, len(thisp))
@@ -394,6 +399,7 @@ def linear_interpo(scr, ids, dates, masks, dmasks, scale, log, v=True):
             idx = int(math.floor(dt/(60*60*scale)))
             if mask[j] != -1:
                 thisp[idx] = scr[i][j]
+                interp_mask[idx] = 1
             dmask_i[idx] = dmask[j]
         for j in range(len(dmask_i)):
             if dmask_i[j] != -1:
@@ -408,6 +414,7 @@ def linear_interpo(scr, ids, dates, masks, dmasks, scale, log, v=True):
             log.write(arr2str(thisp)+'\n')
         print(dmask_i)
         dmasks_interp.append(dmask_i)
+        interp_masks.append(interp_mask)
         j = 0
         while j < len(thisp):
             if thisp[j] == -1:
@@ -430,8 +437,30 @@ def linear_interpo(scr, ids, dates, masks, dmasks, scale, log, v=True):
             log.write('\n')
         print(str(thisp))
         post_interpo.append(thisp)
+        interp_len = len(thisp)
+
+        if tstart >= 18:
+            n_zeros = 1
+        elif tstart >= 12:
+            n_zeros = 2
+        elif tstart >= 6
+            n_zeros = 3
+        else:
+            n_zeros = 4
+
+        days_interp = np.zeros(interp_len, dtype=int)
+        tday = 1
+        ct = 0
+        for i in range(n_zeros, interp_len):
+            days_interp[i] = tday
+            if ct == 3:
+                ct = 0
+                tday += 1
+            else:
+                ct += 1
+
         count += 1
-    return post_interpo, dmasks_interp
+    return post_interpo, dmasks_interp, days_interp, interp_masks
 
 
 # %%
@@ -667,7 +696,7 @@ def baseline_est_gfr_mdrd(gfr, sex, race, age):
 
 
 # %%
-def scr2kdigo(scr, base, masks, pts_per_day=4):
+def scr2kdigo(scr, base, masks, days, valid):
     kdigos = []
     for i in range(len(scr)):
         kdigo = np.zeros(len(scr[i]), dtype=int)
@@ -676,8 +705,11 @@ def scr2kdigo(scr, base, masks, pts_per_day=4):
                 kdigo[j] = 4
                 continue
             elif scr[i][j] <= (1.5 * base[i]):
-                if j > 2 * pts_per_day:
-                    if scr[i][j] >= np.min(scr[i][j-2*pts_per_day:j]) + 0.3:
+                if days[i][j] > 1:
+                    window = np.where(days[i][j] >= days[i][j] - 2)[0]
+                    window = window[np.where(window < j)[0]]
+                    window = np.intersect1d(window, np.where(valid[i])[0])
+                    if scr[i][j] >= np.min(scr[i][window]) + 0.3:
                         kdigo[j] = 1
                     else:
                         kdigo[j] = 0
@@ -1363,6 +1395,9 @@ def daily_max_kdigo(scr, dates, bsln, admit_date, dmask):
     mk = []
     temp = dates[0].day
     tmax = 0
+    # Prior 2 days minimum (IRRESPECTIVE OF TIME!!!)
+    #   i.e. any record on day 2 is compared to the minimum value during days 0-1, even if the minimum is at the
+    #        beginning of day 0 and the current point is at the end of day 2
     for i in range(len(scr)):
         date = dates[i]
         day = date.day
@@ -1425,3 +1460,73 @@ def cluster_feature_vectors(desc, temp, slope, lbls):
         slope_c[i, :] = tslope
     return desc_c, temp_c, slope_c
 
+
+def dtw_p(x, y, dist, alpha=1.0, agg='mult'):
+    """
+    Computes Dynamic Time Warping (DTW) of two sequences with weighted penalty exponentiation.
+    Designed for sequences of distinct integer values in the set [0, 1, 2, 3, 4]
+
+    :param array x: N1*M array
+    :param array y: N2*M array
+    :param func dist: distance used as cost measure
+
+    Returns the minimum distance, the cost matrix, the accumulated cost matrix, and the warp path.
+    """
+    assert len(x)
+    assert len(y)
+    r, c = len(x), len(y)
+    D0 = np.zeros((r + 1, c + 1))  # distance matrix
+    D0[0, 1:] = np.inf
+    D0[1:, 0] = np.inf
+    D1 = D0[1:, 1:]  # view
+    for i in range(r):
+        for j in range(c):
+            D1[i, j] = dist(x[i], y[j])
+    C = D1.copy()
+    for i in range(r):
+        for j in range(c):
+            D1[i, j] += np.min((D0[i, j], D0[i, j+1], D0[i+1, j]))
+    if len(x)==1:
+        path = zeros(len(y)), range(len(y))
+    elif len(y) == 1:
+        path = range(len(x)), zeros(len(x))
+    else:
+        path = _traceback(D0, x, y, alpha, agg)
+    return D1[-1, -1] / sum(D1.shape), C, D1, path
+
+
+def _traceback(D, x, y, alpha=1.0, agg='mult'):
+    i, j = np.array(D.shape) - 2
+    p, q = [i], [j]
+    px = 0
+    py = 0
+    while i > 0 or j > 0:
+        tb = np.argmin((D[i, j], D[i, j+1] + (alpha * px) + x[i], D[i+1, j] + (alpha * py) + y[j]))
+        if tb == 0:
+            i -= 1
+            j -= 1
+            px = 0
+            py = 0
+        elif tb == 1:
+            i -= 1
+            if px == 0:
+                px = x[i]
+            else:
+                if agg == 'mult':
+                    px *= x[i]
+                elif agg == 'add':
+                    px += x[i]
+            py = 0
+        else:  # (tb == 2):
+            j -= 1
+            if py == 0:
+                py = y[j]
+            else:
+                if agg == 'mult':
+                    py *= y[j]
+                elif agg == 'add':
+                    py += y[j]
+            px = 0
+        p.insert(0, i)
+        q.insert(0, j)
+    return np.array(p), np.array(q)

@@ -254,7 +254,7 @@ def baseline_delta_string_summarize(deltas, selection):
     return '%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f' % (count, mean, std, med, p25, p75, minv, maxv)
 
 
-def post_dm_process(h5_fname, csv_fname, output_base_path):
+def post_dm_process(h5_fname, csv_fname, output_base_path, no_save=False):
     try:
         f = h5py.File(h5_fname, 'r+')
     except:
@@ -272,16 +272,17 @@ def post_dm_process(h5_fname, csv_fname, output_base_path):
     print('Starting DBSCAN')
     cont = 1
 
-    try:
-        cg = f['clusters']
-    except:
-        cg = f.create_group('clusters')
-    try:
-        dbg = cg['dbscan']
-    except:
-        dbg = cg.create_group('dbscan')
-        dbg.create_dataset('ids', data=ids, dtype=int)
-        os.makedirs(output_base_path + 'dbscan')
+    if not no_save:
+        try:
+            cg = f['clusters']
+        except:
+            cg = f.create_group('clusters')
+        try:
+            dbg = cg['dbscan']
+        except:
+            dbg = cg.create_group('dbscan')
+            dbg.create_dataset('ids', data=ids, dtype=int)
+            os.makedirs(output_base_path + 'dbscan')
     lbl_list = []
     while cont:
         print('\n')
@@ -292,19 +293,22 @@ def post_dm_process(h5_fname, csv_fname, output_base_path):
         nclust = len(np.unique(lbls)) - 1
         lbls[np.where(lbls >= 0)] += 1  # because dbscan starts with cluster label 0
         grp_name = '%d_clusters' % nclust
-        dbg.create_dataset(grp_name, data=lbls)
+        if not no_save:
+            dbg.create_dataset(grp_name, data=lbls)
         print('Number of Clusters = %d' % nclust)
         plt.close('all')
         inter_intra_dist(f, sqdm, 'dbscan', grp_name, op='max', out_path='', plot='nosave')
         ctext = raw_input('DBSCAN again? ')
         if ctext.lower()[0] == 'n':
-            os.makedirs(output_base_path + 'dbscan/' + grp_name)
-            os.makedirs(output_base_path + 'dbscan/' + grp_name + '/max_dist/')
+            if not no_save:
+                os.makedirs(output_base_path + 'dbscan/' + grp_name)
+                os.makedirs(output_base_path + 'dbscan/' + grp_name + '/max_dist/')
             dpath = output_base_path + 'dbscan/' + grp_name + '/max_dist/'
             plt.close('all')
-            inter_intra_dist(f, sqdm, 'dbscan', grp_name, op='max', out_path=dpath, plot='both')
-            get_cstats(f, cluster_method='dbscan', n_clust=grp_name,
-                       out_name=output_base_path + 'dbscan/' + grp_name + '/cluster_stats.csv', report_kdigo0=False, meta_grp='meta')
+            if not no_save:
+                inter_intra_dist(f, sqdm, 'dbscan', grp_name, op='max', out_path=dpath, plot='both')
+                get_cstats(f, cluster_method='dbscan', n_clust=grp_name,
+                           out_name=output_base_path + 'dbscan/' + grp_name + '/cluster_stats.csv', report_kdigo0=False, meta_grp='meta')
             ctext = raw_input('Extra clusters to designate as noise (id separated by comma (no space); N/n to quit): ')
             if ctext.lower()[0] != 'n':
                 if len(ctext) == 1:
@@ -326,7 +330,8 @@ def post_dm_process(h5_fname, csv_fname, output_base_path):
                 bkdn_nums = np.array(ctext.split(','), dtype=int)
             cont = 0
             lbl_list.append(lbls)
-    np.savetxt(output_base_path + 'dbscan/' + grp_name + '/clusters.txt', lbls)
+    if not no_save:
+        np.savetxt(output_base_path + 'dbscan/' + grp_name + '/clusters.txt', lbls)
     try:
         for i in range(len(bkdn_nums)):
             print('Breaking down prior cluster '+str(bkdn_nums[i]))
@@ -338,7 +343,7 @@ def post_dm_process(h5_fname, csv_fname, output_base_path):
     return comp
 
 
-def ward_breakdown(f, sqdm, lbls, prev_ids, bkdn_num, clust_grp, base_name, output_base_path, parents=(), lbl_list=()):
+def ward_breakdown(f, sqdm, lbls, prev_ids, bkdn_num, clust_grp, base_name, output_base_path, parents=(), lbl_list=(), no_save=False):
     sel = np.where(lbls == bkdn_num)[0]
     ids = prev_ids[sel]
     idx = np.ix_(sel, sel)
@@ -347,9 +352,10 @@ def ward_breakdown(f, sqdm, lbls, prev_ids, bkdn_num, clust_grp, base_name, outp
     # f.create_dataset(base_name+'_dm', data=condensed)
     cgrp_name = base_name + '_ward'
     outpath = output_base_path + '/ward' + str(bkdn_num) + '/'
-    os.makedirs(outpath)
-    cgrp = clust_grp.create_group(cgrp_name)
-    cgrp.create_dataset('ids', data=ids)
+    if not no_save:
+        os.makedirs(outpath)
+        cgrp = clust_grp.create_group(cgrp_name)
+        cgrp.create_dataset('ids', data=ids)
     link = ward(condensed)
     plt.close('all')
     dendrogram(link, 50, truncate_mode='lastp')
@@ -358,14 +364,16 @@ def ward_breakdown(f, sqdm, lbls, prev_ids, bkdn_num, clust_grp, base_name, outp
     plt.close('all')
     dendrogram(link, 50, truncate_mode='lastp', color_threshold=thresh)
     plt.title(cgrp_name+'\nWard\'s Method')
-    plt.savefig(outpath+'/dendrogram.png')
+    if not no_save:
+        plt.savefig(outpath+'/dendrogram.png')
     plt.show()
     cont = 1
     while cont:
         nclust = input('How many clusters to generate: ')
         nlbls = fcluster(link, nclust, criterion='maxclust')
         clust_name = str(nclust)+'_clusters'
-        cgrp.create_dataset(clust_name, data=nlbls, dtype=int)
+        if not no_save:
+            cgrp.create_dataset(clust_name, data=nlbls, dtype=int)
         plt.close('all')
         inter_intra_dist(f, sqdm, cgrp_name, clust_name, op='max', out_path='', plot='nosave')
         ctext = raw_input('Try different number of clusters? ')
@@ -373,13 +381,15 @@ def ward_breakdown(f, sqdm, lbls, prev_ids, bkdn_num, clust_grp, base_name, outp
             cont = 0
 
     dpath = outpath + '/' + clust_name + '/'
-    os.makedirs(dpath)
-    os.makedirs(dpath + 'max_dist/')
-    np.savetxt(dpath + 'clusters.txt', nlbls)
+    if not no_save:
+        os.makedirs(dpath)
+        os.makedirs(dpath + 'max_dist/')
+        np.savetxt(dpath + 'clusters.txt', nlbls)
     plt.close('all')
-    inter_intra_dist(f, sqdm, cgrp_name, clust_name, op='max', out_path=dpath + '/max_dist/', plot='both')
-    get_cstats(f, cluster_method=cgrp_name, n_clust=clust_name,
-               out_name=dpath + '/cluster_stats.csv', report_kdigo0=False, meta_grp='meta')
+    if not no_save:
+        inter_intra_dist(f, sqdm, cgrp_name, clust_name, op='max', out_path=dpath + '/max_dist/', plot='both')
+        get_cstats(f, cluster_method=cgrp_name, n_clust=clust_name,
+                   out_name=dpath + '/cluster_stats.csv', report_kdigo0=False, meta_grp='meta')
 
     ctext = raw_input('Cluster IDs to break-down(id separated by comma (no space); N/n to quit): ')
     lbl_list.append((parents, nlbls))
@@ -392,7 +402,7 @@ def ward_breakdown(f, sqdm, lbls, prev_ids, bkdn_num, clust_grp, base_name, outp
     for i in range(len(bkdn_nums)):
         base_temp = base_name + '_ward' + str(bkdn_nums[i])
         lbl_list = ward_breakdown(f, sqdm, nlbls, ids, bkdn_nums[i], clust_grp, base_temp,
-                                  outpath, parents + (bkdn_nums[i],), lbl_list)
+                                  outpath, parents + (bkdn_nums[i],), lbl_list, no_save=no_save)
     return lbl_list
 
 
