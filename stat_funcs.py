@@ -589,11 +589,6 @@ def get_sofa(id_file, in_name, out_name):
     pa_o2 = blood_gas.columns.get_loc('PO2_D1_HIGH_VALUE')
     blood_gas = blood_gas.as_matrix()
 
-    organ_sup = get_mat(in_name, 'ORGANSUPP_VENT', 'STUDY_PATIENT_ID')
-    mech_vent = [organ_sup.columns.get_loc('VENT_START_DATE'),
-                 organ_sup.columns.get_loc('VENT_STOP_DATE')]
-    organ_sup = organ_sup.as_matrix()
-
     clinical_oth = get_mat(in_name, 'CLINICAL_OTHERS', 'STUDY_PATIENT_ID')
     fi_o2 = clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')
     g_c_s = clinical_oth.columns.get_loc('GLASGOW_SCORE_D1_LOW_VALUE')
@@ -615,6 +610,10 @@ def get_sofa(id_file, in_name, out_name):
     med_dur = medications.columns.get_loc('DAYS_ON_MEDICATION')
     medications = medications.as_matrix()
 
+    organ_sup = get_mat(in_name, 'ORGANSUPP_INDX', 'STUDY_PATIENT_ID')
+    mech_vent = [organ_sup.columns.get_loc('VENT_START_DATE'), organ_sup.columns.get_loc('VENT_STOP_DATE')]
+    organ_sup = organ_sup.as_matrix()
+
     scr_agg = get_mat(in_name, 'SCR_INDX_AGG', 'STUDY_PATIENT_ID')
     s_c_r = scr_agg.columns.get_loc('DAY1_MAX_VALUE')
     scr_agg = scr_agg.as_matrix()
@@ -626,21 +625,26 @@ def get_sofa(id_file, in_name, out_name):
         bg_rows = np.where(blood_gas[:, 0] == idx)[0]
         co_rows = np.where(clinical_oth[:, 0] == idx)[0]
         cv_rows = np.where(clinical_vit[:, 0] == idx)[0]
-        lab_rows = np.where(labs[:, 0] == idx)[0][0]
         med_rows = np.where(medications[:, 0] == idx)[0]
         scr_rows = np.where(scr_agg[:, 0] == idx)[0]
-        mv_rows = np.where(organ_sup[:, 0] == idx)[0]
+        lab_rows = np.where(labs[:, 0] == idx)[0]
+        mv_rows = np.where(organ_sup[:, 0] == idx)[:]
 
         admit = datetime.datetime.now()
         for did in admit_rows:
-            if admit_info[did, date] < admit:
-                admit = admit_info[did, date]
-        if type(admit) == np.ndarray:
-            admit = admit[0]
+            tadmit = datetime.datetime.strptime(str(admit_info[did, date]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+            if tadmit < admit:
+                admit = tadmit
 
-        s1_pa = blood_gas[bg_rows, pa_o2]
-        s1_fi = clinical_oth[co_rows,fi_o2]
-        s1_vent = organ_sup[mv_rows,mech_vent]
+        if np.size(bg_rows) > 0:
+            s1_pa = float(blood_gas[bg_rows, pa_o2])
+        else:
+            s1_pa = np.nan
+
+        if np.size(co_rows) > 0:
+            s1_fi = clinical_oth[co_rows,fi_o2]
+        else:
+            s1_fi = np.nan
         s1_ratio = s1_pa / s1_fi
 
         try:
@@ -648,20 +652,29 @@ def get_sofa(id_file, in_name, out_name):
         except:
             s2_gcs = None
 
-        s3_map = clinical_vit[cv_rows, m_a_p]
-        if np.isnan(float(s3_map)):
-            s3_map = clinical_vit[cv_rows, cuff]
+        if np.size(cv_rows) > 0:
+            s3_map = float(clinical_vit[cv_rows, m_a_p])
+            if np.isnan(s3_map):
+                s3_map = float(clinical_vit[cv_rows, cuff])
 
-        s3_med = medications[med_rows, med_name]
-        s3_date = medications[med_rows, med_date]
-        s3_dur = medications[med_rows, med_dur]
+        if np.size(med_rows) > 0:
+            s3_med = str(medications[med_rows, med_name])
+            s3_date = str(medications[med_rows, med_date])
+            s3_dur = str(medications[med_rows, med_dur])
 
-        s4_bili = labs[lab_rows, bili]
 
-        s5_plt = labs[lab_rows, pltlts]
+        if np.size(lab_rows) > 0:
+            s4_bili = labs[lab_rows, bili]
+            s5_plt = labs[lab_rows, pltlts]
+        else:
+            s4_bili = np.nan
+            s5_plt = np.nan
 
         # Find maximum value in day 0
-        s6_scr = scr_agg[scr_rows, s_c_r]
+        if np.size(scr_rows) > 0:
+            s6_scr = scr_agg[scr_rows, s_c_r]
+        else:
+            s6_scr = np.nan
 
         score = np.zeros(6, dtype=int)
 

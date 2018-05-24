@@ -20,11 +20,11 @@ h5_name = 'kdigo_dm.h5'
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 dataPath = basePath + "DATA/"
-outPath = dataPath + t_analyze.lower() + '/7days_pub/'
-resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_pub/'
+outPath = dataPath + t_analyze.lower() + '/7days_new_kdigo/'
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_new_kdigo/'
 inFile = dataPath + xl_file
 id_ref = outPath + id_ref
-baseline_file = dataPath + 'baselines_7-365_mdrd.csv'
+baseline_file = dataPath + 'baselines_1_7-365_mdrd.csv'
 h5_name = resPath + h5_name
 
 
@@ -37,6 +37,7 @@ def main():
     # Try to load previously extracted data
     try:
         ids = np.loadtxt(id_ref, dtype=int)
+        print('Loaded previous ids.')
         # try to load final KDIGO values
         try:
             _, kdigos = kf.load_csv(outPath + 'kdigo.csv', ids)
@@ -47,24 +48,28 @@ def main():
             _, dates = kf.load_csv(outPath + 'dates.csv', ids, dt=str)
             _, masks = kf.load_csv(outPath + 'masks.csv', ids, dt=int)
             _, dmasks = kf.load_csv(outPath + 'dialysis.csv', ids, dt=int)
-            _, baselines = kf.load_csv(outPath + 'baselines.csv', ids, skip_header=True, sel=1)
+            _, baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
             print('Loaded previously extracted raw data')
 
             try:
                 _, post_interpo = kf.load_csv(outPath + 'scr_interp.csv', ids)
                 _, dmasks_interp = kf.load_csv(outPath + 'dmasks_interp.csv', ids, dt=int)
+                _, interp_masks = kf.load_csv(outPath + 'interp_masks.csv', ids, dt=int)
+                _, days_interp = kf.load_csv(outPath + 'days_interp.csv', ids, dt=int)
                 print('Loaded previously interpolated values')
             except:
                 # Interpolate missing values
                 print('Interpolating missing values')
                 interpo_log = open(outPath + 'interpo_log.txt', 'w')
-                post_interpo, dmasks_interp = kf.linear_interpo(scr, ids, dates, masks, dmasks, timescale, interpo_log)
+                post_interpo, dmasks_interp, days_interp, interp_masks = kf.linear_interpo(scr, ids, dates, masks, dmasks, timescale, interpo_log)
                 kf.arr2csv(outPath + 'scr_interp.csv', post_interpo, ids)
                 kf.arr2csv(outPath + 'dmasks_interp.csv', dmasks_interp, ids, fmt='%d')
+                kf.arr2csv(outPath + 'days_interp.csv', days_interp, ids, fmt='%d')
+                kf.arr2csv(outPath + 'interp_masks.csv', interp_masks, ids, fmt='%d')
                 interpo_log.close()
             print('Converting to KDIGO')
             # Convert SCr to KDIGO
-            kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp)
+            kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
             kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids)
     # If data loading unsuccesful start from scratch
     except:
@@ -181,7 +186,7 @@ def main():
                                                             esrd_m, esrd_locs,
                                                             bsln_m, bsln_scr_loc, bsln_date_loc, admit_loc,
                                                             date_m, id_loc, icu_locs,
-                                                            surg_m, surg_loc, surg_des_loc,
+                                                            surg_m, surg_des_loc,
                                                             dem_m, sex_loc, eth_loc,
                                                             dob_m, birth_loc, count_log)
         count_log.close()
@@ -208,7 +213,7 @@ def main():
 
         # Convert SCr to KDIGO
         print('Converting to KDIGO')
-        kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp, interp_masks)
+        kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
         kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids, fmt='%d')
 
     # Get KDIGO Distance Matrix and summarize patient stats

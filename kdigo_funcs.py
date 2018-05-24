@@ -287,7 +287,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         disch_disp = date_m[all_drows[0], d_disp_loc]
         if type(disch_disp) == np.ndarray:
             disch_disp = disch_disp[0]
-        disch_disp = disch_disp.upper()
+        disch_disp = str(disch_disp).upper()
         # if 'LESS THAN' in disch_disp:
         #     np.delete(ids, count)
         #     lt48_count += 1
@@ -369,7 +369,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
 def linear_interpo(scr, ids, dates, masks, dmasks, scale, log, v=True):
     post_interpo = []
     dmasks_interp = []
-    days_interp = []
+    days_interps = []
     interp_masks = []
     count = 0
     if v:
@@ -384,18 +384,19 @@ def linear_interpo(scr, ids, dates, masks, dmasks, scale, log, v=True):
         mask = masks[i]
         dmask = dmasks[i]
         print(mask)
-        tmin = dates[i][0]
-        tmax = dates[i][-1]
+        tmin = datetime.datetime.strptime(str(dates[i][0]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+        tmax = datetime.datetime.strptime(str(dates[i][-1]).split('.')[0], '%Y-%m-%d %H:%M:%S')
         tstart = tmin.hour
         n = nbins(tmin, tmax, scale)
         thisp = np.repeat(-1., n)
         interp_mask = np.zeros(n, dtype=int)
-        this_start = dates[i][0]
+        this_start = datetime.datetime.strptime(str(dates[i][0]).split('.')[0], '%Y-%m-%d %H:%M:%S')
         thisp[0] = scr[i][0]
         dmask_i = np.repeat(-1, len(thisp))
         dmask_i[0] = dmask[0]
         for j in range(1, len(scr[i])):
-            dt = (dates[i][j]-this_start).total_seconds()
+            tdate = datetime.datetime.strptime(str(dates[i][j]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+            dt = (tdate-this_start).total_seconds()
             idx = int(math.floor(dt/(60*60*scale)))
             if mask[j] != -1:
                 thisp[idx] = scr[i][j]
@@ -443,7 +444,7 @@ def linear_interpo(scr, ids, dates, masks, dmasks, scale, log, v=True):
             n_zeros = 1
         elif tstart >= 12:
             n_zeros = 2
-        elif tstart >= 6
+        elif tstart >= 6:
             n_zeros = 3
         else:
             n_zeros = 4
@@ -458,9 +459,10 @@ def linear_interpo(scr, ids, dates, masks, dmasks, scale, log, v=True):
                 tday += 1
             else:
                 ct += 1
+        days_interps.append(days_interp)
 
         count += 1
-    return post_interpo, dmasks_interp, days_interp, interp_masks
+    return post_interpo, dmasks_interp, days_interps, interp_masks
 
 
 # %%
@@ -468,7 +470,7 @@ def nbins(start, stop, scale):
     dt = (stop-start).total_seconds()
     div = scale*60*60       # hrs * minutes * seconds
     bins, _ = divmod(dt, div)
-    return bins+1
+    return int(bins+1)
 
 
 # %%
@@ -706,13 +708,18 @@ def scr2kdigo(scr, base, masks, days, valid):
                 continue
             elif scr[i][j] <= (1.5 * base[i]):
                 if days[i][j] > 1:
-                    window = np.where(days[i][j] >= days[i][j] - 2)[0]
+                    window = np.where(days[i] >= days[i][j] - 2)[0]
                     window = window[np.where(window < j)[0]]
                     window = np.intersect1d(window, np.where(valid[i])[0])
-                    if scr[i][j] >= np.min(scr[i][window]) + 0.3:
-                        kdigo[j] = 1
+                    if window.size > 0:
+                        if scr[i][j] >= np.min(scr[i][window]) + 0.3:
+                            kdigo[j] = 1
+                        else:
+                            kdigo[j] = 0
                     else:
                         kdigo[j] = 0
+                else:
+                    kdigo[j] = 0
             elif scr[i][j] < (2 * base[i]):
                 kdigo[j] = 1
             elif scr[i][j] < (3 * base[i]):
