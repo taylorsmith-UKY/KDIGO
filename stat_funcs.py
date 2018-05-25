@@ -826,61 +826,66 @@ def get_apache(id_file, in_name, out_name):
         lab_rows = np.where(labs[:, 0] == idx)[0]
         scr_rows = np.where(scr_agg[:, 0] == idx)[0]
 
-        s1_low = (clinical_vit[cv_rows, temp[0]] - 32) / 1.8
-        s1_high = (clinical_vit[cv_rows, temp[1]] - 32) / 1.8
+        if np.size(cv_rows) > 0:
+            s1_low = (float(clinical_vit[cv_rows, temp[0]]) - 32) / 1.8
+            s1_high = (float(clinical_vit[cv_rows, temp[1]]) - 32) / 1.8
 
-        s2_low = clinical_vit[cv_rows, m_ap[0]]
-        s2_high = clinical_vit[cv_rows, m_ap[1]]
-        if np.isnan(float(str(s2_low))):
-            s2_low = clinical_vit[cv_rows, cuff[0]]
-            s2_high = clinical_vit[cv_rows, cuff[1]]
+            s2_low = float(clinical_vit[cv_rows, m_ap[0]])
+            s2_high = float(clinical_vit[cv_rows, m_ap[1]])
+            if np.isnan(float(str(s2_low))):
+                s2_low = float(clinical_vit[cv_rows, cuff[0]])
+                s2_high = float(clinical_vit[cv_rows, cuff[1]])
 
-        s3_low = clinical_vit[cv_rows, h_r[0]]
-        s3_high = clinical_vit[cv_rows, h_r[1]]
-
-        s4_low = clinical_oth[co_rows, resp[0]]
-        s4_high = clinical_oth[co_rows, resp[1]]
-
-        s5_po = blood_gas[bg_rows, pa_o2[1]]
-        s5_pco = blood_gas[bg_rows, pa_co2[1]]
-        s5_f = clinical_oth[co_rows, fi_o2[1]]
-        if s5_po.size > 0:
-            if type(s5_po) != str and type(s5_po) != unicode:
-                if not np.isnan(s5_po):
-                    s5_po = float(s5_po) / 100
+            s3_low = float(clinical_vit[cv_rows, h_r[0]])
+            s3_high = float(clinical_vit[cv_rows, h_r[1]])
         else:
-            s5_po = np.nan
+            s1_low = s1_high = s2_low = s2_high = s3_low = s3_high = np.nan
 
-        if s5_pco.size > 0:
-            if type(s5_pco) != str and type(s5_pco) != unicode:
-                if not np.isnan(s5_pco):
-                    s5_pco = float(s5_pco) / 100
+        if np.size(co_rows) > 0:
+            s4_low = float(clinical_oth[co_rows, resp[0]])
+            s4_high = float(clinical_oth[co_rows, resp[1]])
+
+            s5_f = float(clinical_oth[co_rows, fi_o2[1]])
+            if not np.isnan(s5_f):
+                s5_f = s5_f / 100
         else:
-            s5_pco = np.nan
+            s4_high = s4_low = s5_f = np.nan
 
-        if s5_f.size > 0:
-            if type(s5_f) != str and type(s5_f) != unicode:
-                if not np.isnan(s5_f):
-                    s5_f = float(s5_f) / 100
+        if np.size(bg_rows) > 0:
+            s5_po = float(blood_gas[bg_rows, pa_o2[1]])
+            s5_pco = float(blood_gas[bg_rows, pa_co2[1]])
+
+            if not np.isnan(s5_po):
+                s5_po = s5_po / 100
+
+            if not np.isnan(s5_pco):
+                s5_pco = s5_pco / 100
+
+            s6_low = blood_gas[bg_rows, p_h[0]]
+            s6_high = blood_gas[bg_rows, p_h[1]]
         else:
-            s5_f = np.nan
+            s5_po = s5_pco = s6_high = s6_low = np.nan
 
-        s6_low = blood_gas[bg_rows, p_h[0]]
-        s6_high = blood_gas[bg_rows, p_h[1]]
+        if np.size(lab_rows) > 0:
+            s7_low = float(labs[lab_rows, na[0]])
+            s7_high = float(labs[lab_rows, na[1]])
 
-        s7_low = labs[lab_rows, na[0]]
-        s7_high = labs[lab_rows, na[1]]
+            s8_low = float(labs[lab_rows, p_k[0]])
+            s8_high = float(labs[lab_rows, p_k[1]])
 
-        s8_low = labs[lab_rows, p_k[0]]
-        s8_high = labs[lab_rows, p_k[1]]
+            s10_low = float(labs[lab_rows, hemat[0]])
+            s10_high = float(labs[lab_rows, hemat[1]])
 
-        s9 = scr_agg[scr_rows, s_c_r]
+            s11_low = float(labs[lab_rows, w_b_c[0]])
+            s11_high = float(labs[lab_rows, w_b_c[1]])
+        else:
+            s7_low = s7_high = s8_high = s8_low = s10_high = s10_low = s11_high = s11_low = np.nan
 
-        s10_low = labs[lab_rows, hemat[0]]
-        s10_high = labs[lab_rows, hemat[1]]
 
-        s11_low = labs[lab_rows, w_b_c[0]]
-        s11_high = labs[lab_rows, w_b_c[1]]
+        if np.size(scr_rows) > 0:
+            s9 = scr_agg[scr_rows, s_c_r]
+        else:
+            s9 = np.nan
 
         try:
             s12_gcs = float(str(clinical_oth[co_rows, gcs]).split('-'))
@@ -988,11 +993,9 @@ def get_apache(id_file, in_name, out_name):
         elif s11_high >= 15:
             score[10] = 1
 
-        if s12_gcs.size > 0:
-            s12_gcs = s12_gcs[0]
-            s12 = float(str(s12_gcs).split('-')[0])
-            if not np.isnan(s12):
-                score[11] = 15 - s12
+        s12 = s12_gcs
+        if not np.isnan(s12):
+            score[11] = 15 - s12
 
         age = s13_age
         if age >= 75:
@@ -1010,7 +1013,9 @@ def get_apache(id_file, in_name, out_name):
         print(np.sum(score))
 
 
-def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25):
+# Update dialysis so that it does not exclude patients with RRT prior to discharge
+# Try 90 from admission vs. 90 from discharge
+def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25, ref='discharge'):
     # load outcome data
     date_m = get_mat(in_name, 'ADMISSION_INDX', 'STUDY_PATIENT_ID')
     disch_loc = date_m.columns.get_loc("HOSP_DISCHARGE_DATE")
@@ -1039,6 +1044,7 @@ def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25):
     # Baseline data
     bsln_m = pd.read_csv(bsln_file)
     bsln_val_loc = bsln_m.columns.get_loc('bsln_val')
+    admit_loc = bsln_m.columns.get_loc('admit_date')
     bsln_m = bsln_m.as_matrix()
 
     ages = stats['age'][:]
@@ -1048,7 +1054,6 @@ def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25):
     print('MAKE-90: GFR Thresh = %d%%' % pct_lim)
     print('id,died,gfr_drop,new_dialysis')
     out = open(out_file, 'w')
-    out.write('MAKE-90: GFR Thresh = %d\%\n' % pct_lim)
     out.write('id,died,gfr_drop,new_dialysis\n')
     for i in range(len(ids)):
         idx = ids[i]
@@ -1060,7 +1065,7 @@ def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25):
 
         died = 0
         gfr_drop = 0
-        new_dia = 0
+        dia_dep = 0
 
         bsln_scr = bsln_m[bsln_loc, bsln_val_loc]
         age = ages[i]
@@ -1068,20 +1073,23 @@ def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25):
         sex = sexes[i]
         bsln_gfr = calc_gfr(bsln_scr, sex, race, age)
 
-        disch = datetime.datetime(1000, 1, 1)
-        for j in range(len(date_locs)):
-            tid = date_locs[j]
-            tdate = str(date_m[tid, disch_loc])
-            if len(tdate) > 3:
-                tdate = datetime.datetime.strptime(tdate.split('.')[0], '%Y-%m-%d %H:%M:%S')
-                if tdate > disch:
-                    disch = tdate
+        if ref == 'discharge':
+            tmin = datetime.datetime(1000, 1, 1)
+            for j in range(len(date_locs)):
+                tid = date_locs[j]
+                tdate = str(date_m[tid, disch_loc])
+                if len(tdate) > 3:
+                    tdate = datetime.datetime.strptime(tdate.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                    if tdate > tmin:
+                        tmin = tdate
+        elif ref == 'admit':
+            tmin = datetime.datetime.strptime(str(bsln_m[bsln_loc, admit_loc]).split('.')[0], '%Y-%m-%d %H:%M:%S')
 
         min_gfr = 1000
         for j in range(len(scr_locs)):
             tdate = str(scr_all_m[scr_locs[j], scr_date_loc])
             tdate = datetime.datetime.strptime(tdate.split('.')[0], '%Y-%m-%d %H:%M:%S')
-            if datetime.timedelta(0) < tdate - disch < datetime.timedelta(90):
+            if datetime.timedelta(0) < tdate - tmin < datetime.timedelta(90):
                 tscr = scr_all_m[scr_locs[j], scr_val_loc]
                 tgfr = calc_gfr(tscr, sex, race, age)
                 if tgfr < min_gfr:
@@ -1096,40 +1104,34 @@ def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25):
             m = mort_m[mort_locs[j], mdate_loc]
             try:
                 m = datetime.datetime.strptime(m.split('.')[0], '%Y-%m-%d %H:%M:%S')
-                if datetime.timedelta(0) < m - disch < datetime.timedelta(90):
+                if datetime.timedelta(0) < m - tmin < datetime.timedelta(90):
                     died = 1
             except:
                 continue
 
         for j in range(len(dia_locs)):
-            tstart = dia_m[dia_locs[j], crrt_locs[0]]
             try:
-                tstart = datetime.datetime.strptime(tstart.split('.')[0], '%Y-%m-%d %H:%M:%S')
-                if tstart < disch:
-                    new_dia = -1
-                    break
-                elif datetime.timedelta(0) < tstart - disch < datetime.timedelta(90):
-                    new_dia = 1
-            except:
-                tstart = dia_m[dia_locs[j], pd_locs[0]]
-                try:
-                    tstart = datetime.datetime.strptime(tstart.split('.')[0], '%Y-%m-%d %H:%M:%S')
-                    if tstart < disch:
-                        new_dia = -1
-                        break
-                    elif datetime.timedelta(0) < tstart - disch < datetime.timedelta(90):
-                        new_dia = 1
-                except:
+                crrt_start = dia_m[dia_locs[j], crrt_locs[0]]
+                pd_start = dia_m[dia_locs[j], pd_locs[0]]
+                hd_start = dia_m[dia_locs[j], hd_locs[0]]
+                if str(crrt_start) != 'NaT':
+                    tstart = dia_m[dia_locs[j], crrt_locs[0]]
+                    tstop = dia_m[dia_locs[j], crrt_locs[1]]
+                elif str(pd_start) != 'NaT':
+                    tstart = dia_m[dia_locs[j], pd_locs[0]]
+                    tstop = dia_m[dia_locs[j], pd_locs[1]]
+                elif str(hd_start) != 'NaT':
                     tstart = dia_m[dia_locs[j], hd_locs[0]]
-                    try:
-                        tstart = datetime.datetime.strptime(tstart.split('.')[0], '%Y-%m-%d %H:%M:%S')
-                        if tstart < disch:
-                            new_dia = -1
-                            break
-                        elif datetime.timedelta(0) < tstart - disch < datetime.timedelta(90):
-                            new_dia = 1
-                    except:
-                        continue
+                    tstop = dia_m[dia_locs[j], hd_locs[1]]
 
-        print('%d,%d,%d,%d' % (idx, died, gfr_drop, new_dia))
-        out.write('%d,%d,%d,%d\n' % (idx, died, gfr_drop, new_dia))
+                tstart = datetime.datetime.strptime(tstart.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                tstop = datetime.datetime.strptime(tstop.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                if datetime.timedelta(0) < tstart - tmin < datetime.timedelta(90):
+                    dia_dep = 1
+                elif datetime.timedelta(0) <= tstop - tmin < datetime.timedelta(90):
+                    dia_dep = 1
+            except:
+                continue
+
+        print('%d,%d,%d,%d' % (idx, died, gfr_drop, dia_dep))
+        out.write('%d,%d,%d,%d\n' % (idx, died, gfr_drop, dia_dep))

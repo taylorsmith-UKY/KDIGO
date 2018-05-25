@@ -858,7 +858,8 @@ def arr2csv(fname, inds, ids, fmt='%f', header=False):
             outFile.write('\n')
         outFile.close()
     except:
-        for i in range(len(inds)):
+        outFile.write(',' + fmt % (inds[0]) + '\n')
+        for i in range(1, len(inds)):
             outFile.write('%d' % (ids[i]))
             outFile.write(','+fmt % (inds[i])+'\n')
         outFile.close()
@@ -1537,3 +1538,26 @@ def _traceback(D, x, y, alpha=1.0, agg='mult'):
         p.insert(0, i)
         q.insert(0, j)
     return np.array(p), np.array(q)
+
+
+def count_transitions(ids, kdigos, out_name):
+    k_lbls = range(5)
+    transitions = cartesian((k_lbls, k_lbls))
+    t_counts = np.zeros((len(kdigos), len(transitions)))
+    for i in range(len(kdigos)):
+        for j in range(len(kdigos[i]) - 1):
+            idx = np.intersect1d(np.where(transitions[:, 0] == kdigos[i][j])[0],
+                                 np.where(transitions[:, 1] == kdigos[i][j+1])[0])
+            t_counts[i, idx] += 1
+
+    header = 'id'
+    for i in range(len(transitions)):
+        header += ',' + str(transitions[i])
+
+    rows = np.array(ids)[:, np.newaxis]
+    with open(out_name, 'w') as f:
+        f.write(header + '\n')
+        np.savetxt(f, np.hstack((rows, t_counts)), delimiter=',', fmt='%d')
+    return t_counts
+
+
