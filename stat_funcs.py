@@ -1015,7 +1015,7 @@ def get_apache(id_file, in_name, out_name):
 
 # Update dialysis so that it does not exclude patients with RRT prior to discharge
 # Try 90 from admission vs. 90 from discharge
-def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25, ref='discharge'):
+def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25, ref='discharge', min_day=7):
     # load outcome data
     date_m = get_mat(in_name, 'ADMISSION_INDX', 'STUDY_PATIENT_ID')
     disch_loc = date_m.columns.get_loc("HOSP_DISCHARGE_DATE")
@@ -1067,8 +1067,8 @@ def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25, ref='discha
         gfr_drop = 0
         dia_dep = 0
 
-        bsln_scr = bsln_m[bsln_loc, bsln_val_loc]
-        age = ages[i]
+        bsln_scr = float(bsln_m[bsln_loc, bsln_val_loc])
+        age = float(ages[i])
         race = races[i]
         sex = sexes[i]
         bsln_gfr = calc_gfr(bsln_scr, sex, race, age)
@@ -1083,7 +1083,8 @@ def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25, ref='discha
                     if tdate > tmin:
                         tmin = tdate
         elif ref == 'admit':
-            tmin = datetime.datetime.strptime(str(bsln_m[bsln_loc, admit_loc]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+            tmin = datetime.datetime.strptime(str(bsln_m[bsln_loc, admit_loc]).split('.')[0], '%Y-%m-%d %H:%M:%S') +\
+                   datetime.timedelta(min_day)
 
         min_gfr = 1000
         for j in range(len(scr_locs)):

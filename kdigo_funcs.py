@@ -733,7 +733,7 @@ def scr2kdigo(scr, base, masks, days, valid):
 
 
 # %%
-def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True):
+def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True, alpha=1.0):
     df = open(dm_fname, 'w')
     dis = []
     if v and dtw_name is not None:
@@ -748,11 +748,11 @@ def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True):
                     continue
             df.write('%d,%d,' % (ids[i],ids[j]))
             if np.all(patients[i] == 0) and np.all(patients[j] == 0):
-                df.write('%f\n' % (0))
+                df.write('%f\n' % 0)
                 dis.append(0)
             else:
                 if len(patients[i]) > 1 and len(patients[j]) > 1:
-                    dist, _, _, path=dtw.dtw(patients[i], patients[j], lambda y, yy: np.abs(y-yy))
+                    dist, _, _, path = dtw_p(patients[i], patients[j], lambda y, yy: np.abs(y-yy), alpha=alpha)
                     p1_path = path[0]
                     p2_path = path[1]
                     p1 = [patients[i][p1_path[x]] for x in range(len(p1_path))]
@@ -764,7 +764,7 @@ def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True):
                     p1 = patients[i]
                     p2 = np.repeat(patients[j][0],len(patients[i]))
                 if np.all(p1 == p2):
-                    df.write('%f\n' % (0))
+                    df.write('%f\n' % 0)
                     dis.append(0)
                 else:
                     df.write('%f\n' % (distance.braycurtis(p1,p2)))
@@ -940,16 +940,18 @@ def descriptive_trajectory_features(kdigos, ids, filename='descriptive_features.
         if np.all(kdigo == 0):
             features[i, 0] = 1
         # KDIGO 1 Peak
-        temp = 0
+        temp = 0    # previous score
         direction = 0   # 1: Increased     -1: Decreased
         for j in range(len(kdigo)):
             if kdigo[j] < temp:
                 if direction == 1:
                     features[i, temp] = 1
                 direction = -1
+
             elif kdigo[j] > temp:
                 direction = 1
             temp = kdigo[j]
+
         if direction == 1:
             features[i, temp] = 1
         '''
