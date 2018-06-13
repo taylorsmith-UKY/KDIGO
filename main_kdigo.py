@@ -20,8 +20,8 @@ h5_name = 'kdigo_dm.h5'
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 dataPath = basePath + "DATA/"
-outPath = dataPath + t_analyze.lower() + '/7days_new_kdigo/'
-resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_new_kdigo/'
+outPath = dataPath + t_analyze.lower() + '/7days_no_death_lt48hrs/'
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_no_death_lt48hrs/'
 inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 baseline_file = dataPath + 'baselines_1_7-365_mdrd.csv'
@@ -73,7 +73,6 @@ def main():
             kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids)
     # If data loading unsuccesful start from scratch
     except:
-        ############ Get Indices for All Used Values ################
         print('Loading encounter info...')
         # Get IDs and find indices of all used metrics
         date_m = kf.get_mat(inFile, 'ADMISSION_INDX', [sort_id])
@@ -132,7 +131,6 @@ def main():
         dob_m = kf.get_mat(inFile, 'DOB', [sort_id])
         birth_loc = dob_m.columns.get_loc("DOB")
         dob_m = dob_m.as_matrix()
-        ###### Get masks for ESRD, dialysis, etc.
 
         # Get mask inidicating which points are during dialysis
         dia_mask = kf.get_dialysis_mask(scr_all_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs)
@@ -162,18 +160,15 @@ def main():
         try:
             bsln_m = pd.read_csv(baseline_file)
             bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
-            bsln_date_loc = bsln_m.columns.get_loc('bsln_date')
             admit_loc = bsln_m.columns.get_loc('admit_date')
             bsln_m = bsln_m.as_matrix()
 
         except:
             kf.get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc,
-                             dia_m, crrt_locs, hd_locs, pd_locs, dem_m, sex_loc, eth_loc, dob_m, birth_loc,
-                             baseline_file, min_diff=7, max_diff=365)
+                             dem_m, sex_loc, eth_loc, dob_m, birth_loc, baseline_file)
 
             bsln_m = pd.read_csv(baseline_file)
             bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
-            bsln_date_loc = bsln_m.columns.get_loc('bsln_date')
             admit_loc = bsln_m.columns.get_loc('admit_date')
             bsln_m = bsln_m.as_matrix()
 
@@ -184,8 +179,8 @@ def main():
                                                             mask, dia_mask,
                                                             dx_m, dx_loc,
                                                             esrd_m, esrd_locs,
-                                                            bsln_m, bsln_scr_loc, bsln_date_loc, admit_loc,
-                                                            date_m, id_loc, icu_locs,
+                                                            bsln_m, bsln_scr_loc, admit_loc,
+                                                            date_m, id_loc,
                                                             surg_m, surg_des_loc,
                                                             dem_m, sex_loc, eth_loc,
                                                             dob_m, birth_loc, count_log)
