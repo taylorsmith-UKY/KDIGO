@@ -249,7 +249,7 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
 # %%
 def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, report_kdigo0=True, meta_grp='meta'):
     # get IDs and Clusters in order from cluster file
-    # ids = np.loadtxt(id_file, dtype=int, delimiter=',')
+    # ids = np.loadtfxt(id_file, dtype=int, delimiter=',')
     if type(in_file) == str:
         f = h5py.File(in_file, 'r')
     else:
@@ -310,10 +310,6 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
         mech_vent = meta['mv_free_days'][pt_mask]
 
         clusters = clust[np.argsort(cids)]
-        if np.min(clusters) == 0:
-            for i in range(len(clusters)):
-                if clusters[i] >= 0:
-                    clusters[i] += 1
 
     lbls = np.unique(clusters)
 
@@ -413,7 +409,7 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
         #          sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, pct_septic, net_mean, net_std,
         #          gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
         f.write(
-            '%d,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
+            '%s,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
             (cluster_id, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
              n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
              sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, net_mean, net_std,
@@ -610,7 +606,7 @@ def get_sofa(id_file, in_name, out_name):
     med_dur = medications.columns.get_loc('DAYS_ON_MEDICATION')
     medications = medications.as_matrix()
 
-    organ_sup = get_mat(in_name, 'ORGANSUPP_INDX', 'STUDY_PATIENT_ID')
+    organ_sup = get_mat(in_name, 'ORGANSUPP_VENT', 'STUDY_PATIENT_ID')
     mech_vent = [organ_sup.columns.get_loc('VENT_START_DATE'), organ_sup.columns.get_loc('VENT_STOP_DATE')]
     organ_sup = organ_sup.as_matrix()
 
@@ -1055,6 +1051,7 @@ def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25, ref='discha
     print('id,died,gfr_drop,new_dialysis')
     out = open(out_file, 'w')
     out.write('id,died,gfr_drop,new_dialysis\n')
+    scores = np.zeros((len(ids), 3))
     for i in range(len(ids)):
         idx = ids[i]
         scr_locs = np.where(scr_all_m[:, 0] == idx)[0]
@@ -1133,6 +1130,7 @@ def get_MAKE90(ids, in_name, stats, bsln_file, out_file, pct_lim=25, ref='discha
                     dia_dep = 1
             except:
                 continue
-
+        scores[i, :] = (died, gfr_drop, dia_dep)
         print('%d,%d,%d,%d' % (idx, died, gfr_drop, dia_dep))
         out.write('%d,%d,%d,%d\n' % (idx, died, gfr_drop, dia_dep))
+    return scores

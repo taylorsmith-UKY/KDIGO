@@ -20,8 +20,13 @@ h5_name = 'kdigo_dm.h5'
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 dataPath = basePath + "DATA/"
-outPath = dataPath + t_analyze.lower() + '/7days_new_kdigo/'
-resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_new_kdigo/'
+<<<<<<< HEAD
+outPath = dataPath + t_analyze.lower() + '/7days_6_13_18/'
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_6_13_18/'
+=======
+outPath = dataPath + t_analyze.lower() + '/7days_no_death_lt48hrs/'
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_no_death_lt48hrs/'
+>>>>>>> cc45cee6634fdc61b6a6c3046a10c45ae20b6d23
 inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 baseline_file = dataPath + 'baselines_1_7-365_mdrd.csv'
@@ -73,7 +78,6 @@ def main():
             kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids)
     # If data loading unsuccesful start from scratch
     except:
-        ############ Get Indices for All Used Values ################
         print('Loading encounter info...')
         # Get IDs and find indices of all used metrics
         date_m = kf.get_mat(inFile, 'ADMISSION_INDX', [sort_id])
@@ -132,7 +136,6 @@ def main():
         dob_m = kf.get_mat(inFile, 'DOB', [sort_id])
         birth_loc = dob_m.columns.get_loc("DOB")
         dob_m = dob_m.as_matrix()
-        ###### Get masks for ESRD, dialysis, etc.
 
         # Get mask inidicating which points are during dialysis
         dia_mask = kf.get_dialysis_mask(scr_all_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs)
@@ -162,18 +165,15 @@ def main():
         try:
             bsln_m = pd.read_csv(baseline_file)
             bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
-            bsln_date_loc = bsln_m.columns.get_loc('bsln_date')
             admit_loc = bsln_m.columns.get_loc('admit_date')
             bsln_m = bsln_m.as_matrix()
 
         except:
             kf.get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc,
-                             dia_m, crrt_locs, hd_locs, pd_locs, dem_m, sex_loc, eth_loc, dob_m, birth_loc,
-                             baseline_file, min_diff=7, max_diff=365)
+                             dem_m, sex_loc, eth_loc, dob_m, birth_loc, baseline_file)
 
             bsln_m = pd.read_csv(baseline_file)
             bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
-            bsln_date_loc = bsln_m.columns.get_loc('bsln_date')
             admit_loc = bsln_m.columns.get_loc('admit_date')
             bsln_m = bsln_m.as_matrix()
 
@@ -184,8 +184,8 @@ def main():
                                                             mask, dia_mask,
                                                             dx_m, dx_loc,
                                                             esrd_m, esrd_locs,
-                                                            bsln_m, bsln_scr_loc, bsln_date_loc, admit_loc,
-                                                            date_m, id_loc, icu_locs,
+                                                            bsln_m, bsln_scr_loc, admit_loc,
+                                                            date_m, id_loc,
                                                             surg_m, surg_des_loc,
                                                             dem_m, sex_loc, eth_loc,
                                                             dob_m, birth_loc, count_log)
@@ -217,46 +217,44 @@ def main():
         kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids, fmt='%d')
 
     # Get KDIGO Distance Matrix and summarize patient stats
-    try:
-        f = h5py.File(h5_name, 'r+')
+    # try:
+    f = h5py.File(h5_name, 'r+')
+    # try:
+    #     stats = f['meta']
+    # except:
+    print('Summarizing stats')
+    all_stats = sf.summarize_stats(outPath, h5_name, grp_name='meta_all')
+    # except:
+    #     dm = kf.pairwise_dtw_dist(kdigos, ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv', incl_0=False)
+    #     f = h5py.File(h5_name, 'w')
+    #     f.create_dataset('dm', data=dm)
+    #     all_stats = sf.summarize_stats(dataPath, h5_name, grp_name='meta_all')
+    print('Copying to KDIGO > 0')
+    mk_all = all_stats['max_kdigo'][:]
+    aki_idx = np.where(mk_all > 0)[0]
+    stats = f.create_group('meta')
+    for k in list(all_stats):
         try:
-            stats = f['meta']
-        except:
-            all_stats = sf.summarize_stats(dataPath, h5_name, grp_name='meta_all')
-            mk_all = all_stats['max_kdigo'][:]
-            aki_idx = np.where(mk_all > 0)[0]
-            stats = f.create_group('meta')
-            for k in list(all_stats):
-                temp = all_stats[k][:]
-                if temp.size > 0:
-                    stats.create_dataset(k, data=temp[aki_idx], dtype=all_stats[k].dtype)
-    except:
-        dm = kf.pairwise_dtw_dist(kdigos, ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv', incl_0=False)
-        f = h5py.File(h5_name, 'w')
-        f.create_dataset('dm', data=dm)
-        all_stats = sf.summarize_stats(dataPath, h5_name, grp_name='meta_all')
-        mk_all = all_stats['max_kdigo'][:]
-        aki_idx = np.where(mk_all > 0)[0]
-        stats = f.create_group('meta')
-        for k in list(all_stats):
             temp = all_stats[k][:]
             if temp.size > 0:
                 stats.create_dataset(k, data=temp[aki_idx], dtype=all_stats[k].dtype)
+        except:
+            tempt = None
 
     # Calculate clinical mortality prediction scores
     sofa = None
     if not os.path.exists(dataPath + 'sofa.csv'):
-        sofa = sf.get_sofa(id_ref, inFile, dataPath + 'sofa.csv')
+        sofa = sf.get_sofa(id_ref, inFile, outPath + 'sofa.csv')
 
     apache = None
     if not os.path.exists(dataPath + 'apache.csv'):
-        apache = sf.get_apache(id_ref, inFile, dataPath + 'apache.csv')
+        apache = sf.get_apache(id_ref, inFile, outPath + 'apache.csv')
 
     try:
         _ = stats['sofa']
     except:
         if sofa is None:
-            _, sofa = kf.load_csv(dataPath + 'sofa.csv', ids, dt=int)
+            _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
             sofa = np.array(sofa)
             sofa = np.sum(sofa, axis=1)
         _ = stats.create_dataset('sofa', data=sofa, dtype=int)
@@ -265,7 +263,7 @@ def main():
         _ = stats['apache']
     except:
         if apache is None:
-            _, apache = kf.load_csv(dataPath + 'apache.csv', ids, dt=int)
+            _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
             apache = np.array(apache)
             apache = np.sum(apache, axis=1)
         _ = stats.create_dataset('apache', data=apache, dtype=int)
@@ -278,17 +276,17 @@ def main():
     try:
         desc = fg['descriptive_individual'][:]
     except:
-        desc = kf.descriptive_trajectory_features(kdigos, ids, filename=dataPath+'descriptive_features.csv')
+        desc = kf.descriptive_trajectory_features(kdigos, ids, filename=outPath+'descriptive_features.csv')
         _ = fg.create_dataset('descriptive_individual', data=desc, dtype=int)
     try:
         slope = fg['slope_individual'][:]
     except:
-        slope = kf.slope_trajectory_features(kdigos, ids, filename=dataPath + 'slope_features.csv')
+        slope = kf.slope_trajectory_features(kdigos, ids, filename=outPath + 'slope_features.csv')
         _ = fg.create_dataset('slope_individual', data=slope, dtype=int)
     try:
         temp = fg['template_individual'][:]
     except:
-        temp = kf.template_trajectory_features(kdigos, ids, filename=dataPath + 'template_features.csv')
+        temp = kf.template_trajectory_features(kdigos, ids, filename=outPath + 'template_features.csv')
         _ = fg.create_dataset('template_individual', data=temp, dtype=int)
 
     # Load clusters or launch interactive clustering
