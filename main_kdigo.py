@@ -21,8 +21,13 @@ sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 dataPath = basePath + "DATA/"
 <<<<<<< HEAD
+<<<<<<< HEAD
 outPath = dataPath + t_analyze.lower() + '/7days_6_13_18/'
 resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_6_13_18/'
+=======
+outPath = dataPath + t_analyze.lower() + '/7days_no_death_lt48hrs/'
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_no_death_lt48hrs/'
+>>>>>>> cc45cee6634fdc61b6a6c3046a10c45ae20b6d23
 =======
 outPath = dataPath + t_analyze.lower() + '/7days_no_death_lt48hrs/'
 resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_no_death_lt48hrs/'
