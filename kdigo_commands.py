@@ -7,22 +7,22 @@ Created on Wed Dec  6 12:06:33 2017
 
 @author: taylorsmith
 """
-from kdigo_funcs import get_mat, get_baselines, load_csv, daily_max_kdigo, calc_gfr
+from kdigo_funcs import get_mat, get_baselines, load_csv
 from vis_funcs import hist
 import numpy as np
 from scipy.spatial.distance import squareform
 from kdigo_funcs import pairwise_dtw_dist as ppd
-from kdigo_funcs import arr2csv
-from cluster_funcs import inter_intra_dist
+from kdigo_funcs import arr2csv, descriptive_trajectory_features,\
+                        slope_trajectory_features, template_trajectory_features, combine_labels, daily_max_kdigo, calc_gfr
+from cluster_funcs import cluster, inter_intra_dist, assign_feature_vectors
 from stat_funcs import get_cstats
 from fastcluster import ward
-from scipy.cluster.hierarchy import fcluster
+from scipy.cluster.hierarchy import dendrogram, fcluster
 from sklearn.cluster import DBSCAN
-import datetime
-from scipy.stats.mstats import normaltest
 import matplotlib.pyplot as plt
-import h5py
+import datetime
 import os
+import h5py
 
 
 #%% Calculate Baselines from Raw Data in Excel and store in CSV
@@ -305,15 +305,16 @@ def post_dm_process(h5_fname, csv_fname, output_base_path, dm_name='dm', eps=0.0
         get_cstats(f, cluster_method='dbscan', n_clust=grp_name,
                    out_name=output_base_path + 'dbscan/' + grp_name + '/cluster_stats.csv',
                    report_kdigo0=False, meta_grp='meta')
-        np.savetxt(output_base_path + 'dbscan/' + grp_name + '/clusters.txt', lbls)
+        np.savetxt(output_base_path + 'dbscan/' + grp_name + '/clusters.txt', lbls, fmt='%s')
     print('Breaking down DBSCAN cluster 1')
 #    lbls = ward_breakdown(f, sqdm, lbls, ids, 1, cg, 'dbscan1',
 #                              output_base_path + 'dbscan/', (1,))
-    lbls = ward_breakdown(sqdm, lbls, '1', p_thresh=p_thresh, min_size=15)
+    lbls = ward_breakdown(sqdm, lbls, '1', p_thresh=p_thresh, min_size=20)
     return lbls
 
 
-def ward_breakdown(sqdm, lbls, bkdn_lbl, p_thresh=1e-3, min_size=15):
+
+def ward_breakdown(sqdm, lbls, bkdn_lbl, p_thresh=1e-3, min_size=20):
     sel = np.where(lbls == bkdn_lbl)[0]
     if len(sel) < min_size:
         return lbls

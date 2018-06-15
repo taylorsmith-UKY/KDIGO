@@ -86,14 +86,6 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                  dx_m, dx_loc,
                  esrd_m, esrd_locs,
                  bsln_m, bsln_scr_loc, admit_loc,
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-                 mort_m, mdate_loc,
->>>>>>> cc45cee6634fdc61b6a6c3046a10c45ae20b6d23
-=======
-                 mort_m, mdate_loc,
->>>>>>> cc45cee6634fdc61b6a6c3046a10c45ae20b6d23
                  date_m, id_loc,
                  xplt_m, xplt_des_loc,
                  dem_m, sex_loc, eth_loc,
@@ -376,14 +368,6 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         log.write('# Patients w/ < 2 ICU records: '+str(no_recs_count)+'\n')
         log.write('# Patients w/ no valid baseline: '+str(no_bsln_count)+'\n')
         log.write('# Patients w/ kidney transplant: '+str(kid_xplt_count)+'\n')
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-        log.write('# Patients who died < 48 hrs after admission: '+str(death_count)+'\n')
->>>>>>> cc45cee6634fdc61b6a6c3046a10c45ae20b6d23
-=======
-        log.write('# Patients who died < 48 hrs after admission: '+str(death_count)+'\n')
->>>>>>> cc45cee6634fdc61b6a6c3046a10c45ae20b6d23
     del scr_all_m
     del bsln_m
     del dx_m
