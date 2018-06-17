@@ -615,7 +615,9 @@ def get_sofa(id_file, in_name, out_name):
     scr_agg = scr_agg.as_matrix()
 
     out = open(out_name, 'w')
-    for idx in ids:
+    sofas = np.zeros((len(ids), 6))
+    for i in range(len(ids)):
+        idx = ids[i]
         out.write('%d' % idx)
         admit_rows = np.where(admit_info[:, 0] == idx)[0]
         bg_rows = np.where(blood_gas[:, 0] == idx)[0]
@@ -638,10 +640,13 @@ def get_sofa(id_file, in_name, out_name):
             s1_pa = np.nan
 
         if np.size(co_rows) > 0:
-            s1_fi = clinical_oth[co_rows,fi_o2]
+            s1_fi = float(clinical_oth[co_rows,fi_o2])
         else:
             s1_fi = np.nan
-        s1_ratio = s1_pa / s1_fi
+        if not np.isnan(s1_pa) and not np.isnan(s1_fi):
+            s1_ratio = s1_pa / s1_fi
+        else:
+            s1_ratio = np.nan
 
         try:
             s2_gcs = float(str(clinical_oth[co_rows, g_c_s][0]).split('-')[0])
@@ -760,7 +765,9 @@ def get_sofa(id_file, in_name, out_name):
             score[5] = 1
 
         out.write(',%d,%d,%d,%d,%d,%d\n' % (score[0], score[1], score[2], score[3], score[4], score[5]))
+        sofas[i, :] = score
         print(np.sum(score))
+    return sofas
 
 
 def get_apache(id_file, in_name, out_name):
@@ -813,7 +820,9 @@ def get_apache(id_file, in_name, out_name):
 
     out = open(out_name, 'w')
     ct = 0
-    for idx in ids:
+    apaches = np.zeros((len(ids), 13))
+    for i in range(len(ids)):
+        idx = ids[i]
         out.write('%d' % idx)
 
         bg_rows = np.where(blood_gas[:, 0] == idx)[0]
@@ -1006,7 +1015,9 @@ def get_apache(id_file, in_name, out_name):
         for i in range(len(score)):
             out.write(',%d' % (score[i]))
         out.write('\n')
+        apaches[i, :] = score
         print(np.sum(score))
+    return apaches
 
 
 # Update dialysis so that it does not exclude patients with RRT prior to discharge

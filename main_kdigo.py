@@ -20,8 +20,8 @@ h5_name = 'kdigo_dm.h5'
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 dataPath = basePath + "DATA/"
-outPath = dataPath + t_analyze.lower() + '/7days_6_13_18/'
-resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_6_13_18/'
+outPath = dataPath + t_analyze.lower() + '/7days_061718/'
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_061718/'
 inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 baseline_file = dataPath + 'baselines_1_7-365_mdrd.csv'
@@ -225,86 +225,90 @@ def main():
         f = h5py.File(h5_name, 'w')
     try:
         stats = f['meta']
+        all_stats = f['meta_all']
+        max_kdigo = all_stats['max_kdigo'][:]
+        aki_idx = np.where(max_kdigo > 0)[0]
     except:
         print('Summarizing stats')
         all_stats = sf.summarize_stats(outPath, h5_name, grp_name='meta_all')
         max_kdigo = all_stats['max_kdigo'][:]
         aki_idx = np.where(max_kdigo > 0)[0]
         stats = f.create_group('meta')
+        print('Copying to KDIGO > 0')
         for i in range(len(list(all_stats))):
             name = list(all_stats)[i]
             try:
                 stats.create_dataset(name, data=all_stats[name][:][aki_idx], dtype=all_stats[name].dtype)
             except:
                 print(name + ' was not copied from meta_all to meta')
-    # except:
-    #     dm = kf.pairwise_dtw_dist(kdigos, ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv', incl_0=False)
-    #     f = h5py.File(h5_name, 'w')
-    #     f.create_dataset('dm', data=dm)
-    #     all_stats = sf.summarize_stats(dataPath, h5_name, grp_name='meta_all')
-    print('Copying to KDIGO > 0')
-    mk_all = all_stats['max_kdigo'][:]
-    aki_idx = np.where(mk_all > 0)[0]
-    stats = f.create_group('meta')
-    for k in list(all_stats):
-        try:
-            temp = all_stats[k][:]
-            if temp.size > 0:
-                stats.create_dataset(k, data=temp[aki_idx], dtype=all_stats[k].dtype)
-        except:
-            temp = None
+
+    aki_ids = np.array(ids)[aki_idx]
+    aki_kdigos = []
+    for i in range(len(kdigos)):
+        if np.max(kdigos[i]) > 0:
+            aki_kdigos.append(kdigos[i])
+
 
     # Calculate clinical mortality prediction scores
     sofa = None
-    if not os.path.exists(dataPath + 'sofa.csv'):
+    if not os.path.exists(outPath + 'sofa.csv'):
+        print('Getting SOFA scores')
         sofa = sf.get_sofa(id_ref, inFile, outPath + 'sofa.csv')
 
     apache = None
-    if not os.path.exists(dataPath + 'apache.csv'):
+    if not os.path.exists(outPath + 'apache.csv'):
+        print('Getting APACHE-II Scores')
         apache = sf.get_apache(id_ref, inFile, outPath + 'apache.csv')
 
-    try:
-        _ = stats['sofa']
-    except:
+    if 'sofa' not in list(stats):
         if sofa is None:
             _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
             sofa = np.array(sofa)
-            sofa = np.sum(sofa, axis=1)
-        _ = stats.create_dataset('sofa', data=sofa, dtype=int)
+        sofa = np.sum(sofa, axis=1)
+        _ = all_stats.create_dataset('sofa', data=sofa, dtype=int)
+        _ = stats.create_dataset('sofa', data=sofa[aki_idx], dtype=int)
 
-    try:
-        _ = stats['apache']
-    except:
+    if 'apache' not in list(stats):
         if apache is None:
             _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
             apache = np.array(apache)
-            apache = np.sum(apache, axis=1)
-        _ = stats.create_dataset('apache', data=apache, dtype=int)
+        apache = np.sum(apache, axis=1)
+        _ = all_stats.create_dataset('apache', data=apache, dtype=int)
+        _ = stats.create_dataset('apache', data=apache[aki_idx], dtype=int)
+
+    if 'dm' not in list(f):
+        dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv', incl_0=False)
+        f = h5py.File(h5_name, 'w')
+        f.create_dataset('dm', data=dm)
 
     # Calculate individual trajectory based statistics if not already done
-    try:
+    if 'features' in list(f):
         fg = f['features']
-    except:
+    else:
         fg = f.create_group('features')
-    try:
+
+
+    if 'descriptive_individual' in list(fg):
         desc = fg['descriptive_individual'][:]
-    except:
+    else:
         desc = kf.descriptive_trajectory_features(kdigos, ids, filename=outPath+'descriptive_features.csv')
         _ = fg.create_dataset('descriptive_individual', data=desc, dtype=int)
-    try:
+
+    if 'slope_individual' in list(fg):
         slope = fg['slope_individual'][:]
-    except:
+    else:
         slope = kf.slope_trajectory_features(kdigos, ids, filename=outPath + 'slope_features.csv')
         _ = fg.create_dataset('slope_individual', data=slope, dtype=int)
-    try:
+
+    if 'template_individual' in list(fg):
         temp = fg['template_individual'][:]
-    except:
+    else:
         temp = kf.template_trajectory_features(kdigos, ids, filename=outPath + 'template_features.csv')
         _ = fg.create_dataset('template_individual', data=temp, dtype=int)
 
     # Load clusters or launch interactive clustering
     try:
-        lbls = np.loadtxt(resPath + 'clusters/composite/clusters.txt', dtype=int)
+        lbls = np.loadtxt(resPath + 'clusters/composite/clusters.txt', dtype=str)
     except:
         if not os.path.exists(resPath + 'clusters/'):
             os.mkdir(resPath + 'clusters/')
@@ -312,7 +316,7 @@ def main():
 
         if not os.path.exists(resPath + 'clusters/composite/'):
             os.mkdir(resPath + 'clusters/composite/')
-        np.savetxt(resPath + 'clusters/composite/clusters.txt', lbls, fmt='%d')
+        np.savetxt(resPath + 'clusters/composite/clusters.txt', lbls, fmt='%s')
 
     # Get corresponding cluster features
     try:
