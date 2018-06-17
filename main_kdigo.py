@@ -76,7 +76,6 @@ def main():
         print('Loading encounter info...')
         # Get IDs and find indices of all used metrics
         date_m = kf.get_mat(inFile, 'ADMISSION_INDX', [sort_id])
-        id_loc = date_m.columns.get_loc("STUDY_PATIENT_ID")
         hosp_locs = [date_m.columns.get_loc("HOSP_ADMIT_DATE"), date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
         icu_locs = [date_m.columns.get_loc("ICU_ADMIT_DATE"), date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
         adisp_loc = date_m.columns.get_loc('DISCHARGE_DISPOSITION')
@@ -85,7 +84,6 @@ def main():
         ### GET SURGERY SHEET AND LOCATION
         print('Loading surgery information...')
         surg_m = kf.get_mat(inFile, 'SURGERY_INDX', [sort_id])
-        surg_loc = surg_m.columns.get_loc("SURGERY_CATEGORY")
         surg_des_loc = surg_m.columns.get_loc("SURGERY_DESCRIPTION")
         surg_m = surg_m.as_matrix()
 
@@ -132,6 +130,11 @@ def main():
         birth_loc = dob_m.columns.get_loc("DOB")
         dob_m = dob_m.as_matrix()
 
+        # load death data
+        mort_m = kf.get_mat(inFile, 'OUTCOMES', 'STUDY_PATIENT_ID')
+        mdate_loc = mort_m.columns.get_loc("DECEASED_DATE")
+        mort_m = mort_m.as_matrix()
+
         # Get mask inidicating which points are during dialysis
         dia_mask = kf.get_dialysis_mask(scr_all_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs)
 
@@ -172,7 +175,8 @@ def main():
             admit_loc = bsln_m.columns.get_loc('admit_date')
             bsln_m = bsln_m.as_matrix()
 
-        count_log = open(outPath + 'record_counts.csv', 'w')
+        count_log = open(outPath + 'patient_summary.csv', 'w')
+        exc_log = open(outPath + 'excluded_patients.csv', 'w')
         # Extract patients into separate list elements
         (ids, scr, dates, masks, dmasks, baselines,
          bsln_gfr, d_disp, t_range, ages) = kf.get_patients(scr_all_m, scr_val_loc, scr_date_loc, adisp_loc,
@@ -180,11 +184,14 @@ def main():
                                                             dx_m, dx_loc,
                                                             esrd_m, esrd_locs,
                                                             bsln_m, bsln_scr_loc, admit_loc,
-                                                            date_m, id_loc,
+                                                            date_m, icu_locs,
                                                             surg_m, surg_des_loc,
                                                             dem_m, sex_loc, eth_loc,
-                                                            dob_m, birth_loc, count_log)
+                                                            dob_m, birth_loc,
+                                                            mort_m, mdate_loc,
+                                                            count_log, exc_log)
         count_log.close()
+        exc_log.close()
         kf.arr2csv(outPath + 'scr_raw.csv', scr, ids)
         kf.arr2csv(outPath + 'dates.csv', dates, ids, fmt='%s')
         kf.arr2csv(outPath + 'masks.csv', masks, ids, fmt='%d')
@@ -212,13 +219,24 @@ def main():
         kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids, fmt='%d')
 
     # Get KDIGO Distance Matrix and summarize patient stats
-    # try:
-    f = h5py.File(h5_name, 'r+')
-    # try:
-    #     stats = f['meta']
-    # except:
-    print('Summarizing stats')
-    all_stats = sf.summarize_stats(outPath, h5_name, grp_name='meta_all')
+    try:
+        f = h5py.File(h5_name, 'r+')
+    except:
+        f = h5py.File(h5_name, 'w')
+    try:
+        stats = f['meta']
+    except:
+        print('Summarizing stats')
+        all_stats = sf.summarize_stats(outPath, h5_name, grp_name='meta_all')
+        max_kdigo = all_stats['max_kdigo'][:]
+        aki_idx = np.where(max_kdigo > 0)[0]
+        stats = f.create_group('meta')
+        for i in range(len(list(all_stats))):
+            name = list(all_stats)[i]
+            try:
+                stats.create_dataset(name, data=all_stats[name][:][aki_idx], dtype=all_stats[name].dtype)
+            except:
+                print(name + ' was not copied from meta_all to meta')
     # except:
     #     dm = kf.pairwise_dtw_dist(kdigos, ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv', incl_0=False)
     #     f = h5py.File(h5_name, 'w')
@@ -234,7 +252,7 @@ def main():
             if temp.size > 0:
                 stats.create_dataset(k, data=temp[aki_idx], dtype=all_stats[k].dtype)
         except:
-            tempt = None
+            temp = None
 
     # Calculate clinical mortality prediction scores
     sofa = None

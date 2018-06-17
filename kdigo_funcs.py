@@ -86,11 +86,13 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                  dx_m, dx_loc,
                  esrd_m, esrd_locs,
                  bsln_m, bsln_scr_loc, admit_loc,
-                 date_m, id_loc,
+                 date_m, icu_locs,
                  xplt_m, xplt_des_loc,
                  dem_m, sex_loc, eth_loc,
                  dob_m, birth_loc,
-                 log, v=True):
+                 mort_m, mdate_loc,
+                 log, exc_log,
+                 max_days=7, v=True):
     # Lists to store records for each patient
     scr = []
     tmasks = []     # time/date
@@ -117,8 +119,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
     ids.sort()
     if v:
         print('Getting patient vectors')
-        print('Patient ID,\tBaseline,\tTotal no. records,\tno. selected records')
-        log.write('Patient ID,\tBaseline,\tTotal no. records,\tno. selected records\n')
+        print('Patient_ID\tAdmit_Date\tDischarge_Date\tBaseline_SCr\tMort_Date\tDays_To_Death')
+        log.write('Patient_ID,Admit_Date,Discharge_Date,Baseline_SCr,Mort_Date,Days_To_Death\n')
     for idx in ids:
         skip = False            # required to skip patients where exclusion is found in interior loop
         all_rows = np.where(scr_all_m[:, 0] == idx)[0]
@@ -126,21 +128,19 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         keep = all_rows[sel]
         # Ensure this patient has values in time period of interest
         if len(sel) < 2:
-            ids = np.delete(ids, count)
             no_recs_count += 1
             if v:
                 print(str(idx)+', removed due to not enough values in the time period of interest')
-                log.write(str(idx)+', removed due to not enough values in the time period of interest\n')
+                exc_log.write(str(idx)+', removed due to not enough values in the time period of interest\n')
             continue
 
         # Get Baseline or remove if no admit dates provided
         bsln_idx = np.where(bsln_m[:, 0] == idx)[0]
         if bsln_idx.size == 0:
-            ids = np.delete(ids, count)
             no_admit_info_count += 1
             if v:
                 print(str(idx)+', removed due to missing admission info')
-                log.write(str(idx)+', removed due to missing admission info\n')
+                exc_log.write(str(idx)+', removed due to missing admission info\n')
             continue
         else:
             bsln_idx = bsln_idx[0]
@@ -150,7 +150,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             no_bsln_count += 1
             if v:
                 print(str(idx)+', removed due to missing baseline')
-                log.write(str(idx)+', removed due to missing baseline\n')
+                exc_log.write(str(idx)+', removed due to missing baseline\n')
             continue
         bsln = float(bsln)
         if bsln >= 4.0:
@@ -158,17 +158,28 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             no_bsln_count += 1
             if v:
                 print(str(idx)+', removed due to baseline SCr > 4.0')
-                log.write(str(idx)+', removed due to baseline SCr > 4.0\n')
+                exc_log.write(str(idx)+', removed due to baseline SCr > 4.0\n')
             continue
         admit = str(bsln_m[bsln_idx, admit_loc]).split('.')[0]
         admit = datetime.datetime.strptime(admit, '%Y-%m-%d %H:%M:%S')
 
-        # get mortality and exclude if in window
-        # mort_idx = np.where(mort_m[:, 0] == idx)[0]
-        # if mort_idx.size > 0:
-        #     for i in range(len(mort_idx)):
-        #         tid = mort_idx[i]
-        #         mdate = mort_m[tid, mdate_loc]
+        # get discharge date
+
+        # get mortality date if available
+        mort_idx = np.where(mort_m[:, 0] == idx)[0]
+        mort_date = 'NA'
+        if mort_idx.size > 0:
+            for i in range(len(mort_idx)):
+                tid = mort_idx[i]
+                mdate = str(mort_m[tid, mdate_loc]).split('.')[0]
+                try:
+                    mort_date = datetime.datetime.strptime(mdate, '%Y-%m-%d %H:%M:%S')
+                except:
+                    mort_date = 'NA'
+        if mort_date != 'NA':
+            death_dur = (mort_date - admit).total_seconds() / (60 * 60 * 24)
+        else:
+            death_dur = np.nan
         #         if mdate - admit < datetime.timedelta(death_excl_dur):
         #             skip = True
         #             ids = np.delete(ids, count)
@@ -186,7 +197,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             dem_count += 1
             if v:
                 print(str(idx)+', removed due to missing DOB')
-                log.write(str(idx)+', removed due to missing DOB\n')
+                exc_log.write(str(idx)+', removed due to missing DOB\n')
             continue
         birth_idx = np.where(dob_m[:, 0] == idx)[0][0]
         dob = str(dob_m[birth_idx, birth_loc]).split('.')[0]
@@ -210,7 +221,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                     esrd_count += 1
                     if v:
                         print(str(idx)+', removed due to ESRD status')
-                        log.write(str(idx)+', removed due to ESRD status\n')
+                        exc_log.write(str(idx)+', removed due to ESRD status\n')
                     break
         if skip:
             continue
@@ -221,7 +232,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             dem_count += 1
             if v:
                 print(str(idx)+', removed due to missing demographics')
-                log.write(str(idx)+', removed due to missing demographics\n')
+                exc_log.write(str(idx)+', removed due to missing demographics\n')
             continue
 
         # remove patients with baseline GFR < 15
@@ -231,7 +242,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             gfr_count += 1
             if v:
                 print(str(idx)+', removed due to initial GFR too low')
-                log.write(str(idx)+', removed due to initial GFR too low\n')
+                exc_log.write(str(idx)+', removed due to initial GFR too low\n')
             continue
 
         # remove patients with kidney transplant
@@ -244,7 +255,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                 np.delete(ids, count)
                 if v:
                     print(str(idx)+', removed due to kidney transplant')
-                    log.write(str(idx)+', removed due to kidney transplant\n')
+                    exc_log.write(str(idx)+', removed due to kidney transplant\n')
                 break
         if skip:
             continue
@@ -258,7 +269,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                 np.delete(ids, count)
                 if v:
                     print(str(idx)+', removed due to kidney transplant')
-                    log.write(str(idx)+', removed due to kidney transplant\n')
+                    exc_log.write(str(idx)+', removed due to kidney transplant\n')
                 break
             elif 'KID' in str_des and 'TRANS' in str_des:
                 skip = True
@@ -266,17 +277,20 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                 kid_xplt_count += 1
                 if v:
                     print(str(idx)+', removed due to kidney transplant')
-                    log.write(str(idx)+', removed due to kidney transplant\n')
+                    exc_log.write(str(idx)+', removed due to kidney transplant\n')
                 break
         if skip:
             continue
 
-        all_drows = np.where(date_m[:, id_loc] == idx)[0]
-        '''
+        # get discharge date and check for multiple separate ICU stays
+        all_drows = np.where(date_m[:, 0] == idx)[0]
         delta = datetime.timedelta(0)
+        discharge = datetime.datetime(1000, 1, 1, 1)
         for i in range(len(all_drows)):
             start = str(date_m[all_drows[i], icu_locs[1]]).split('.')[0]
             start = datetime.datetime.strptime(start, '%Y-%m-%d %H:%M:%S')
+            if start > discharge:
+                discharge = start
             td = datetime.timedelta(0)
             for j in range(len(all_drows)):
                 tdate = str(date_m[all_drows[j], icu_locs[0]]).split('.')[0]
@@ -290,14 +304,13 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                 delta = td
             elif delta < td:
                 delta = td
-        if delta > datetime.timedelta(3):
-            np.delete(ids, count)
-            gap_icu_count += 1
-            if v:
-                print(str(idx)+', removed due to different ICU stays > 3 days apart')
-                log.write(str(idx)+', removed due to different ICU stays > 3 days apart\n')
-            continue
-        '''
+        # if delta > datetime.timedelta(3):
+        #     np.delete(ids, count)
+        #     gap_icu_count += 1
+        #     if v:
+        #         print(str(idx)+', removed due to different ICU stays > 3 days apart')
+        #         exc_log.write(str(idx)+', removed due to different ICU stays > 3 days apart\n')
+        #     continue
 
         # # remove patients who died <48 hrs after indexed admission
         disch_disp = date_m[all_drows[0], d_disp_loc]
@@ -309,23 +322,23 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         #     lt48_count += 1
         #     if v:
         #         print(str(idx)+', removed due to death within 48 hours of admission')
-        #         log.write(str(idx)+', removed due to  death within 48 hours of admission\n')
+        #         exc_log.write(str(idx)+', removed due to  death within 48 hours of admission\n')
         #     continue
 
         # get duration vector
         tdates = scr_all_m[keep, scr_date_loc]
         duration = [tdates[x] - admit for x in range(len(tdates))]
         duration = np.array(duration)
-        dkeep = np.where(duration < datetime.timedelta(7))[0]
+        dkeep = np.where(duration < datetime.timedelta(max_days))[0]
         duration = duration[dkeep]
         keep = keep[dkeep]
 
         if len(dkeep) < 2:
-            np.delete(ids, count)
+            # np.delete(ids, count)
             no_recs_count += 1
             if v:
                 print(str(idx)+', removed due to not enough values in the time period of interest')
-                log.write(str(idx)+', removed due to not enough values in the time period of interest\n')
+                exc_log.write(str(idx)+', removed due to not enough values in the time period of interest\n')
             continue
 
         # points to keep = where duration < 7 days
@@ -335,8 +348,9 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         bslns.append(bsln)
         bsln_gfr.append(gfr)
         if v:
-            print('%d,\t\t%f,\t\t%d,\t\t%d' % (idx, bsln, len(all_rows), len(sel)))
-            log.write('%d,\t\t%f,\t\t%d,\t\t%d\n' % (idx, bsln, len(all_rows), len(sel)))
+            'Patient_ID,Admit_Date,Discharge_Date,Baseline_SCr,Mort_Date,Days_To_Death\n'
+            print('%d\t%s\t%s\t%.3f\t%s\t%.3f' % (idx, admit, discharge, bsln, mort_date, death_dur))
+            log.write('%d,%s,%s,%.3f,%s,%.3f\n' % (idx, admit, discharge, bsln, mort_date, death_dur))
         tmask = mask[keep]
         tmasks.append(tmask)
         dmask = dia_mask[keep]
@@ -360,14 +374,14 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         print('# Patients w/ < 2 ICU records: '+str(no_recs_count))
         print('# Patients w/ no valid baseline: '+str(no_bsln_count))
         print('# Patients w/ kidney transplant: '+str(kid_xplt_count))
-        log.write('# Patients Kept: '+str(count)+'\n')
-        log.write('# Patients removed for ESRD: '+str(esrd_count)+'\n')
-        log.write('# Patients w/ GFR < 15: '+str(gfr_count)+'\n')
-        log.write('# Patients w/ no admit info: '+str(no_admit_info_count)+'\n')
-        log.write('# Patients w/ missing demographics: '+str(dem_count)+'\n')
-        log.write('# Patients w/ < 2 ICU records: '+str(no_recs_count)+'\n')
-        log.write('# Patients w/ no valid baseline: '+str(no_bsln_count)+'\n')
-        log.write('# Patients w/ kidney transplant: '+str(kid_xplt_count)+'\n')
+        exc_log.write('# Patients Kept: '+str(count)+'\n')
+        exc_log.write('# Patients removed for ESRD: '+str(esrd_count)+'\n')
+        exc_log.write('# Patients w/ GFR < 15: '+str(gfr_count)+'\n')
+        exc_log.write('# Patients w/ no admit info: '+str(no_admit_info_count)+'\n')
+        exc_log.write('# Patients w/ missing demographics: '+str(dem_count)+'\n')
+        exc_log.write('# Patients w/ < 2 ICU records: '+str(no_recs_count)+'\n')
+        exc_log.write('# Patients w/ no valid baseline: '+str(no_bsln_count)+'\n')
+        exc_log.write('# Patients w/ kidney transplant: '+str(kid_xplt_count)+'\n')
     del scr_all_m
     del bsln_m
     del dx_m
@@ -720,7 +734,7 @@ def scr2kdigo(scr, base, masks, days, valid):
                 kdigo[j] = 4
                 continue
             elif scr[i][j] <= (1.5 * base[i]):
-                if days[i][j] > 1:
+                if j > 7:
                     window = np.where(days[i] >= days[i][j] - 2)[0]
                     window = window[np.where(window < j)[0]]
                     window = np.intersect1d(window, np.where(valid[i])[0])
@@ -866,8 +880,11 @@ def arr2csv(fname, inds, ids, fmt='%f', header=False):
     try:
         for i in range(len(inds)):
             outFile.write('%d' % (ids[i]))
-            for j in range(len(inds[i])):
-                outFile.write(','+fmt % (inds[i][j]))
+            if fmt == '%s':
+                outFile.write(',' + fmt % inds[i])
+            else:
+                for j in range(len(inds[i])):
+                    outFile.write(','+fmt % (inds[i][j]))
             outFile.write('\n')
         outFile.close()
     except:

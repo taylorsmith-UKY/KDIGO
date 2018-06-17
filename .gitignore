@@ -1,3 +1,17 @@
 
 .DS_Store
 *.pyc
+.idea/CODE.iml
+.idea/dictionaries/taylorsmith.xml
+.idea/inspectionProfiles/Project_Default.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/other.xml
+.idea/vcs.xml
+.idea/workspace.xml
+inter_intra_dist.txt
+kdigo_transitions.png
+kdigo_transitions_noflat.png
+temp.csv
+temp.py
+temp2.py
