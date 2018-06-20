@@ -11,6 +11,7 @@ from kdigo_funcs import get_mat, get_baselines, load_csv
 from vis_funcs import hist
 import numpy as np
 from scipy.spatial.distance import squareform
+from scipy.stats import normaltest
 from kdigo_funcs import pairwise_dtw_dist as ppd
 from kdigo_funcs import arr2csv, descriptive_trajectory_features,\
                         slope_trajectory_features, template_trajectory_features, combine_labels, daily_max_kdigo, calc_gfr
@@ -285,15 +286,23 @@ def post_dm_process(h5_fname, csv_fname, output_base_path, dm_name='dm', eps=0.0
             os.makedirs(output_base_path + 'dbscan')
     print('\n')
     db = DBSCAN(eps=eps, metric='precomputed', n_jobs=-1)
-    db.fit(sqdm)
-    lbls = np.array(db.labels_, dtype=int)
-    nclust = len(np.unique(lbls)) - 1
+    cont = True
+    while cont:
+        db.fit(sqdm)
+        lbls = np.array(db.labels_, dtype=int)
+        nclust = len(np.unique(lbls)) - 1
+        print('Number of Clusters = %d' % nclust)
+        eps = raw_input('New epsilon (non-numeric to continue): ')
+        try:
+            eps = float(eps)
+            db = DBSCAN(eps=eps, metric='precomputed', n_jobs=-1)
+        except:
+            cont = False
     lbls[np.where(lbls >= 0)] += 1  # because dbscan starts with cluster label 0
     lbls = lbls.astype(str)
     grp_name = '%d_clusters' % nclust
     if not no_save:
         dbg.create_dataset(grp_name, data=lbls)
-    print('Number of Clusters = %d' % nclust)
     plt.close('all')
     if not no_save:
         os.makedirs(output_base_path + 'dbscan/' + grp_name)

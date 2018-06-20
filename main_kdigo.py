@@ -20,8 +20,8 @@ h5_name = 'kdigo_dm.h5'
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 dataPath = basePath + "DATA/"
-outPath = dataPath + t_analyze.lower() + '/7days_061718/'
-resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_061718/'
+outPath = dataPath + t_analyze.lower() + '/7days_061818/'
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_061818/'
 inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 baseline_file = dataPath + 'baselines_1_7-365_mdrd.csv'
@@ -61,7 +61,9 @@ def main():
                 # Interpolate missing values
                 print('Interpolating missing values')
                 interpo_log = open(outPath + 'interpo_log.txt', 'w')
-                post_interpo, dmasks_interp, days_interp, interp_masks = kf.linear_interpo(scr, ids, dates, masks, dmasks, timescale, interpo_log)
+                post_interpo, dmasks_interp, days_interp, interp_masks = kf.linear_interpo(scr, ids, dates, masks,
+                                                                                           dmasks, timescale,
+                                                                                           interpo_log)
                 kf.arr2csv(outPath + 'scr_interp.csv', post_interpo, ids)
                 kf.arr2csv(outPath + 'dmasks_interp.csv', dmasks_interp, ids, fmt='%d')
                 kf.arr2csv(outPath + 'days_interp.csv', days_interp, ids, fmt='%d')
@@ -206,7 +208,8 @@ def main():
         # Interpolate missing values
         print('Interpolating missing values')
         interpo_log = open(outPath + 'interpo_log.txt', 'w')
-        post_interpo, dmasks_interp, days_interp, interp_masks = kf.linear_interpo(scr, ids, dates, masks, dmasks, timescale, interpo_log)
+        post_interpo, dmasks_interp, days_interp, interp_masks = kf.linear_interpo(scr, ids, dates, masks, dmasks,
+                                                                                   timescale, interpo_log)
         kf.arr2csv(outPath + 'scr_interp.csv', post_interpo, ids)
         kf.arr2csv(outPath + 'days_interp.csv', days_interp, ids, fmt='%d')
         kf.arr2csv(outPath + 'interp_masks.csv', interp_masks, ids, fmt='%d')
@@ -248,37 +251,48 @@ def main():
         if np.max(kdigos[i]) > 0:
             aki_kdigos.append(kdigos[i])
 
-
     # Calculate clinical mortality prediction scores
     sofa = None
     if not os.path.exists(outPath + 'sofa.csv'):
         print('Getting SOFA scores')
         sofa = sf.get_sofa(id_ref, inFile, outPath + 'sofa.csv')
+    else:
+        _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
+        sofa = np.array(sofa)
+        sofa_aki = sofa[aki_idx, :]
+        sofa_norm = kf.normalize_features(sofa_aki)
 
     apache = None
     if not os.path.exists(outPath + 'apache.csv'):
         print('Getting APACHE-II Scores')
         apache = sf.get_apache(id_ref, inFile, outPath + 'apache.csv')
+    else:
+        _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
+        apache = np.array(apache)
+        apache_aki = apache[aki_idx, :]
+        apache_norm = kf.normalize_features(apache_aki)
 
     if 'sofa' not in list(stats):
         if sofa is None:
             _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
             sofa = np.array(sofa)
-        sofa = np.sum(sofa, axis=1)
-        _ = all_stats.create_dataset('sofa', data=sofa, dtype=int)
-        _ = stats.create_dataset('sofa', data=sofa[aki_idx], dtype=int)
+        sofa_agg = np.sum(sofa, axis=1)
+        sofa_norm = kf.normalize_features(sofa[aki_idx, :])
+        _ = all_stats.create_dataset('sofa', data=sofa_agg, dtype=int)
+        _ = stats.create_dataset('sofa', data=sofa_agg[aki_idx], dtype=int)
 
     if 'apache' not in list(stats):
         if apache is None:
             _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
             apache = np.array(apache)
-        apache = np.sum(apache, axis=1)
-        _ = all_stats.create_dataset('apache', data=apache, dtype=int)
-        _ = stats.create_dataset('apache', data=apache[aki_idx], dtype=int)
+        apache_agg = np.sum(apache, axis=1)
+        apache_norm = kf.normalize_features(apache[aki_idx, :])
+        _ = all_stats.create_dataset('apache', data=apache_agg, dtype=int)
+        _ = stats.create_dataset('apache', data=apache_agg[aki_idx], dtype=int)
 
     if 'dm' not in list(f):
-        dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv', incl_0=False)
-        f = h5py.File(h5_name, 'w')
+        dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv',
+                                  incl_0=False)
         f.create_dataset('dm', data=dm)
 
     # Calculate individual trajectory based statistics if not already done
@@ -287,24 +301,27 @@ def main():
     else:
         fg = f.create_group('features')
 
-
     if 'descriptive_individual' in list(fg):
         desc = fg['descriptive_individual'][:]
     else:
-        desc = kf.descriptive_trajectory_features(kdigos, ids, filename=outPath+'descriptive_features.csv')
+        desc = kf.descriptive_trajectory_features(aki_kdigos, aki_ids, filename=outPath + 'descriptive_features.csv')
         _ = fg.create_dataset('descriptive_individual', data=desc, dtype=int)
 
     if 'slope_individual' in list(fg):
-        slope = fg['slope_individual'][:]
+        slope_norm = fg['slope_individual_norm'][:]
     else:
-        slope = kf.slope_trajectory_features(kdigos, ids, filename=outPath + 'slope_features.csv')
+        slope = kf.slope_trajectory_features(aki_kdigos, aki_ids, filename=outPath + 'slope_features.csv')
+        slope_norm = kf.normalize_features(slope)
         _ = fg.create_dataset('slope_individual', data=slope, dtype=int)
+        _ = fg.create_dataset('slope_individual_norm', data=slope_norm)
 
     if 'template_individual' in list(fg):
-        temp = fg['template_individual'][:]
+        temp_norm = fg['template_individual_norm'][:]
     else:
-        temp = kf.template_trajectory_features(kdigos, ids, filename=outPath + 'template_features.csv')
+        temp = kf.template_trajectory_features(aki_kdigos, aki_ids, filename=outPath + 'template_features.csv')
+        temp_norm = kf.normalize_features(temp)
         _ = fg.create_dataset('template_individual', data=temp, dtype=int)
+        _ = fg.create_dataset('template_individual_norm', data=temp_norm)
 
     # Load clusters or launch interactive clustering
     try:
@@ -312,25 +329,68 @@ def main():
     except:
         if not os.path.exists(resPath + 'clusters/'):
             os.mkdir(resPath + 'clusters/')
-        lbls = post_dm_process(h5_name, '', output_base_path=resPath + 'clusters/')
+        lbls = post_dm_process(h5_name, '', output_base_path=resPath + 'clusters/', eps=0.05)
 
         if not os.path.exists(resPath + 'clusters/composite/'):
             os.mkdir(resPath + 'clusters/composite/')
         np.savetxt(resPath + 'clusters/composite/clusters.txt', lbls, fmt='%s')
 
+    if 'composite' not in list(f['clusters']):
+        n_clust = '%d_clusters' % len(np.unique(lbls))
+        ccg = f['clusters'].create_group('composite')
+        _ = ccg.create_dataset('ids', data=ids[aki_idx], dtype=int)
+        _ = ccg.create_dataset(n_clust, data=lbls, dtype=str)
+        sf.get_cstats(f, 'composite', n_clust, resPath + 'clusters/composite/cluster_stats.csv', report_kdigo0=False,
+                      meta_grp='meta')
+
     # Get corresponding cluster features
-    try:
-        _ = fg['descriptive_clusters'][:]
-        _ = fg['template_clusters'][:]
-        _ = fg['slope_clusters'][:]
-    except:
-        desc_c, temp_c, slope_c = kf.cluster_feature_vectors(desc, temp, slope, lbls)
+    if 'descriptive_clusters' not in list(fg):
+        desc_c, temp_c, slope_c = kf.cluster_feature_vectors(desc, temp_norm, slope_norm, lbls)
         all_desc_c = assign_feature_vectors(lbls, desc_c)
         all_temp_c = assign_feature_vectors(lbls, temp_c)
         all_slope_c = assign_feature_vectors(lbls, slope_c)
         fg.create_dataset('descriptive_clusters', data=all_desc_c, dtype=int)
         fg.create_dataset('template_clusters', data=all_temp_c, dtype=float)
         fg.create_dataset('slope_clusters', data=all_slope_c, dtype=float)
+    else:
+        desc_c = fg['descriptive_clusters'][:]
+        slope_c = fg['slope_clusters'][:]
+        temp_c = fg['template_clusters'][:]
+
+    if sofa is None:
+        _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
+        sofa = np.array(sofa[aki_idx, :])
+        sofa_norm = kf.normalize_features(sofa)
+    if 'sofa' not in list(fg):
+        _ = fg.create_dataset('sofa', data=sofa, dtype=int)
+        _ = fg.create_dataset('sofa_norm', data=sofa_norm)
+
+    if apache is None:
+        _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
+        apache = np.array(apache[aki_idx, :])
+        apache_norm = kf.normalize_features(apache)
+    if 'apache' not in list(fg):
+        _ = fg.create_dataset('apache', data=apache, dtype=int)
+        _ = fg.create_dataset('apache_norm', data=apache_norm)
+
+    if 'all_clinical' not in list(fg):
+        all_clin = np.hstack((sofa_norm, apache_norm))
+        _ = fg.create_dataset('all_clinical', data=all_clin)
+
+    if 'all_trajectory_individual' not in list(fg):
+        all_traj_ind = np.hstack((desc, slope_norm, temp_norm))
+        all_traj_c = np.hstack((desc_c, slope_c, temp_c))
+        _ = fg.create_dataset('all_trajectory_individual', data=all_traj_ind)
+        _ = fg.create_dataset('all_trajectory_clusters', data=all_traj_c)
+
+    if 'everything_individual' not in list(fg):
+        all_traj = fg['all_trajectory_individual'][:]
+        all_traj_c = fg['all_trajectory_clusters'][:]
+        all_clin = fg['all_clinical'][:]
+        everything_ind = np.hstack((all_traj, all_clin))
+        everything_clusters = np.hstack((all_traj_c, fg['all_clinical'][:]))
+        _ = fg.create_dataset('everything_individual', data=everything_ind)
+        _ = fg.create_dataset('everything_clusters', data=everything_clusters)
 
     print('Ready for classification. Please run script \'classify_features.py\'')
     print('Available features:')

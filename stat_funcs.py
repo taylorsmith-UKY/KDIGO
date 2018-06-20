@@ -643,7 +643,7 @@ def get_sofa(id_file, in_name, out_name):
             s1_fi = float(clinical_oth[co_rows,fi_o2])
         else:
             s1_fi = np.nan
-        if not np.isnan(s1_pa) and not np.isnan(s1_fi):
+        if not np.isnan(s1_pa) and not np.isnan(s1_fi) and s1_fi != 0:
             s1_ratio = s1_pa / s1_fi
         else:
             s1_ratio = np.nan

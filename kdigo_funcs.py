@@ -146,7 +146,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             bsln_idx = bsln_idx[0]
         bsln = bsln_m[bsln_idx, bsln_scr_loc]
         if str(bsln).lower() == 'nan' or str(bsln).lower() == 'none' or str(bsln).lower() == 'nat':
-            ids = np.delete(ids, count)
+            # ids = np.delete(ids, count)
             no_bsln_count += 1
             if v:
                 print(str(idx)+', removed due to missing baseline')
@@ -154,7 +154,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             continue
         bsln = float(bsln)
         if bsln >= 4.0:
-            ids = np.delete(ids, count)
+            # ids = np.delete(ids, count)
             no_bsln_count += 1
             if v:
                 print(str(idx)+', removed due to baseline SCr > 4.0')
@@ -182,7 +182,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             death_dur = np.nan
         #         if mdate - admit < datetime.timedelta(death_excl_dur):
         #             skip = True
-        #             ids = np.delete(ids, count)
+        #             # ids = np.delete(ids, count)
         #             death_count += 1
         #             if v:
         #                 print(str(idx) + ', removed due to death in specified window')
@@ -193,7 +193,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
 
         # get dob, sex, and race
         if idx not in dob_m[:, 0] or idx not in dem_m[:, 0]:
-            ids = np.delete(ids, count)
+            # ids = np.delete(ids, count)
             dem_count += 1
             if v:
                 print(str(idx)+', removed due to missing DOB')
@@ -217,7 +217,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             for loc in esrd_locs:
                 if np.any(esrd_m[esrd_idx, loc] == 'Y'):
                     skip = True
-                    ids = np.delete(ids, count)
+                    # ids = np.delete(ids, count)
                     esrd_count += 1
                     if v:
                         print(str(idx)+', removed due to ESRD status')
@@ -228,7 +228,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
 
         # remove patients with required demographics missing
         if str(sex) == 'nan' or str(race) == 'nan':
-            ids = np.delete(ids, count)
+            # ids = np.delete(ids, count)
             dem_count += 1
             if v:
                 print(str(idx)+', removed due to missing demographics')
@@ -238,7 +238,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         # remove patients with baseline GFR < 15
         gfr = calc_gfr(bsln, sex, race, age)
         if gfr < 15:
-            ids = np.delete(ids, count)
+            # ids = np.delete(ids, count)
             gfr_count += 1
             if v:
                 print(str(idx)+', removed due to initial GFR too low')
@@ -252,7 +252,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             if 'KID' in str_des and 'TRANS' in str_des:
                 skip = True
                 kid_xplt_count += 1
-                np.delete(ids, count)
+                # ids = np.delete(ids, count)
                 if v:
                     print(str(idx)+', removed due to kidney transplant')
                     exc_log.write(str(idx)+', removed due to kidney transplant\n')
@@ -266,14 +266,14 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             if str_des == 'KIDNEY/PANCREAS FROM BATAVIA  ETA 1530':
                 skip = True
                 kid_xplt_count += 1
-                np.delete(ids, count)
+                # ids = np.delete(ids, count)
                 if v:
                     print(str(idx)+', removed due to kidney transplant')
                     exc_log.write(str(idx)+', removed due to kidney transplant\n')
                 break
             elif 'KID' in str_des and 'TRANS' in str_des:
                 skip = True
-                np.delete(ids, count)
+               #  np.delete(ids, count)
                 kid_xplt_count += 1
                 if v:
                     print(str(idx)+', removed due to kidney transplant')
@@ -305,7 +305,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             elif delta < td:
                 delta = td
         # if delta > datetime.timedelta(3):
-        #     np.delete(ids, count)
+        #    #  np.delete(ids, count)
         #     gap_icu_count += 1
         #     if v:
         #         print(str(idx)+', removed due to different ICU stays > 3 days apart')
@@ -318,7 +318,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             disch_disp = disch_disp[0]
         disch_disp = str(disch_disp).upper()
         # if 'LESS THAN' in disch_disp:
-        #     np.delete(ids, count)
+        #    #  np.delete(ids, count)
         #     lt48_count += 1
         #     if v:
         #         print(str(idx)+', removed due to death within 48 hours of admission')
@@ -334,7 +334,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         keep = keep[dkeep]
 
         if len(dkeep) < 2:
-            # np.delete(ids, count)
+            ##  np.delete(ids, count)
             no_recs_count += 1
             if v:
                 print(str(idx)+', removed due to not enough values in the time period of interest')
@@ -760,7 +760,8 @@ def scr2kdigo(scr, base, masks, days, valid):
 
 
 # %%
-def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True, alpha=1.0):
+def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True,
+                      alpha=1.0, dic={0: 34, 1: 33, 2: 31, 3: 25, 4: 0}, use_dic=True):
     df = open(dm_fname, 'w')
     dis = []
     if v and dtw_name is not None:
@@ -770,10 +771,22 @@ def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True, al
             continue
         if v:
             print('#'+str(i+1)+' vs #'+str(i+2)+' to '+str(len(patients)))
+        patient1 = np.zeros(len(patients[i]))
+        if use_dic:
+            for k in range(len(patient1)):
+                patient1[k] = dic[patients[i][k]]
+        else:
+            patient1[:] = patients[i]
         for j in range(i+1,len(patients)):
             if not incl_0 and np.all(patients[j] == 0):
-                    continue
-            df.write('%d,%d,' % (ids[i],ids[j]))
+                continue
+            df.write('%d,%d,' % (ids[i], ids[j]))
+            patient2 = np.zeros(len(patients[j]))
+            if use_dic:
+                for k in range(len(patient2)):
+                    patient2[k] = dic[patients[j][k]]
+            else:
+                patient2[:] = patients[j]
             if np.all(patients[i] == 0) and np.all(patients[j] == 0):
                 df.write('%f\n' % 0)
                 dis.append(0)
@@ -782,14 +795,14 @@ def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True, al
                     dist, _, _, path = dtw_p(patients[i], patients[j], lambda y, yy: np.abs(y-yy), alpha=alpha)
                     p1_path = path[0]
                     p2_path = path[1]
-                    p1 = [patients[i][p1_path[x]] for x in range(len(p1_path))]
-                    p2 = [patients[j][p2_path[x]] for x in range(len(p2_path))]
+                    p1 = [patient1[p1_path[x]] for x in range(len(p1_path))]
+                    p2 = [patient2[p2_path[x]] for x in range(len(p2_path))]
                 elif len(patients[i]) == 1:
-                    p1 = np.repeat(patients[i][0],len(patients[j]))
+                    p1 = np.repeat(patients[i][0], len(patients[j]))
                     p2 = patients[j]
                 elif len(patients[j]) == 1:
                     p1 = patients[i]
-                    p2 = np.repeat(patients[j][0],len(patients[i]))
+                    p2 = np.repeat(patients[j][0], len(patients[i]))
                 if np.all(p1 == p2):
                     df.write('%f\n' % 0)
                     dis.append(0)
@@ -961,7 +974,7 @@ def descriptive_trajectory_features(kdigos, ids, filename='descriptive_features.
              'onset_lt_3days,onset_gte_3days,complete_recovery_lt_3days,multiple_hits,KDIGO1_gt_24hrs,KDIGO2_gt_24hrs,' +\
              'KDIGO3_gt_24hrs,KDIGO4_gt_24hrs,flat,strictly_increase,strictly_decrease,slope_posTOneg,slope_negTOpos'
     for i in range(len(kdigos)):
-        kdigo = np.array(kdigos[i])
+        kdigo = np.array(kdigos[i], dtype=int)
         kdigo1 = np.where(kdigo == 1)[0]
         kdigo2 = np.where(kdigo == 2)[0]
         kdigo3 = np.where(kdigo == 3)[0]
