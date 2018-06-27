@@ -49,27 +49,54 @@ def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs, v
         print('%d, %d, %d, %d\n' % (nwo, ncrrt, nhd, npd))
     return mask
 
+# %%
+def get_admits(date_m, admit_loc):
+    temp_id = 0
+    all_ids = np.unique(date_m[:, 0])
+    admit_info = np.zeros((len(all_ids), 2), dtype='|S20')
+    admit_info[:, 0] = all_ids
+    for i in range(len(all_ids)):
+        tid = all_ids[i]
+        rows = np.where(date_m[:, 0] == tid)[0]
+        admit = datetime.datetime.now()
+        for row in rows:
+            tdate = datetime.datetime.strptime(str(date_m[row, admit_loc]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+            if tdate < admit:
+                admit = tdate
+        admit_info[i, 1] = admit
+    return admit_infop
+
 
 # %%
-def get_t_mask(scr_m, scr_date_loc, scr_val_loc, date_m, hosp_locs, icu_locs, v=True):
+def get_t_mask(scr_m, scr_date_loc, scr_val_loc, date_m, hosp_locs, icu_locs, admits, t_lim=7, v=True):
     mask = np.zeros(len(scr_m))
     if v:
         print('Getting masks for icu and hospital admit-discharge')
     for i in range(len(mask)):
         this_id = scr_m[i, 0]
-        this_date = scr_m[i, scr_date_loc]
+        this_date = datetime.datetime.strptime(str(scr_m[i, scr_date_loc]).split('.')[0], '%Y-%m-%d %H:%M:%S')
         this_val = scr_m[i, scr_val_loc]
         if this_val == np.nan:
             continue
+
+        admit_idx = np.where(admits[:, 0] == this_id)[0][0]
+        admit = datetime.datetime.strptime(str(admits[admit_idx, 1]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+
         rows = np.where(date_m[:, 0] == this_id)[0]
         for row in rows:
             if date_m[row, icu_locs[0]] != np.nan:
-                if date_m[row, icu_locs[0]] < this_date < date_m[row, icu_locs[1]]:
-                    mask[i] = 2
-                    break
+                start = datetime.datetime.strptime(str(date_m[row, icu_locs[0]]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+                stop = datetime.datetime.strptime(str(date_m[row, icu_locs[1]]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+                if start < this_date < stop:
+                    if (this_date - admit).days < t_lim:
+                        mask[i] = 2
+                        break
             elif date_m[row, hosp_locs[0]] != np.nan:
-                if date_m[row, hosp_locs[0]] < this_date < date_m[row, hosp_locs[1]]:
-                    mask[i] = 1
+                start = datetime.datetime.strptime(str(date_m[row, hosp_locs[0]]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+                stop = datetime.datetime.strptime(str(date_m[row, hosp_locs[1]]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+                if start < this_date < stop:
+                    if (this_date - admit).days < t_lim:
+                        mask[i] = 1
     if v:
         nop = len(np.where(mask == 0)[0])
         nhp = len(np.where(mask >= 1)[0])
@@ -104,6 +131,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
     bsln_gfr = []
     t_range = []
     ages = []
+    durations = []
 
     # Counters for total number of patients and how many removed for each exclusion criterium
     count = 0
@@ -348,15 +376,15 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         bslns.append(bsln)
         bsln_gfr.append(gfr)
         if v:
-            'Patient_ID,Admit_Date,Discharge_Date,Baseline_SCr,Mort_Date,Days_To_Death\n'
-            print('%d\t%s\t%s\t%.3f\t%s\t%.3f' % (idx, admit, discharge, bsln, mort_date, death_dur))
-            log.write('%d,%s,%s,%.3f,%s,%.3f\n' % (idx, admit, discharge, bsln, mort_date, death_dur))
+            'Patient_ID,Admit_Date,Discharge_Date,Duration,Baseline_SCr,Mort_Date,Days_To_Death\n'
+            print('%d\t%s\t%s\t%.3f\t%.3f\t%s\t%.3f' % (idx, admit, discharge, bsln, mort_date, death_dur))
+            log.write('%d,%s,%s,%.3f,%.3f,%s,%.3f\n' % (idx, admit, discharge, bsln, mort_date, death_dur))
         tmask = mask[keep]
         tmasks.append(tmask)
         dmask = dia_mask[keep]
         dmasks.append(dmask)
         scr.append(scr_all_m[keep, scr_val_loc])
-        dates.append(scr_all_m[keep, scr_date_loc])
+        dates.append(scr_all_m[keep, scr_date_loc][x])
         ages.append(age)
 
         tmin = duration[0].total_seconds() / (60 * 60)
@@ -735,7 +763,7 @@ def scr2kdigo(scr, base, masks, days, valid):
                 continue
             elif scr[i][j] <= (1.5 * base[i]):
                 if j > 7:
-                    window = np.where(days[i] >= days[i][j] - 2)[0]
+                    window = np.where(days[i] <= days[i][j])[0]
                     window = window[np.where(window < j)[0]]
                     window = np.intersect1d(window, np.where(valid[i])[0])
                     if window.size > 0:
@@ -885,8 +913,10 @@ def rel_scr(scr_fname, bsln_fname):
 
 
 # %%
-def arr2csv(fname, inds, ids, fmt='%f', header=False):
+def arr2csv(fname, inds, ids=None, fmt='%f', header=False):
     outFile = open(fname, 'w')
+    if ids is None:
+        ids = np.arange(len(inds))
     if header:
         outFile.write(header)
         outFile.write('\n')

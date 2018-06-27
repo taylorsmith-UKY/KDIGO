@@ -6,6 +6,7 @@ import kdigo_funcs as kf
 import stat_funcs as sf
 from cluster_funcs import assign_feature_vectors
 from kdigo_commands import post_dm_process
+import matplotlib as mpl
 
 # ------------------------------- PARAMETERS ----------------------------------#
 basePath = "../"
@@ -15,13 +16,33 @@ timescale = 6  # in hours
 id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
 h5_name = 'kdigo_dm.h5'
+folder_name = '/7days_062718_2/'
+alpha = 1.0
+kdigo_dic = {0: 34,
+             1: 33,
+             2: 31,
+             3: 25,
+             4: 0}
+use_dic = True
+    # Dictionary explanation:
+    # cost(0, 1) = 1
+    # cost(1, 2) = 2 + 1 = 3
+    # cost(2, 3) = 6 + 3 = 9
+    # cost(3, 4) = 24 + 24 = 33
+    # order is reversed so the bray-curtis distance
+
+
 # -----------------------------------------------------------------------------#
+if use_dic:
+    dm_tag = '_custcost_a%d' % alpha
+else:
+    dm_tag = '_norm_a%d' % alpha
 
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 dataPath = basePath + "DATA/"
-outPath = dataPath + t_analyze.lower() + '/7days_061818/'
-resPath = basePath + 'RESULTS/' + t_analyze.lower() + '/7days_061818/'
+outPath = dataPath + t_analyze.lower() + folder_name
+resPath = basePath + 'RESULTS/' + t_analyze.lower() + folder_name
 inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 baseline_file = dataPath + 'baselines_1_7-365_mdrd.csv'
@@ -45,7 +66,7 @@ def main():
         # try to load extracted raw data
         except:
             _, scr = kf.load_csv(outPath + 'scr_raw.csv', ids)
-            _, dates = kf.load_csv(outPath + 'dates.csv', ids, dt=str)
+            # _, dates = kf.load_csv(outPath + 'dates.csv', ids, dt=str)
             _, masks = kf.load_csv(outPath + 'masks.csv', ids, dt=int)
             _, dmasks = kf.load_csv(outPath + 'dialysis.csv', ids, dt=int)
             _, baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
@@ -72,12 +93,13 @@ def main():
             print('Converting to KDIGO')
             # Convert SCr to KDIGO
             kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
-            kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids)
+            kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids, fmt='%d')
     # If data loading unsuccesful start from scratch
     except:
         print('Loading encounter info...')
         # Get IDs and find indices of all used metrics
-        date_m = kf.get_mat(inFile, 'ADMISSION_INDX', [sort_id])
+        date_m = pd.read_csv(dataPath + 'all_sheets/ADMISSION_INDX.csv')
+        date_m.sort_values(by=sort_id, inplace=True)
         hosp_locs = [date_m.columns.get_loc("HOSP_ADMIT_DATE"), date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
         icu_locs = [date_m.columns.get_loc("ICU_ADMIT_DATE"), date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
         adisp_loc = date_m.columns.get_loc('DISCHARGE_DISPOSITION')
@@ -85,19 +107,22 @@ def main():
 
         ### GET SURGERY SHEET AND LOCATION
         print('Loading surgery information...')
-        surg_m = kf.get_mat(inFile, 'SURGERY_INDX', [sort_id])
+        surg_m = pd.read_csv(dataPath + 'all_sheets/SURGERY_INDX.csv')
+        surg_m.sort_values(by=sort_id, inplace=True)
         surg_des_loc = surg_m.columns.get_loc("SURGERY_DESCRIPTION")
         surg_m = surg_m.as_matrix()
 
         ### GET DIAGNOSIS SHEET AND LOCATION
         print('Loading diagnosis information...')
-        dx_m = kf.get_mat(inFile, 'DIAGNOSIS', [sort_id])
+        dx_m = pd.read_csv(dataPath + 'all_sheets/DIAGNOSIS.csv')
+        dx_m.sort_values(by=sort_id, inplace=True)
         dx_loc = dx_m.columns.get_loc("DIAGNOSIS_DESC")
         dx_m = dx_m.as_matrix()
 
         print('Loading ESRD status...')
         # ESRD status
-        esrd_m = kf.get_mat(inFile, 'ESRD_STATUS', [sort_id])
+        esrd_m = pd.read_csv(dataPath + 'all_sheets/ESRD_STATUS.csv')
+        esrd_m.sort_values(by=sort_id, inplace=True)
         esrd_locs = [esrd_m.columns.get_loc("AT_ADMISSION_INDICATOR"),
                      esrd_m.columns.get_loc("DURING_INDEXED_INDICATOR"),
                      esrd_m.columns.get_loc("BEFORE_INDEXED_INDICATOR")]
@@ -105,7 +130,8 @@ def main():
 
         # Dialysis dates
         print('Loading dialysis dates...')
-        dia_m = kf.get_mat(inFile, 'RENAL_REPLACE_THERAPY', [sort_id])
+        dia_m = pd.read_csv(dataPath + 'all_sheets/RENAL_REPLACE_THERAPY.csv')
+        dia_m.sort_values(by=sort_id, inplace=True)
         crrt_locs = [dia_m.columns.get_loc('CRRT_START_DATE'), dia_m.columns.get_loc('CRRT_STOP_DATE')]
         hd_locs = [dia_m.columns.get_loc('HD_START_DATE'), dia_m.columns.get_loc('HD_STOP_DATE')]
         pd_locs = [dia_m.columns.get_loc('PD_START_DATE'), dia_m.columns.get_loc('PD_STOP_DATE')]
@@ -113,7 +139,8 @@ def main():
 
         # All SCR
         print('Loading SCr values (may take a while)...')
-        scr_all_m = kf.get_mat(inFile, 'SCR_ALL_VALUES', [sort_id, sort_id_date])
+        scr_all_m = pd.read_csv(dataPath + 'all_sheets/SCR_ALL_VALUES.csv')
+        scr_all_m.sort_values(by=[sort_id, sort_id_date], inplace=True)
         scr_date_loc = scr_all_m.columns.get_loc('SCR_ENTERED')
         scr_val_loc = scr_all_m.columns.get_loc('SCR_VALUE')
         scr_desc_loc = scr_all_m.columns.get_loc('SCR_ENCOUNTER_TYPE')
@@ -121,27 +148,37 @@ def main():
 
         # Demographics
         print('Loading demographics...')
-        dem_m = kf.get_mat(inFile, 'DEMOGRAPHICS_INDX', [sort_id])
+        dem_m = pd.read_csv(dataPath + 'all_sheets/DEMOGRAPHICS_INDX.csv')
+        dem_m.sort_values(by=sort_id, inplace=True)
         sex_loc = dem_m.columns.get_loc('GENDER')
         eth_loc = dem_m.columns.get_loc('RACE')
         dem_m = dem_m.as_matrix()
 
         # DOB
         print('Loading birthdates...')
-        dob_m = kf.get_mat(inFile, 'DOB', [sort_id])
+        dob_m = pd.read_csv(dataPath + 'all_sheets/DOB.csv')
+        dob_m.sort_values(by=sort_id, inplace=True)
         birth_loc = dob_m.columns.get_loc("DOB")
         dob_m = dob_m.as_matrix()
 
         # load death data
-        mort_m = kf.get_mat(inFile, 'OUTCOMES', 'STUDY_PATIENT_ID')
+        print('Loading dates of death...')
+        mort_m = pd.read_csv(dataPath + 'all_sheets/OUTCOMES.csv')
+        mort_m.sort_values(by=sort_id, inplace=True)
         mdate_loc = mort_m.columns.get_loc("DECEASED_DATE")
         mort_m = mort_m.as_matrix()
+
+        # Determine relative admits
+        if t_analyze == 'ICU':
+            admit_info = kf.get_admits(date_m, icu_locs[0])
+        elif t_analyze == 'HOSP':
+            admit_info = kf.get_admits(date_m, hosp_locs[0])
 
         # Get mask inidicating which points are during dialysis
         dia_mask = kf.get_dialysis_mask(scr_all_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs)
 
         # Get mask indicating whether each point was in hospital or ICU
-        t_mask = kf.get_t_mask(scr_all_m, scr_date_loc, scr_val_loc, date_m, hosp_locs, icu_locs)
+        t_mask = kf.get_t_mask(scr_all_m, scr_date_loc, scr_val_loc, date_m, hosp_locs, icu_locs, admit_info)
 
         # Get mask for the desired data
         mask = np.zeros(len(scr_all_m))
@@ -194,14 +231,14 @@ def main():
                                                             count_log, exc_log)
         count_log.close()
         exc_log.close()
-        kf.arr2csv(outPath + 'scr_raw.csv', scr, ids)
+        kf.arr2csv(outPath + 'scr_raw.csv', scr, ids, fmt='%.3f')
         kf.arr2csv(outPath + 'dates.csv', dates, ids, fmt='%s')
         kf.arr2csv(outPath + 'masks.csv', masks, ids, fmt='%d')
         kf.arr2csv(outPath + 'dialysis.csv', dmasks, ids, fmt='%d')
-        kf.arr2csv(outPath + 'baselines.csv', baselines, ids)
-        kf.arr2csv(outPath + 'baseline_gfr.csv', bsln_gfr, ids)
-        kf.arr2csv(outPath + 'time_ranges.csv', t_range, ids)
-        kf.arr2csv(outPath + 'ages.csv', ages, ids)
+        kf.arr2csv(outPath + 'baselines.csv', baselines, ids, fmt='%.3f')
+        kf.arr2csv(outPath + 'baseline_gfr.csv', bsln_gfr, ids, fmt='%.3f')
+        kf.arr2csv(outPath + 'time_ranges.csv', t_range, ids, fmt='%.3f')
+        kf.arr2csv(outPath + 'ages.csv', ages, ids, fmt='%.2f')
         kf.arr2csv(outPath + 'disch_disp.csv', d_disp, ids, fmt='%s')
         np.savetxt(id_ref, ids, fmt='%d')
 
@@ -290,16 +327,16 @@ def main():
         _ = all_stats.create_dataset('apache', data=apache_agg, dtype=int)
         _ = stats.create_dataset('apache', data=apache_agg[aki_idx], dtype=int)
 
-    if 'dm' not in list(f):
-        dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm.csv', resPath + 'kdigo_dtwlog.csv',
-                                  incl_0=False)
-        f.create_dataset('dm', data=dm)
+    if 'dm' + dm_tag not in list(f):
+        dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv', resPath + 'kdigo_dtwlog' + dm_tag + '.csv',
+                                  incl_0=False, alpha=alpha, dic=kdigo_dic, use_dic=use_dic)
+        f.create_dataset('dm' + dm_tag, data=dm)
 
     # Calculate individual trajectory based statistics if not already done
-    if 'features' in list(f):
-        fg = f['features']
+    if 'features' + dm_tag in list(f):
+        fg = f['features' + dm_tag]
     else:
-        fg = f.create_group('features')
+        fg = f.create_group('features' + dm_tag)
 
     if 'descriptive_individual' in list(fg):
         desc = fg['descriptive_individual'][:]
