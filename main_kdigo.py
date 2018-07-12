@@ -58,6 +58,7 @@ h5_name = resPath + h5_name
 
 
 def main():
+    dem_m = None
     if not os.path.exists(outPath):
         os.makedirs(outPath)
     if not os.path.exists(resPath):
@@ -104,77 +105,25 @@ def main():
             kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids, fmt='%d')
     # If data loading unsuccesful start from scratch
     except:
-        print('Loading encounter info...')
-        # Get IDs and find indices of all used metrics
-        date_m = pd.read_csv(dataPath + 'all_sheets/ADMISSION_INDX.csv')
-        date_m.sort_values(by=sort_id, inplace=True)
-        hosp_locs = [date_m.columns.get_loc("HOSP_ADMIT_DATE"), date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
-        icu_locs = [date_m.columns.get_loc("ICU_ADMIT_DATE"), date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
-        adisp_loc = date_m.columns.get_loc('DISCHARGE_DISPOSITION')
-        date_m = date_m.values
-
-        ### GET SURGERY SHEET AND LOCATION
-        print('Loading surgery information...')
-        surg_m = pd.read_csv(dataPath + 'all_sheets/SURGERY_INDX.csv')
-        surg_m.sort_values(by=sort_id, inplace=True)
-        surg_des_loc = surg_m.columns.get_loc("SURGERY_DESCRIPTION")
-        surg_m = surg_m.values
-
-        ### GET DIAGNOSIS SHEET AND LOCATION
-        print('Loading diagnosis information...')
-        dx_m = pd.read_csv(dataPath + 'all_sheets/DIAGNOSIS_new.csv')
-        dx_m.sort_values(by=sort_id, inplace=True)
-        dx_loc = dx_m.columns.get_loc("DIAGNOSIS_DESC")
-        dx_m = dx_m.values
-
-        print('Loading ESRD status...')
-        # ESRD status
-        esrd_m = pd.read_csv(dataPath + 'all_sheets/ESRD_STATUS.csv')
-        esrd_m.sort_values(by=sort_id, inplace=True)
-        esrd_locs = [esrd_m.columns.get_loc("AT_ADMISSION_INDICATOR"),
-                     esrd_m.columns.get_loc("DURING_INDEXED_INDICATOR"),
-                     esrd_m.columns.get_loc("BEFORE_INDEXED_INDICATOR")]
-        esrd_m = esrd_m.values
-
-        # Dialysis dates
-        print('Loading dialysis dates...')
-        dia_m = pd.read_csv(dataPath + 'all_sheets/RENAL_REPLACE_THERAPY.csv')
-        dia_m.sort_values(by=sort_id, inplace=True)
-        crrt_locs = [dia_m.columns.get_loc('CRRT_START_DATE'), dia_m.columns.get_loc('CRRT_STOP_DATE')]
-        hd_locs = [dia_m.columns.get_loc('HD_START_DATE'), dia_m.columns.get_loc('HD_STOP_DATE')]
-        pd_locs = [dia_m.columns.get_loc('PD_START_DATE'), dia_m.columns.get_loc('PD_STOP_DATE')]
-        dia_m = dia_m.values
-
-        # All SCR
-        print('Loading SCr values (may take a while)...')
-        scr_all_m = pd.read_csv(dataPath + 'all_sheets/SCR_ALL_VALUES.csv')
-        scr_all_m.sort_values(by=[sort_id, sort_id_date], inplace=True)
-        scr_date_loc = scr_all_m.columns.get_loc('SCR_ENTERED')
-        scr_val_loc = scr_all_m.columns.get_loc('SCR_VALUE')
-        scr_desc_loc = scr_all_m.columns.get_loc('SCR_ENCOUNTER_TYPE')
-        scr_all_m = scr_all_m.values
-
-        # Demographics
-        print('Loading demographics...')
-        dem_m = pd.read_csv(dataPath + 'all_sheets/DEMOGRAPHICS_INDX.csv')
-        dem_m.sort_values(by=sort_id, inplace=True)
-        sex_loc = dem_m.columns.get_loc('GENDER')
-        eth_loc = dem_m.columns.get_loc('RACE')
-        dem_m = dem_m.values
-
-        # DOB
-        print('Loading birthdates...')
-        dob_m = pd.read_csv(dataPath + 'all_sheets/DOB.csv')
-        dob_m.sort_values(by=sort_id, inplace=True)
-        birth_loc = dob_m.columns.get_loc("DOB")
-        dob_m = dob_m.values
-
-        # load death data
-        print('Loading dates of death...')
-        mort_m = pd.read_csv(dataPath + 'all_sheets/OUTCOMES.csv')
-        mort_m.sort_values(by=sort_id, inplace=True)
-        mdate_loc = mort_m.columns.get_loc("DECEASED_DATE")
-        mort_m = mort_m.values
+        # Load raw data from individual CSV files
+        ((date_m, hosp_locs, icu_locs, adisp_loc,
+          surg_m, surg_des_loc,
+          dx_m, dx_loc,
+          esrd_m, esrd_locs,
+          dia_m, crrt_locs, hd_locs, pd_locs,
+          scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
+          dem_m, sex_loc, eth_loc,
+          dob_m, birth_loc,
+          mort_m, mdate_loc,
+          diag_m, diag_loc, diag_nb_loc,
+          io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
+          blood_gas, pa_o2,
+          clinical_oth, fi_o2, g_c_s,
+          clinical_vit, m_a_p, cuff,
+          labs, bili, pltlts,
+          medications, med_name, med_date, med_dur,
+          organ_sup, mech_vent,
+          scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
 
         # Determine relative admits
         if t_analyze == 'ICU':
@@ -266,6 +215,60 @@ def main():
         kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
         kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids, fmt='%d')
 
+    # Calculate clinical mortality prediction scores
+    sofa = None
+    if not os.path.exists(outPath + 'sofa.csv'):
+        if dem_m is None:
+            ((date_m, hosp_locs, icu_locs, adisp_loc,
+              surg_m, surg_des_loc,
+              dx_m, dx_loc,
+              esrd_m, esrd_locs,
+              dia_m, crrt_locs, hd_locs, pd_locs,
+              scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
+              dem_m, sex_loc, eth_loc,
+              dob_m, birth_loc,
+              mort_m, mdate_loc,
+              diag_m, diag_loc, diag_nb_loc,
+              io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
+              blood_gas, pa_o2,
+              clinical_oth, fi_o2, g_c_s,
+              clinical_vit, m_a_p, cuff,
+              labs, bili, pltlts,
+              medications, med_name, med_date, med_dur,
+              organ_sup, mech_vent,
+              scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
+        print('Getting SOFA scores')
+        sofa = sf.get_sofa(id_ref, inFile, outPath + 'sofa.csv')
+    else:
+        _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
+
+    apache = None
+    if not os.path.exists(outPath + 'apache.csv'):
+        if dem_m is None:
+            ((date_m, hosp_locs, icu_locs, adisp_loc,
+              surg_m, surg_des_loc,
+              dx_m, dx_loc,
+              esrd_m, esrd_locs,
+              dia_m, crrt_locs, hd_locs, pd_locs,
+              scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
+              dem_m, sex_loc, eth_loc,
+              dob_m, birth_loc,
+              mort_m, mdate_loc,
+              diag_m, diag_loc, diag_nb_loc,
+              io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
+              blood_gas, pa_o2,
+              clinical_oth, fi_o2, g_c_s,
+              clinical_vit, m_a_p, cuff,
+              labs, bili, pltlts,
+              medications, med_name, med_date, med_dur,
+              organ_sup, mech_vent,
+              scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
+        print('Getting APACHE-II Scores')
+        apache = sf.get_apache(id_ref, inFile, outPath + 'apache.csv')
+
+    else:
+        _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
+
     # Get KDIGO Distance Matrix and summarize patient stats
     try:
         f = h5py.File(h5_name, 'r+')
@@ -277,8 +280,47 @@ def main():
         max_kdigo = all_stats['max_kdigo'][:]
         aki_idx = np.where(max_kdigo > 0)[0]
     except:
+        if dem_m is None:
+            # Load raw data from individual CSV files
+            ((date_m, hosp_locs, icu_locs, adisp_loc,
+              surg_m, surg_des_loc,
+              dx_m, dx_loc,
+              esrd_m, esrd_locs,
+              dia_m, crrt_locs, hd_locs, pd_locs,
+              scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
+              dem_m, sex_loc, eth_loc,
+              dob_m, birth_loc,
+              mort_m, mdate_loc,
+              diag_m, diag_loc, diag_nb_loc,
+              io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc)) = kf.load_all_csv(dataPath, sort_id)
         print('Summarizing stats')
-        all_stats = sf.summarize_stats(outPath, h5_name, grp_name='meta_all')
+        if dem_m is None:
+            ((date_m, hosp_locs, icu_locs, adisp_loc,
+              surg_m, surg_des_loc,
+              dx_m, dx_loc,
+              esrd_m, esrd_locs,
+              dia_m, crrt_locs, hd_locs, pd_locs,
+              scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
+              dem_m, sex_loc, eth_loc,
+              dob_m, birth_loc,
+              mort_m, mdate_loc,
+              diag_m, diag_loc, diag_nb_loc,
+              io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
+              blood_gas, pa_o2,
+              clinical_oth, fi_o2, g_c_s,
+              clinical_vit, m_a_p, cuff,
+              labs, bili, pltlts,
+              medications, med_name, med_date, med_dur,
+              organ_sup, mech_vent,
+              scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
+        all_stats = sf.summarize_stats(ids, kdigos,
+                                       dem_m, sex_loc, eth_loc,
+                                       dob_m, dob_loc,
+                                       diag_m, diag_loc, diag_nb_loc,
+                                       charl_m, charl_loc, elix_m, elix_loc,
+                                       mech_m, mech_loc,
+                                       date_m, hosp_locs, icu_locs,
+                                       sofa, apache, h5_name, grp_name='meta_all')
         max_kdigo = all_stats['max_kdigo'][:]
         aki_idx = np.where(max_kdigo > 0)[0]
         stats = f.create_group('meta')
@@ -295,45 +337,6 @@ def main():
     for i in range(len(kdigos)):
         if np.max(kdigos[i]) > 0:
             aki_kdigos.append(kdigos[i])
-
-    # Calculate clinical mortality prediction scores
-    sofa = None
-    if not os.path.exists(outPath + 'sofa.csv'):
-        print('Getting SOFA scores')
-        sofa = sf.get_sofa(id_ref, inFile, outPath + 'sofa.csv')
-    else:
-        _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
-        sofa = np.array(sofa)
-        sofa_aki = sofa[aki_idx, :]
-        sofa_norm = kf.normalize_features(sofa_aki)
-
-    apache = None
-    if not os.path.exists(outPath + 'apache.csv'):
-        print('Getting APACHE-II Scores')
-        apache = sf.get_apache(id_ref, inFile, outPath + 'apache.csv')
-    else:
-        _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
-        apache = np.array(apache)
-        apache_aki = apache[aki_idx, :]
-        apache_norm = kf.normalize_features(apache_aki)
-
-    if 'sofa' not in list(stats):
-        if sofa is None:
-            _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
-            sofa = np.array(sofa)
-        sofa_agg = np.sum(sofa, axis=1)
-        sofa_norm = kf.normalize_features(sofa[aki_idx, :])
-        _ = all_stats.create_dataset('sofa', data=sofa_agg, dtype=int)
-        _ = stats.create_dataset('sofa', data=sofa_agg[aki_idx], dtype=int)
-
-    if 'apache' not in list(stats):
-        if apache is None:
-            _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
-            apache = np.array(apache)
-        apache_agg = np.sum(apache, axis=1)
-        apache_norm = kf.normalize_features(apache[aki_idx, :])
-        _ = all_stats.create_dataset('apache', data=apache_agg, dtype=int)
-        _ = stats.create_dataset('apache', data=apache_agg[aki_idx], dtype=int)
 
     if 'dm' + dm_tag not in list(f):
         dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv', resPath + 'kdigo_dtwlog' + dm_tag + '.csv',
@@ -406,12 +409,18 @@ def main():
         _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
         sofa = np.array(sofa[aki_idx, :])
         sofa_norm = kf.normalize_features(sofa)
+    else:
+        sofa = np.array(sofa[aki_idx, :])
+        sofa_norm = kf.normalize_features(sofa)
     if 'sofa' not in list(fg):
         _ = fg.create_dataset('sofa', data=sofa, dtype=int)
         _ = fg.create_dataset('sofa_norm', data=sofa_norm)
 
     if apache is None:
         _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
+        apache = np.array(apache[aki_idx, :])
+        apache_norm = kf.normalize_features(apache)
+    else:
         apache = np.array(apache[aki_idx, :])
         apache_norm = kf.normalize_features(apache)
     if 'apache' not in list(fg):

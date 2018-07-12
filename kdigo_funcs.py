@@ -367,7 +367,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
 
         # get duration vector
         tdates = scr_all_m[keep, scr_date_loc]
-        tdates = [datetime.datetime.strptime(tdates[i], '%Y-%m-%d %H:%M:%S') for i in range(len(tdates))]
+        tdates = [datetime.datetime.strptime(str(tdates[i]).split('.')[0], '%Y-%m-%d %H:%M:%S') for i in range(len(tdates))]
         duration = [tdates[x] - admit for x in range(len(tdates))]
         duration = np.array(duration)
         dkeep = np.where(duration < datetime.timedelta(max_days))[0]
@@ -389,7 +389,6 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         bslns.append(bsln)
         bsln_gfr.append(gfr)
         if v:
-            'Patient_ID,Admit_Date,Discharge_Date,Baseline_SCr,Mort_Date,Days_To_Death\n'
             print('%d\t%s\t%s\t%.3f\t%s\t%.3f' % (idx, admit, discharge, bsln, mort_date, death_dur))
             log.write('%d,%s,%s,%.3f,%s,%.3f\n' % (idx, admit, discharge, bsln, mort_date, death_dur))
         tmask = mask[keep]
@@ -1659,3 +1658,157 @@ def count_transitions(ids, kdigos, out_name):
     return t_counts
 
 
+def load_all_csv(datapath, sort_id='STUDY_PATIENT_ID'):
+    print('Loading encounter info...')
+    # Get IDs and find indices of all used metrics
+    date_m = pd.read_csv(datapath + 'all_sheets/ADMISSION_INDX.csv')
+    date_m.sort_values(by=sort_id, inplace=True)
+    hosp_locs = [date_m.columns.get_loc("HOSP_ADMIT_DATE"), date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
+    icu_locs = [date_m.columns.get_loc("ICU_ADMIT_DATE"), date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
+    adisp_loc = date_m.columns.get_loc('DISCHARGE_DISPOSITION')
+    date_m = date_m.values
+
+    ### GET SURGERY SHEET AND LOCATION
+    print('Loading surgery information...')
+    surg_m = pd.read_csv(datapath + 'all_sheets/SURGERY_INDX.csv')
+    surg_m.sort_values(by=sort_id, inplace=True)
+    surg_des_loc = surg_m.columns.get_loc("SURGERY_DESCRIPTION")
+    surg_m = surg_m.values
+
+    ### GET DIAGNOSIS SHEET AND LOCATION
+    print('Loading diagnosis information...')
+    dx_m = pd.read_csv(datapath + 'all_sheets/DIAGNOSIS_new.csv')
+    dx_m.sort_values(by=sort_id, inplace=True)
+    dx_loc = dx_m.columns.get_loc("DIAGNOSIS_DESC")
+    dx_m = dx_m.values
+
+    print('Loading ESRD status...')
+    # ESRD status
+    esrd_m = pd.read_csv(datapath + 'all_sheets/ESRD_STATUS.csv')
+    esrd_m.sort_values(by=sort_id, inplace=True)
+    esrd_locs = [esrd_m.columns.get_loc("AT_ADMISSION_INDICATOR"),
+                 esrd_m.columns.get_loc("DURING_INDEXED_INDICATOR"),
+                 esrd_m.columns.get_loc("BEFORE_INDEXED_INDICATOR")]
+    esrd_m = esrd_m.values
+
+    # Dialysis dates
+    print('Loading dialysis dates...')
+    dia_m = pd.read_csv(datapath + 'all_sheets/RENAL_REPLACE_THERAPY.csv')
+    dia_m.sort_values(by=sort_id, inplace=True)
+    crrt_locs = [dia_m.columns.get_loc('CRRT_START_DATE'), dia_m.columns.get_loc('CRRT_STOP_DATE')]
+    hd_locs = [dia_m.columns.get_loc('HD_START_DATE'), dia_m.columns.get_loc('HD_STOP_DATE')]
+    pd_locs = [dia_m.columns.get_loc('PD_START_DATE'), dia_m.columns.get_loc('PD_STOP_DATE')]
+    dia_m = dia_m.values
+
+    # All SCR
+    print('Loading SCr values (may take a while)...')
+    scr_all_m = pd.read_csv(datapath + 'all_sheets/SCR_ALL_VALUES.csv')
+    scr_all_m.sort_values(by=[sort_id, sort_id_date], inplace=True)
+    scr_date_loc = scr_all_m.columns.get_loc('SCR_ENTERED')
+    scr_val_loc = scr_all_m.columns.get_loc('SCR_VALUE')
+    scr_desc_loc = scr_all_m.columns.get_loc('SCR_ENCOUNTER_TYPE')
+    scr_all_m = scr_all_m.values
+
+    # Demographics
+    print('Loading demographics...')
+    dem_m = pd.read_csv(datapath + 'all_sheets/DEMOGRAPHICS_INDX.csv')
+    dem_m.sort_values(by=sort_id, inplace=True)
+    sex_loc = dem_m.columns.get_loc('GENDER')
+    eth_loc = dem_m.columns.get_loc('RACE')
+    dem_m = dem_m.values
+
+    # DOB
+    print('Loading birthdates...')
+    dob_m = pd.read_csv(datapath + 'all_sheets/DOB.csv')
+    dob_m.sort_values(by=sort_id, inplace=True)
+    birth_loc = dob_m.columns.get_loc("DOB")
+    dob_m = dob_m.values
+
+    # load death data
+    print('Loading dates of death...')
+    mort_m = pd.read_csv(datapath + 'all_sheets/OUTCOMES.csv')
+    mort_m.sort_values(by=sort_id, inplace=True)
+    mdate_loc = mort_m.columns.get_loc("DECEASED_DATE")
+    mort_m = mort_m.values
+
+    # load diagnosis info
+    diag_m = pd.read_csv(datapath + 'DIAGNOSIS', 'STUDY_PATIENT_ID')
+    diag_m.sort_values(by=sort_id, inplace=True)
+    diag_loc = diag_m.columns.get_loc("DIAGNOSIS_DESC")
+    diag_nb_loc = diag_m.columns.get_loc("DIAGNOSIS_SEQ_NB")
+    diag_m = diag_m.values
+
+    # load fluid input/output info
+    io_m = pd.read_csv(datapath + 'IO_TOTALS', 'STUDY_PATIENT_ID')
+    io_m.sort_values(by=sort_id, inplace=True)
+    io_m = io_m.values
+
+    # load dates of birth
+    charl_m = pd.read_csv(datapath + 'CHARLSON_SCORE', 'STUDY_PATIENT_ID')
+    charl_m.sort_values(by=sort_id, inplace=True)
+    charl_loc = charl_m.columns.get_loc("CHARLSON_INDEX")
+    charl_m = charl_m.values
+
+    # load dates of birth
+    elix_m = pd.read_csv(datapath + 'ELIXHAUSER_SCORE', 'STUDY_PATIENT_ID')
+    elix_m.sort_values(by=sort_id, inplace=True)
+    elix_loc = elix_m.columns.get_loc("ELIXHAUSER_INDEX")
+    elix_m = elix_m.values
+
+    # load mechanical ventilation
+    mech_m = pd.read_csv(datapath + 'ORGANSUPP_VENT', 'STUDY_PATIENT_ID')
+    mech_m.sort_values(by=sort_id, inplace=True)
+    mech_loc = mech_m.columns.get_loc("TOTAL_DAYS")
+    mech_m = mech_m.values
+
+    blood_gas = pd.read_csv(data_path + 'all_sheets/BLOOD_GAS.csv')
+    pa_o2 = blood_gas.columns.get_loc('PO2_D1_HIGH_VALUE')
+    blood_gas = blood_gas.values
+
+    clinical_oth = pd.read_csv(data_path + 'all_sheets/CLINICAL_OTHERS.csv')
+    fi_o2 = clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')
+    g_c_s = clinical_oth.columns.get_loc('GLASGOW_SCORE_D1_LOW_VALUE')
+    clinical_oth = clinical_oth.values
+
+    clinical_vit = pd.read_csv(data_path + 'all_sheets/CLINICAL_VITALS.csv')
+    m_a_p = clinical_vit.columns.get_loc('ART_MEAN_D1_LOW_VALUE')
+    cuff = clinical_vit.columns.get_loc('CUFF_MEAN_D1_LOW_VALUE')
+    clinical_vit = clinical_vit.values
+
+    labs = pd.read_csv(data_path + 'all_sheets/LABS_SET1.csv')
+    bili = labs.columns.get_loc('BILIRUBIN_D1_HIGH_VALUE')
+    pltlts = labs.columns.get_loc('PLATELETS_D1_LOW_VALUE')
+    labs = labs.values
+
+    medications = pd.read_csv(data_path + 'all_sheets/MEDICATIONS_INDX.csv')
+    med_name = medications.columns.get_loc('MEDICATION_TYPE')
+    med_date = medications.columns.get_loc('ORDER_ENTERED_DATE')
+    med_dur = medications.columns.get_loc('DAYS_ON_MEDICATION')
+    medications = medications.values
+
+    organ_sup = pd.read_csv(data_path + 'all_sheets/ORGANSUPP_VENT.csv')
+    mech_vent = [organ_sup.columns.get_loc('VENT_START_DATE'), organ_sup.columns.get_loc('VENT_STOP_DATE')]
+    organ_sup = organ_sup.values
+
+    scr_agg = pd.read_csv(data_path + 'all_sheets/SCR_INDX_AGG.csv')
+    s_c_r = scr_agg.columns.get_loc('DAY1_MAX_VALUE')
+    scr_agg = scr_agg.values
+
+    return ((date_m, hosp_locs, icu_locs, adisp_loc,
+             surg_m, surg_des_loc,
+             dx_m, dx_loc,
+             esrd_m, esrd_locs,
+             dia_m, crrt_locs, hd_locs, pd_locs,
+             scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
+             dem_m, sex_loc, eth_loc,
+             dob_m, birth_loc,
+             mort_m, mdate_loc,
+             diag_m, diag_loc, diag_nb_loc,
+             io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
+             blood_gas, pa_o2,
+             clinical_oth, fi_o2, g_c_s,
+             clinical_vit, m_a_p, cuff,
+             labs, bili, pltlts,
+             medications, med_name, med_date, med_dur,
+             organ_sup, mech_vent,
+             scr_agg, s_c_r))

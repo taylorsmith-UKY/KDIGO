@@ -15,57 +15,15 @@ import h5py
 import pandas as pd
 
 
-def summarize_stats(data_path, out_name, grp_name='meta'):
-    all_ids = np.loadtxt(data_path + 'icu_valid_ids.csv', dtype=int)
-
-    # load KDIGO and discharge dispositions
-    k_ids, kdigos = load_csv(data_path + 'kdigo.csv', all_ids, dt=int)
-
-    # load genders
-    dem_m = get_mat('../DATA/KDIGO_full.xlsx', 'DEMOGRAPHICS_INDX', 'STUDY_PATIENT_ID')
-    sex_loc = dem_m.columns.get_loc("GENDER")
-    eth_loc = dem_m.columns.get_loc('RACE')
-    dem_m = dem_m.as_matrix()
-
-    # load dates of birth
-    dob_m = get_mat('../DATA/KDIGO_full.xlsx', 'DOB', 'STUDY_PATIENT_ID')
-    dob_loc = dob_m.columns.get_loc("DOB")
-    dob_m = dob_m.as_matrix()
-
-    # load diagnosis info
-    diag_m = get_mat('../DATA/KDIGO_full.xlsx', 'DIAGNOSIS', 'STUDY_PATIENT_ID')
-    diag_loc = diag_m.columns.get_loc("DIAGNOSIS_DESC")
-    diag_nb_loc = diag_m.columns.get_loc("DIAGNOSIS_SEQ_NB")
-    diag_m = diag_m.as_matrix()
-
-    # load fluid input/output info
-    io_m = get_mat('../DATA/KDIGO_full.xlsx', 'IO_TOTALS', 'STUDY_PATIENT_ID')
-    io_m = io_m.as_matrix()
-
-    # load dates of birth
-    charl_m = get_mat('../DATA/KDIGO_full.xlsx', 'CHARLSON_SCORE', 'STUDY_PATIENT_ID')
-    charl_loc = charl_m.columns.get_loc("CHARLSON_INDEX")
-    charl_m = charl_m.as_matrix()
-
-    # load dates of birth
-    elix_m = get_mat('../DATA/KDIGO_full.xlsx', 'ELIXHAUSER_SCORE', 'STUDY_PATIENT_ID')
-    elix_loc = elix_m.columns.get_loc("ELIXHAUSER_INDEX")
-    elix_m = elix_m.as_matrix()
-
-    # load mechanical ventilation
-    mech_m = get_mat('../DATA/KDIGO_full.xlsx', 'ORGANSUPP_VENT', 'STUDY_PATIENT_ID')
-    mech_loc = mech_m.columns.get_loc("TOTAL_DAYS")
-    mech_m = mech_m.as_matrix()
-
-    # load outcome data
-    date_m = get_mat('../DATA/KDIGO_full.xlsx', 'ADMISSION_INDX', 'STUDY_PATIENT_ID')
-    hosp_locs = [date_m.columns.get_loc("HOSP_ADMIT_DATE"), date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
-    icu_locs = [date_m.columns.get_loc("ICU_ADMIT_DATE"), date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
-    date_m = date_m.as_matrix()
-    date_ids = date_m[:, 0]
-    date_all_ids = []
-    for i in range(len(date_ids)):
-        date_all_ids.append(date_ids[i])
+def summarize_stats(ids, kdigos,
+                    dem_m, sex_loc, eth_loc,
+                    dob_m, dob_loc,
+                    diag_m, diag_loc, diag_nb_loc,
+                    charl_m, charl_loc, elix_m, elix_loc,
+                    mech_m, mech_loc,
+                    date_m, hosp_locs, icu_locs,
+                    sofa, apache,
+                    out_name, grp_name='meta'):
 
     f = open(data_path + 'disch_disp.csv', 'r')
     dd = []
@@ -74,9 +32,11 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
         l = line.rstrip().split(',')
         ddids.append(int(l[0]))
         dd.append(l[1])
-
     f.close()
     dd = np.array(dd)
+
+    sofa = np.array(sofa, axis=0)
+    apache = np.array(apache, axis=0)
 
     n_eps = []
     for i in range(len(kdigos)):
@@ -96,8 +56,8 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     e_scores = []
     mv_frees = []
     eths = []
-    for i in range(len(all_ids)):
-        idx = all_ids[i]
+    for i in range(len(ids)):
+        idx = ids[i]
         mk = np.max(kdigos[i])
         died = 0
         if 'EXPIRED' in dd[i]:
@@ -227,7 +187,7 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     except:
         meta = f.create_group(grp_name)
 
-    meta.create_dataset('ids', data=all_ids, dtype=int)
+    meta.create_dataset('ids', data=ids, dtype=int)
     meta.create_dataset('age', data=ages, dtype=float)
     meta.create_dataset('race', data=eths, dtype=bool)
     meta.create_dataset('gender', data=genders, dtype=bool)
@@ -242,6 +202,8 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
     meta.create_dataset('charlson', data=c_scores, dtype=int)
     meta.create_dataset('elixhauser', data=e_scores, dtype=int)
     meta.create_dataset('mv_free_days', data=mv_frees, dtype=int)
+    meta.create_dataset('sofa', data=sofa, dtype=int)
+    meta.create_dataset('apache', data=apache, dtype=int)
 
     return meta
 
@@ -525,7 +487,17 @@ def get_disch_summary(id_file, stat_file, ids=None):
     sf.close()
 
 
-def get_sofa(id_file, data_path, out_name):
+def get_sofa(ids,
+             admit_info, date,
+             blood_gas, pa_o2,
+             clinical_oth, fi_o2, g_c_s,
+             clinical_vit, m_a_p, cuff,
+             labs, bili, pltlts,
+             medications, med_name, med_date, med_dur,
+             organ_sup, mech_vent,
+             scr_agg, s_c_r,
+             out_name)
+        id_file, data_path, out_name):
     ids = np.loadtxt(id_file, dtype=int)
 
     admit_info = pd.read_csv(data_path + 'all_sheets/ADMISSION_INDX.csv')
