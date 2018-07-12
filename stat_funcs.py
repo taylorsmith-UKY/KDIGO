@@ -496,46 +496,12 @@ def get_sofa(ids,
              medications, med_name, med_date, med_dur,
              organ_sup, mech_vent,
              scr_agg, s_c_r,
-             out_name)
-        id_file, data_path, out_name):
-    ids = np.loadtxt(id_file, dtype=int)
+             out_name):
 
-    admit_info = pd.read_csv(data_path + 'all_sheets/ADMISSION_INDX.csv')
-    date = admit_info.columns.get_loc('HOSP_ADMIT_DATE')
-    admit_info = admit_info.values
-
-    blood_gas = pd.read_csv(data_path + 'all_sheets/BLOOD_GAS.csv')
-    pa_o2 = blood_gas.columns.get_loc('PO2_D1_HIGH_VALUE')
-    blood_gas = blood_gas.values
-
-    clinical_oth = pd.read_csv(data_path + 'all_sheets/CLINICAL_OTHERS.csv')
-    fi_o2 = clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')
-    g_c_s = clinical_oth.columns.get_loc('GLASGOW_SCORE_D1_LOW_VALUE')
-    clinical_oth = clinical_oth.values
-
-    clinical_vit = pd.read_csv(data_path + 'all_sheets/CLINICAL_VITALS.csv')
-    m_a_p = clinical_vit.columns.get_loc('ART_MEAN_D1_LOW_VALUE')
-    cuff = clinical_vit.columns.get_loc('CUFF_MEAN_D1_LOW_VALUE')
-    clinical_vit = clinical_vit.values
-
-    labs = pd.read_csv(data_path + 'all_sheets/LABS_SET1.csv')
-    bili = labs.columns.get_loc('BILIRUBIN_D1_HIGH_VALUE')
-    pltlts = labs.columns.get_loc('PLATELETS_D1_LOW_VALUE')
-    labs = labs.values
-
-    medications = pd.read_csv(data_path + 'all_sheets/MEDICATIONS_INDX.csv')
-    med_name = medications.columns.get_loc('MEDICATION_TYPE')
-    med_date = medications.columns.get_loc('ORDER_ENTERED_DATE')
-    med_dur = medications.columns.get_loc('DAYS_ON_MEDICATION')
-    medications = medications.values
-
-    organ_sup = pd.read_csv(data_path + 'all_sheets/ORGANSUPP_VENT.csv')
-    mech_vent = [organ_sup.columns.get_loc('VENT_START_DATE'), organ_sup.columns.get_loc('VENT_STOP_DATE')]
-    organ_sup = organ_sup.values
-
-    scr_agg = pd.read_csv(data_path + 'all_sheets/SCR_INDX_AGG.csv')
-    s_c_r = scr_agg.columns.get_loc('DAY1_MAX_VALUE')
-    scr_agg = scr_agg.values
+    pa_o2 = pa_o2[1]
+    fi_o2 = fi_o2[1]
+    m_a_p = m_a_p[0]
+    cuff = cuff[0]
 
     out = open(out_name, 'w')
     sofas = np.zeros((len(ids), 6))
@@ -693,53 +659,15 @@ def get_sofa(ids,
     return sofas
 
 
-def get_apache(id_file, data_path, out_name):
-    ids = np.loadtxt(id_file, dtype=int)
+def get_apache(ids, data_path,
+               clinical_vit, temp, m_a_p, cuff, h_r,
+               clinical_oth, resp, fi_o2, g_c_s,
+               blood_gas, pa_o2, pa_co2, p_h,
+               labs, na, p_k, hemat, w_b_c,
+               scr_agg, s_c_r,
+               out_name):
 
-    clinical_vit = pd.read_csv(data_path + 'all_sheets/CLINICAL_VITALS.csv')
-    temp = [clinical_vit.columns.get_loc('TEMPERATURE_D1_LOW_VALUE'),
-            clinical_vit.columns.get_loc('TEMPERATURE_D1_HIGH_VALUE')]
-    m_ap = [clinical_vit.columns.get_loc('ART_MEAN_D1_LOW_VALUE'),
-            clinical_vit.columns.get_loc('ART_MEAN_D1_HIGH_VALUE')]
-    cuff = [clinical_vit.columns.get_loc('CUFF_MEAN_D1_LOW_VALUE'),
-            clinical_vit.columns.get_loc('CUFF_MEAN_D1_HIGH_VALUE')]
-    h_r = [clinical_vit.columns.get_loc('HEART_RATE_D1_LOW_VALUE'),
-           clinical_vit.columns.get_loc('HEART_RATE_D1_HIGH_VALUE')]
-    clinical_vit = clinical_vit.values
-
-    clinical_oth = pd.read_csv(data_path + 'all_sheets/CLINICAL_OTHERS.csv')
-    resp = [clinical_oth.columns.get_loc('RESP_RATE_D1_LOW_VALUE'),
-            clinical_oth.columns.get_loc('RESP_RATE_D1_HIGH_VALUE')]
-    fi_o2 = [clinical_oth.columns.get_loc('FI02_D1_LOW_VALUE'),
-             clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')]
-    gcs = clinical_oth.columns.get_loc('GLASGOW_SCORE_D1_LOW_VALUE')
-    clinical_oth = clinical_oth.values
-
-    blood_gas = pd.read_csv(data_path + 'all_sheets/BLOOD_GAS.csv')
-    pa_o2 = [blood_gas.columns.get_loc('PO2_D1_LOW_VALUE'),
-             blood_gas.columns.get_loc('PO2_D1_HIGH_VALUE')]
-    pa_co2 = [blood_gas.columns.get_loc('PCO2_D1_LOW_VALUE'),
-              blood_gas.columns.get_loc('PCO2_D1_HIGH_VALUE')]
-    p_h = [blood_gas.columns.get_loc('PH_D1_LOW_VALUE'),
-           blood_gas.columns.get_loc('PH_D1_HIGH_VALUE')]
-    blood_gas = blood_gas.values
-
-    labs = pd.read_csv(data_path + 'all_sheets/LABS_SET1.csv')
-    na = [labs.columns.get_loc('SODIUM_D1_LOW_VALUE'),
-          labs.columns.get_loc('SODIUM_D1_HIGH_VALUE')]
-    p_k = [labs.columns.get_loc('POTASSIUM_D1_LOW_VALUE'),
-           labs.columns.get_loc('POTASSIUM_D1_HIGH_VALUE')]
-    hemat = [labs.columns.get_loc('HEMATOCRIT_D1_LOW_VALUE'),
-             labs.columns.get_loc('HEMATOCRIT_D1_HIGH_VALUE')]
-    w_b_c = [labs.columns.get_loc('WBC_D1_LOW_VALUE'),
-             labs.columns.get_loc('WBC_D1_HIGH_VALUE')]
-    labs = labs.values
-
-    _, ages = load_csv('../DATA/icu/7days_inc_death_051918/ages.csv', ids)
-
-    scr_agg = pd.read_csv(data_path + 'all_sheets/SCR_INDX_AGG.csv')
-    s_c_r = scr_agg.columns.get_loc('DAY1_MAX_VALUE')
-    scr_agg = scr_agg.values
+    _, ages = load_csv(data_path + 'ages.csv', ids)
 
     out = open(out_name, 'w')
     ct = 0
@@ -758,8 +686,8 @@ def get_apache(id_file, data_path, out_name):
             s1_low = (float(clinical_vit[cv_rows, temp[0]]) - 32) / 1.8
             s1_high = (float(clinical_vit[cv_rows, temp[1]]) - 32) / 1.8
 
-            s2_low = float(clinical_vit[cv_rows, m_ap[0]])
-            s2_high = float(clinical_vit[cv_rows, m_ap[1]])
+            s2_low = float(clinical_vit[cv_rows, m_a_p[0]])
+            s2_high = float(clinical_vit[cv_rows, m_a_p[1]])
             if np.isnan(float(str(s2_low))):
                 s2_low = float(clinical_vit[cv_rows, cuff[0]])
                 s2_high = float(clinical_vit[cv_rows, cuff[1]])
@@ -809,14 +737,13 @@ def get_apache(id_file, data_path, out_name):
         else:
             s7_low = s7_high = s8_high = s8_low = s10_high = s10_low = s11_high = s11_low = np.nan
 
-
         if np.size(scr_rows) > 0:
             s9 = scr_agg[scr_rows, s_c_r]
         else:
             s9 = np.nan
 
         try:
-            s12_gcs = float(str(clinical_oth[co_rows, gcs]).split('-'))
+            s12_gcs = float(str(clinical_oth[co_rows, g_c_s]).split('-'))
         except:
             s12_gcs = np.nan
 

@@ -117,10 +117,10 @@ def main():
           mort_m, mdate_loc,
           diag_m, diag_loc, diag_nb_loc,
           io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
-          blood_gas, pa_o2,
-          clinical_oth, fi_o2, g_c_s,
-          clinical_vit, m_a_p, cuff,
-          labs, bili, pltlts,
+          blood_gas, pa_o2, pa_co2, p_h,
+          clinical_oth, resp, fi_o2, g_c_s,
+          clinical_vit, temp, m_a_p, cuff, h_r,
+          labs, bili, pltlts, na, p_k, hemat, w_b_c,
           medications, med_name, med_date, med_dur,
           organ_sup, mech_vent,
           scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
@@ -220,25 +220,34 @@ def main():
     if not os.path.exists(outPath + 'sofa.csv'):
         if dem_m is None:
             ((date_m, hosp_locs, icu_locs, adisp_loc,
-              surg_m, surg_des_loc,
-              dx_m, dx_loc,
-              esrd_m, esrd_locs,
-              dia_m, crrt_locs, hd_locs, pd_locs,
-              scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
-              dem_m, sex_loc, eth_loc,
-              dob_m, birth_loc,
-              mort_m, mdate_loc,
-              diag_m, diag_loc, diag_nb_loc,
-              io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
-              blood_gas, pa_o2,
-              clinical_oth, fi_o2, g_c_s,
-              clinical_vit, m_a_p, cuff,
-              labs, bili, pltlts,
-              medications, med_name, med_date, med_dur,
-              organ_sup, mech_vent,
-              scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
+             surg_m, surg_des_loc,
+             dx_m, dx_loc,
+             esrd_m, esrd_locs,
+             dia_m, crrt_locs, hd_locs, pd_locs,
+             scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
+             dem_m, sex_loc, eth_loc,
+             dob_m, birth_loc,
+             mort_m, mdate_loc,
+             diag_m, diag_loc, diag_nb_loc,
+             io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
+             blood_gas, pa_o2, pa_co2, p_h,
+             clinical_oth, resp, fi_o2, g_c_s,
+             clinical_vit, temp, m_a_p, cuff, h_r,
+             labs, bili, pltlts, na, p_k, hemat, w_b_c,
+             medications, med_name, med_date, med_dur,
+             organ_sup, mech_vent,
+             scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
         print('Getting SOFA scores')
-        sofa = sf.get_sofa(id_ref, inFile, outPath + 'sofa.csv')
+        sofa = sf.get_sofa(ids,
+                           admit_info, icu_locs[0],
+                           blood_gas, pa_o2,
+                           clinical_oth, fi_o2, g_c_s,
+                           clinical_vit, m_a_p, cuff,
+                           labs, bili, pltlts,
+                           medications, med_name, med_date, med_dur,
+                           organ_sup, mech_vent,
+                           scr_agg, s_c_r,
+                           out_name=outPath + 'sofa.csv')
     else:
         _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
 
@@ -246,25 +255,31 @@ def main():
     if not os.path.exists(outPath + 'apache.csv'):
         if dem_m is None:
             ((date_m, hosp_locs, icu_locs, adisp_loc,
-              surg_m, surg_des_loc,
-              dx_m, dx_loc,
-              esrd_m, esrd_locs,
-              dia_m, crrt_locs, hd_locs, pd_locs,
-              scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
-              dem_m, sex_loc, eth_loc,
-              dob_m, birth_loc,
-              mort_m, mdate_loc,
-              diag_m, diag_loc, diag_nb_loc,
-              io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
-              blood_gas, pa_o2,
-              clinical_oth, fi_o2, g_c_s,
-              clinical_vit, m_a_p, cuff,
-              labs, bili, pltlts,
-              medications, med_name, med_date, med_dur,
-              organ_sup, mech_vent,
-              scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
+             surg_m, surg_des_loc,
+             dx_m, dx_loc,
+             esrd_m, esrd_locs,
+             dia_m, crrt_locs, hd_locs, pd_locs,
+             scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
+             dem_m, sex_loc, eth_loc,
+             dob_m, birth_loc,
+             mort_m, mdate_loc,
+             diag_m, diag_loc, diag_nb_loc,
+             io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
+             blood_gas, pa_o2, pa_co2, p_h,
+             clinical_oth, resp, fi_o2, g_c_s,
+             clinical_vit, temp, m_a_p, cuff, h_r,
+             labs, bili, pltlts, na, p_k, hemat, w_b_c,
+             medications, med_name, med_date, med_dur,
+             organ_sup, mech_vent,
+             scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
         print('Getting APACHE-II Scores')
-        apache = sf.get_apache(id_ref, inFile, outPath + 'apache.csv')
+        apache = sf.get_apache(ids, dataPath,
+                               clinical_vit, temp, m_a_p, cuff, h_r,
+                               clinical_oth, resp, fi_o2, g_c_s,
+                               blood_gas, pa_o2, pa_co2, p_h,
+                               labs, na, p_k, hemat, w_b_c,
+                               scr_agg, s_c_r,
+                               out_name=outPath + 'sofa.csv')
 
     else:
         _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)

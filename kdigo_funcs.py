@@ -1761,36 +1761,58 @@ def load_all_csv(datapath, sort_id='STUDY_PATIENT_ID'):
     mech_loc = mech_m.columns.get_loc("TOTAL_DAYS")
     mech_m = mech_m.values
 
-    blood_gas = pd.read_csv(data_path + 'all_sheets/BLOOD_GAS.csv')
-    pa_o2 = blood_gas.columns.get_loc('PO2_D1_HIGH_VALUE')
+    blood_gas = pd.read_csv(datapath + 'all_sheets/BLOOD_GAS.csv')
+    pa_o2 = [blood_gas.columns.get_loc('PO2_D1_LOW_VALUE'),
+             blood_gas.columns.get_loc('PO2_D1_HIGH_VALUE')]
+    pa_co2 = [blood_gas.columns.get_loc('PCO2_D1_LOW_VALUE'),
+              blood_gas.columns.get_loc('PCO2_D1_HIGH_VALUE')]
+    p_h = [blood_gas.columns.get_loc('PH_D1_LOW_VALUE'),
+           blood_gas.columns.get_loc('PH_D1_HIGH_VALUE')]
     blood_gas = blood_gas.values
 
-    clinical_oth = pd.read_csv(data_path + 'all_sheets/CLINICAL_OTHERS.csv')
-    fi_o2 = clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')
+    clinical_oth = pd.read_csv(datapath + 'all_sheets/CLINICAL_OTHERS.csv')
+    resp = [clinical_oth.columns.get_loc('RESP_RATE_D1_LOW_VALUE'),
+            clinical_oth.columns.get_loc('RESP_RATE_D1_HIGH_VALUE')]
+    fi_o2 = [clinical_oth.columns.get_loc('FI02_D1_LOW_VALUE'),
+             clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')]
     g_c_s = clinical_oth.columns.get_loc('GLASGOW_SCORE_D1_LOW_VALUE')
     clinical_oth = clinical_oth.values
 
-    clinical_vit = pd.read_csv(data_path + 'all_sheets/CLINICAL_VITALS.csv')
-    m_a_p = clinical_vit.columns.get_loc('ART_MEAN_D1_LOW_VALUE')
-    cuff = clinical_vit.columns.get_loc('CUFF_MEAN_D1_LOW_VALUE')
+    clinical_vit = pd.read_csv(datapath + 'all_sheets/CLINICAL_VITALS.csv')
+    temp = [clinical_vit.columns.get_loc('TEMPERATURE_D1_LOW_VALUE'),
+            clinical_vit.columns.get_loc('TEMPERATURE_D1_HIGH_VALUE')]
+    m_a_p = [clinical_vit.columns.get_loc('ART_MEAN_D1_LOW_VALUE'),
+            clinical_vit.columns.get_loc('ART_MEAN_D1_HIGH_VALUE')]
+    cuff = [clinical_vit.columns.get_loc('CUFF_MEAN_D1_LOW_VALUE'),
+            clinical_vit.columns.get_loc('CUFF_MEAN_D1_HIGH_VALUE')]
+    h_r = [clinical_vit.columns.get_loc('HEART_RATE_D1_LOW_VALUE'),
+           clinical_vit.columns.get_loc('HEART_RATE_D1_HIGH_VALUE')]
     clinical_vit = clinical_vit.values
 
-    labs = pd.read_csv(data_path + 'all_sheets/LABS_SET1.csv')
+    labs = pd.read_csv(datapath + 'all_sheets/LABS_SET1.csv')
     bili = labs.columns.get_loc('BILIRUBIN_D1_HIGH_VALUE')
     pltlts = labs.columns.get_loc('PLATELETS_D1_LOW_VALUE')
+    na = [labs.columns.get_loc('SODIUM_D1_LOW_VALUE'),
+          labs.columns.get_loc('SODIUM_D1_HIGH_VALUE')]
+    p_k = [labs.columns.get_loc('POTASSIUM_D1_LOW_VALUE'),
+           labs.columns.get_loc('POTASSIUM_D1_HIGH_VALUE')]
+    hemat = [labs.columns.get_loc('HEMATOCRIT_D1_LOW_VALUE'),
+             labs.columns.get_loc('HEMATOCRIT_D1_HIGH_VALUE')]
+    w_b_c = [labs.columns.get_loc('WBC_D1_LOW_VALUE'),
+             labs.columns.get_loc('WBC_D1_HIGH_VALUE')]
     labs = labs.values
 
-    medications = pd.read_csv(data_path + 'all_sheets/MEDICATIONS_INDX.csv')
+    medications = pd.read_csv(datapath + 'all_sheets/MEDICATIONS_INDX.csv')
     med_name = medications.columns.get_loc('MEDICATION_TYPE')
     med_date = medications.columns.get_loc('ORDER_ENTERED_DATE')
     med_dur = medications.columns.get_loc('DAYS_ON_MEDICATION')
     medications = medications.values
 
-    organ_sup = pd.read_csv(data_path + 'all_sheets/ORGANSUPP_VENT.csv')
+    organ_sup = pd.read_csv(datapath + 'all_sheets/ORGANSUPP_VENT.csv')
     mech_vent = [organ_sup.columns.get_loc('VENT_START_DATE'), organ_sup.columns.get_loc('VENT_STOP_DATE')]
     organ_sup = organ_sup.values
 
-    scr_agg = pd.read_csv(data_path + 'all_sheets/SCR_INDX_AGG.csv')
+    scr_agg = pd.read_csv(datapath + 'all_sheets/SCR_INDX_AGG.csv')
     s_c_r = scr_agg.columns.get_loc('DAY1_MAX_VALUE')
     scr_agg = scr_agg.values
 
@@ -1805,10 +1827,10 @@ def load_all_csv(datapath, sort_id='STUDY_PATIENT_ID'):
              mort_m, mdate_loc,
              diag_m, diag_loc, diag_nb_loc,
              io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
-             blood_gas, pa_o2,
-             clinical_oth, fi_o2, g_c_s,
-             clinical_vit, m_a_p, cuff,
-             labs, bili, pltlts,
+             blood_gas, pa_o2, pa_co2, p_h,
+             clinical_oth, resp, fi_o2, g_c_s,
+             clinical_vit, temp, m_a_p, cuff, h_r,
+             labs, bili, pltlts, na, p_k, hemat, w_b_c,
              medications, med_name, med_date, med_dur,
              organ_sup, mech_vent,
              scr_agg, s_c_r))
