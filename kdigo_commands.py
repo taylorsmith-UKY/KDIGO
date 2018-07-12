@@ -13,12 +13,11 @@ import numpy as np
 from scipy.spatial.distance import squareform
 from scipy.stats import normaltest
 from kdigo_funcs import pairwise_dtw_dist as ppd
-from kdigo_funcs import arr2csv, descriptive_trajectory_features,\
-                        slope_trajectory_features, template_trajectory_features, combine_labels, daily_max_kdigo, calc_gfr
-from cluster_funcs import cluster, inter_intra_dist, assign_feature_vectors
+from kdigo_funcs import arr2csv, daily_max_kdigo, calc_gfr
+from cluster_funcs import inter_intra_dist
 from stat_funcs import get_cstats
 from fastcluster import ward
-from scipy.cluster.hierarchy import dendrogram, fcluster
+from scipy.cluster.hierarchy import to_tree, fcluster
 from sklearn.cluster import DBSCAN
 import matplotlib.pyplot as plt
 import datetime
@@ -258,7 +257,10 @@ def baseline_delta_string_summarize(deltas, selection):
 
 def post_dm_process(h5_fname, csv_fname, output_base_path, dm_name='dm', eps=0.015, p_thresh=1e-3, no_save=False):
     try:
-        f = h5py.File(h5_fname, 'r+')
+        if no_save:
+            f = h5py.File(h5_fname, 'r')
+        else:
+            f = h5py.File(h5_fname, 'r+')
     except:
         f = h5py.File(h5_fname, 'w')
     try:
@@ -310,10 +312,9 @@ def post_dm_process(h5_fname, csv_fname, output_base_path, dm_name='dm', eps=0.0
     dpath = output_base_path + 'dbscan/' + grp_name + '/max_dist/'
     plt.close('all')
     if not no_save:
+        np.savetxt(output_base_path + 'dbscan/' + grp_name + '/clusters.txt', fmt='%s')
         inter_intra_dist(f, sqdm, 'dbscan', grp_name, op='max', out_path=dpath, plot='both')
-        get_cstats(f, cluster_method='dbscan', n_clust=grp_name,
-                   out_name=output_base_path + 'dbscan/' + grp_name + '/cluster_stats.csv',
-                   report_kdigo0=False, meta_grp='meta')
+        get_cstats(f, output_base_path + 'dbscan/' + grp_name + '/', meta_grp='meta')
         np.savetxt(output_base_path + 'dbscan/' + grp_name + '/clusters.txt', lbls, fmt='%s')
     print('Breaking down DBSCAN cluster 1')
 #    lbls = ward_breakdown(f, sqdm, lbls, ids, 1, cg, 'dbscan1',

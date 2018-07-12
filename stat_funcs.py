@@ -247,7 +247,7 @@ def summarize_stats(data_path, out_name, grp_name='meta'):
 
 
 # %%
-def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, report_kdigo0=True, meta_grp='meta'):
+def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta'):
     # get IDs and Clusters in order from cluster file
     # ids = np.loadtfxt(id_file, dtype=int, delimiter=',')
     if type(in_file) == str:
@@ -256,86 +256,42 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
         f = in_file
     meta = f[meta_grp]
     ids = meta['ids'][:]
-    if report_kdigo0:
-        ages = meta['age'][:]
-        genders = meta['gender'][:]
-        m_kdigos = meta['max_kdigo'][:]
-        died_inp = meta['died_inp'][:]
-        n_eps = meta['n_episodes'][:]
-        hosp_los = meta['hosp_free_days'][:]
-        icu_los = meta['icu_free_days'][:]
-        sofa = meta['sofa'][:]
-        apache = meta['apache'][:]
-        # sepsis = meta['sepsis'][:]
-        net_fluid = meta['net_fluid'][:]
-        gross_fluid = meta['gross_fluid'][:]
-        charlson = meta['charlson'][:]
-        elixhauser = meta['elixhauser'][:]
-        mech_vent = meta['mv_free_days'][:]
+    lbls = np.loadtxt(label_path + 'clusters.txt', dtype=str)
 
-        cids = f['clusters'][cluster_method]['ids'][:]
-        clust = f['clusters'][cluster_method][n_clust][:]
-        cmin = np.min(clust)
+    ages = meta['age'][:]
+    genders = meta['gender'][:]
+    m_kdigos = meta['max_kdigo'][:]
+    died_inp = meta['died_inp'][:]
+    n_eps = meta['n_episodes'][:]
+    hosp_los = meta['hosp_free_days'][:]
+    icu_los = meta['icu_free_days'][:]
+    sofa = meta['sofa'][:]
+    apache = meta['apache'][:]
+    # sepsis = meta['sepsis'][:]
+    net_fluid = meta['net_fluid'][:]
+    gross_fluid = meta['gross_fluid'][:]
+    charlson = meta['charlson'][:]
+    elixhauser = meta['elixhauser'][:]
+    mech_vent = meta['mv_free_days'][:]
 
-        clusters = np.zeros(len(ids))
-        for cid, c in zip(cids, clust):
-            idx = np.where(ids == cid)[0][0]
-            if c >= 0 and cmin == 0:
-                clusters[idx] = c + 1
-            else:
-                clusters[idx] = c
+    lbl_names = np.unique(lbls)
 
-    else:
-        cids = f['clusters'][cluster_method]['ids'][:]
-        clust = f['clusters'][cluster_method][n_clust][:]
-        pt_mask = np.zeros(len(ids), dtype=bool)
-        for i in range(len(ids)):
-            if ids[i] in cids:
-                pt_mask[i] = 1
-
-        ages = meta['age'][pt_mask]
-        genders = meta['gender'][pt_mask]
-        m_kdigos = meta['max_kdigo'][pt_mask]
-        died_inp = meta['died_inp'][pt_mask]
-        n_eps = meta['n_episodes'][pt_mask]
-        hosp_los = meta['hosp_free_days'][pt_mask]
-        icu_los = meta['icu_free_days'][pt_mask]
-        sofa = meta['sofa'][pt_mask]
-        apache = meta['apache'][pt_mask]
-        # sepsis = meta['sepsis'][pt_mask]
-        net_fluid = meta['net_fluid'][pt_mask]
-        gross_fluid = meta['gross_fluid'][pt_mask]
-        charlson = meta['charlson'][pt_mask]
-        elixhauser = meta['elixhauser'][pt_mask]
-        mech_vent = meta['mv_free_days'][pt_mask]
-
-        clusters = clust[np.argsort(cids)]
-
-    lbls = np.unique(clusters)
-
-    # c_header = 'cluster_id,count,mort_pct,n_kdigo_0,n_kdigo_1,n_kdigo_2,n_kdigo_3,n_kdigo_3D,' + \
-    #            'n_eps_mean,n_eps_std,hosp_free_median,hosp_free_25,hosp_free_75,icu_free_median,' + \
-    #            'icu_free_25,icu_free_75,sofa_mean,sofa_std,apache_mean,apache_std,age_mean,age_std,' + \
-    #            'percent_male,percent_sepsis,fluid_overload_mean,fluid_overload_std,gross_fluid_mean,gross_fluid_std,' + \
-    #            'charlson_mean,charlson_std,elixhauser_mean,elixhauser_std,mech_vent_free_med,mech_vent_25,mech_vent_75\n'
     c_header = 'cluster_id,count,mort_pct,n_kdigo_0,n_kdigo_1,n_kdigo_2,n_kdigo_3,n_kdigo_3D,' + \
                'n_eps_mean,n_eps_std,hosp_free_median,hosp_free_25,hosp_free_75,icu_free_median,' + \
                'icu_free_25,icu_free_75,sofa_mean,sofa_std,apache_mean,apache_std,age_mean,age_std,' + \
                'percent_male,fluid_overload_mean,fluid_overload_std,gross_fluid_mean,gross_fluid_std,' + \
                'charlson_mean,charlson_std,elixhauser_mean,elixhauser_std,mech_vent_free_med,mech_vent_25,mech_vent_75\n'
 
-    f = open(out_name, 'w')
+    f = open(label_path + 'cluster_stats.csv', 'w')
     f.write(c_header)
-    for i in range(len(lbls)):
-        cluster_id = lbls[i]
-        if cluster_id == 0 and not report_kdigo0:
-            continue
-        rows = np.where(clusters == cluster_id)[0]
+    for i in range(len(lbl_names)):
+        tlbl = lbl_names[i]
+        rows = np.where(lbls == tlbl)[0]
         count = len(rows)
         mort = float(len(np.where(died_inp[rows])[0])) / count
         k_counts = np.zeros(5)
-        for i in range(5):
-            k_counts[i] = len(np.where(m_kdigos[rows] == i)[0])
+        for j in range(5):
+            k_counts[j] = len(np.where(m_kdigos[rows] == j)[0])
         n_eps_avg = np.mean(n_eps[rows])
         n_eps_std = np.std(n_eps[rows])
         hosp_los_med = np.median(hosp_los[rows])
@@ -400,17 +356,12 @@ def get_cstats(in_file, cluster_method, n_clust, out_name, plot_hist=False, repo
             plt.ylabel('# of Patients')
             plt.xlabel('Mililiters')
             plt.title('Fluid Overload')
-            plt.suptitle('Cluster ' + str(cluster_id) + ' Distributions')
+            plt.suptitle('Cluster ' + str(tlbl) + ' Distributions')
             plt.tight_layout()
-            plt.savefig('cluster' + str(cluster_id) + 'dist.png')
-        # f.write('%d,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
-        #         (cluster_id, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
-        #          n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
-        #          sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, pct_septic, net_mean, net_std,
-        #          gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
+            plt.savefig('cluster' + str(tlbl) + 'dist.png')
         f.write(
             '%s,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
-            (cluster_id, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
+            (tlbl, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
              n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
              sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, net_mean, net_std,
              gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
@@ -574,45 +525,45 @@ def get_disch_summary(id_file, stat_file, ids=None):
     sf.close()
 
 
-def get_sofa(id_file, in_name, out_name):
+def get_sofa(id_file, data_path, out_name):
     ids = np.loadtxt(id_file, dtype=int)
 
-    admit_info = get_mat(in_name, 'ADMISSION_INDX', 'STUDY_PATIENT_ID')
+    admit_info = pd.read_csv(data_path + 'all_sheets/ADMISSION_INDX.csv')
     date = admit_info.columns.get_loc('HOSP_ADMIT_DATE')
-    admit_info = admit_info.as_matrix()
+    admit_info = admit_info.values
 
-    blood_gas = get_mat(in_name, 'BLOOD_GAS', 'STUDY_PATIENT_ID')
+    blood_gas = pd.read_csv(data_path + 'all_sheets/BLOOD_GAS.csv')
     pa_o2 = blood_gas.columns.get_loc('PO2_D1_HIGH_VALUE')
-    blood_gas = blood_gas.as_matrix()
+    blood_gas = blood_gas.values
 
-    clinical_oth = get_mat(in_name, 'CLINICAL_OTHERS', 'STUDY_PATIENT_ID')
+    clinical_oth = pd.read_csv(data_path + 'all_sheets/CLINICAL_OTHERS.csv')
     fi_o2 = clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')
     g_c_s = clinical_oth.columns.get_loc('GLASGOW_SCORE_D1_LOW_VALUE')
-    clinical_oth = clinical_oth.as_matrix()
+    clinical_oth = clinical_oth.values
 
-    clinical_vit = get_mat(in_name, 'CLINICAL_VITALS', 'STUDY_PATIENT_ID')
+    clinical_vit = pd.read_csv(data_path + 'all_sheets/CLINICAL_VITALS.csv')
     m_a_p = clinical_vit.columns.get_loc('ART_MEAN_D1_LOW_VALUE')
     cuff = clinical_vit.columns.get_loc('CUFF_MEAN_D1_LOW_VALUE')
-    clinical_vit = clinical_vit.as_matrix()
+    clinical_vit = clinical_vit.values
 
-    labs = get_mat(in_name, 'LABS_SET1', 'STUDY_PATIENT_ID')
+    labs = pd.read_csv(data_path + 'all_sheets/LABS_SET1.csv')
     bili = labs.columns.get_loc('BILIRUBIN_D1_HIGH_VALUE')
     pltlts = labs.columns.get_loc('PLATELETS_D1_LOW_VALUE')
-    labs = labs.as_matrix()
+    labs = labs.values
 
-    medications = get_mat(in_name, 'MEDICATIONS_INDX', 'STUDY_PATIENT_ID')
+    medications = pd.read_csv(data_path + 'all_sheets/MEDICATIONS_INDX.csv')
     med_name = medications.columns.get_loc('MEDICATION_TYPE')
     med_date = medications.columns.get_loc('ORDER_ENTERED_DATE')
     med_dur = medications.columns.get_loc('DAYS_ON_MEDICATION')
-    medications = medications.as_matrix()
+    medications = medications.values
 
-    organ_sup = get_mat(in_name, 'ORGANSUPP_VENT', 'STUDY_PATIENT_ID')
+    organ_sup = pd.read_csv(data_path + 'all_sheets/ORGANSUPP_VENT.csv')
     mech_vent = [organ_sup.columns.get_loc('VENT_START_DATE'), organ_sup.columns.get_loc('VENT_STOP_DATE')]
-    organ_sup = organ_sup.as_matrix()
+    organ_sup = organ_sup.values
 
-    scr_agg = get_mat(in_name, 'SCR_INDX_AGG', 'STUDY_PATIENT_ID')
+    scr_agg = pd.read_csv(data_path + 'all_sheets/SCR_INDX_AGG.csv')
     s_c_r = scr_agg.columns.get_loc('DAY1_MAX_VALUE')
-    scr_agg = scr_agg.as_matrix()
+    scr_agg = scr_agg.values
 
     out = open(out_name, 'w')
     sofas = np.zeros((len(ids), 6))
@@ -770,10 +721,10 @@ def get_sofa(id_file, in_name, out_name):
     return sofas
 
 
-def get_apache(id_file, in_name, out_name):
+def get_apache(id_file, data_path, out_name):
     ids = np.loadtxt(id_file, dtype=int)
 
-    clinical_vit = get_mat(in_name, 'CLINICAL_VITALS', 'STUDY_PATIENT_ID')
+    clinical_vit = pd.read_csv(data_path + 'all_sheets/CLINICAL_VITALS.csv')
     temp = [clinical_vit.columns.get_loc('TEMPERATURE_D1_LOW_VALUE'),
             clinical_vit.columns.get_loc('TEMPERATURE_D1_HIGH_VALUE')]
     m_ap = [clinical_vit.columns.get_loc('ART_MEAN_D1_LOW_VALUE'),
@@ -782,26 +733,26 @@ def get_apache(id_file, in_name, out_name):
             clinical_vit.columns.get_loc('CUFF_MEAN_D1_HIGH_VALUE')]
     h_r = [clinical_vit.columns.get_loc('HEART_RATE_D1_LOW_VALUE'),
            clinical_vit.columns.get_loc('HEART_RATE_D1_HIGH_VALUE')]
-    clinical_vit = clinical_vit.as_matrix()
+    clinical_vit = clinical_vit.values
 
-    clinical_oth = get_mat(in_name, 'CLINICAL_OTHERS', 'STUDY_PATIENT_ID')
+    clinical_oth = pd.read_csv(data_path + 'all_sheets/CLINICAL_OTHERS.csv')
     resp = [clinical_oth.columns.get_loc('RESP_RATE_D1_LOW_VALUE'),
             clinical_oth.columns.get_loc('RESP_RATE_D1_HIGH_VALUE')]
     fi_o2 = [clinical_oth.columns.get_loc('FI02_D1_LOW_VALUE'),
              clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')]
     gcs = clinical_oth.columns.get_loc('GLASGOW_SCORE_D1_LOW_VALUE')
-    clinical_oth = clinical_oth.as_matrix()
+    clinical_oth = clinical_oth.values
 
-    blood_gas = get_mat(in_name, 'BLOOD_GAS', 'STUDY_PATIENT_ID')
+    blood_gas = pd.read_csv(data_path + 'all_sheets/BLOOD_GAS.csv')
     pa_o2 = [blood_gas.columns.get_loc('PO2_D1_LOW_VALUE'),
              blood_gas.columns.get_loc('PO2_D1_HIGH_VALUE')]
     pa_co2 = [blood_gas.columns.get_loc('PCO2_D1_LOW_VALUE'),
               blood_gas.columns.get_loc('PCO2_D1_HIGH_VALUE')]
     p_h = [blood_gas.columns.get_loc('PH_D1_LOW_VALUE'),
            blood_gas.columns.get_loc('PH_D1_HIGH_VALUE')]
-    blood_gas = blood_gas.as_matrix()
+    blood_gas = blood_gas.values
 
-    labs = get_mat(in_name, 'LABS_SET1', 'STUDY_PATIENT_ID')
+    labs = pd.read_csv(data_path + 'all_sheets/LABS_SET1.csv')
     na = [labs.columns.get_loc('SODIUM_D1_LOW_VALUE'),
           labs.columns.get_loc('SODIUM_D1_HIGH_VALUE')]
     p_k = [labs.columns.get_loc('POTASSIUM_D1_LOW_VALUE'),
@@ -810,13 +761,13 @@ def get_apache(id_file, in_name, out_name):
              labs.columns.get_loc('HEMATOCRIT_D1_HIGH_VALUE')]
     w_b_c = [labs.columns.get_loc('WBC_D1_LOW_VALUE'),
              labs.columns.get_loc('WBC_D1_HIGH_VALUE')]
-    labs = labs.as_matrix()
+    labs = labs.values
 
     _, ages = load_csv('../DATA/icu/7days_inc_death_051918/ages.csv', ids)
 
-    scr_agg = get_mat(in_name, 'SCR_INDX_AGG', 'STUDY_PATIENT_ID')
+    scr_agg = pd.read_csv(data_path + 'all_sheets/SCR_INDX_AGG.csv')
     s_c_r = scr_agg.columns.get_loc('DAY1_MAX_VALUE')
-    scr_agg = scr_agg.as_matrix()
+    scr_agg = scr_agg.values
 
     out = open(out_name, 'w')
     ct = 0

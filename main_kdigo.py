@@ -16,14 +16,15 @@ timescale = 6  # in hours
 id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
 h5_name = 'kdigo_dm.h5'
-folder_name = '/7days_062718_2/'
+folder_name = '/7days_071118/'
 alpha = 1.0
 kdigo_dic = {0: 34,
              1: 33,
              2: 31,
              3: 25,
              4: 0}
-use_dic = True
+use_dic_dtw = False
+use_dic_dist = False
     # Dictionary explanation:
     # cost(0, 1) = 1
     # cost(1, 2) = 2 + 1 = 3
@@ -33,10 +34,17 @@ use_dic = True
 
 
 # -----------------------------------------------------------------------------#
-if use_dic:
-    dm_tag = '_custcost_a%d' % alpha
+if use_dic_dtw:
+    dm_tag = '_custcost'
 else:
-    dm_tag = '_norm_a%d' % alpha
+    dm_tag = '_norm'
+
+if use_dic_dist:
+    dm_tag += '_custcost'
+else:
+    dm_tag += '_norm'
+
+dm_tag += '_a%d' % alpha
 
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
@@ -103,21 +111,21 @@ def main():
         hosp_locs = [date_m.columns.get_loc("HOSP_ADMIT_DATE"), date_m.columns.get_loc("HOSP_DISCHARGE_DATE")]
         icu_locs = [date_m.columns.get_loc("ICU_ADMIT_DATE"), date_m.columns.get_loc("ICU_DISCHARGE_DATE")]
         adisp_loc = date_m.columns.get_loc('DISCHARGE_DISPOSITION')
-        date_m = date_m.as_matrix()
+        date_m = date_m.values
 
         ### GET SURGERY SHEET AND LOCATION
         print('Loading surgery information...')
         surg_m = pd.read_csv(dataPath + 'all_sheets/SURGERY_INDX.csv')
         surg_m.sort_values(by=sort_id, inplace=True)
         surg_des_loc = surg_m.columns.get_loc("SURGERY_DESCRIPTION")
-        surg_m = surg_m.as_matrix()
+        surg_m = surg_m.values
 
         ### GET DIAGNOSIS SHEET AND LOCATION
         print('Loading diagnosis information...')
-        dx_m = pd.read_csv(dataPath + 'all_sheets/DIAGNOSIS.csv')
+        dx_m = pd.read_csv(dataPath + 'all_sheets/DIAGNOSIS_new.csv')
         dx_m.sort_values(by=sort_id, inplace=True)
         dx_loc = dx_m.columns.get_loc("DIAGNOSIS_DESC")
-        dx_m = dx_m.as_matrix()
+        dx_m = dx_m.values
 
         print('Loading ESRD status...')
         # ESRD status
@@ -126,7 +134,7 @@ def main():
         esrd_locs = [esrd_m.columns.get_loc("AT_ADMISSION_INDICATOR"),
                      esrd_m.columns.get_loc("DURING_INDEXED_INDICATOR"),
                      esrd_m.columns.get_loc("BEFORE_INDEXED_INDICATOR")]
-        esrd_m = esrd_m.as_matrix()
+        esrd_m = esrd_m.values
 
         # Dialysis dates
         print('Loading dialysis dates...')
@@ -135,7 +143,7 @@ def main():
         crrt_locs = [dia_m.columns.get_loc('CRRT_START_DATE'), dia_m.columns.get_loc('CRRT_STOP_DATE')]
         hd_locs = [dia_m.columns.get_loc('HD_START_DATE'), dia_m.columns.get_loc('HD_STOP_DATE')]
         pd_locs = [dia_m.columns.get_loc('PD_START_DATE'), dia_m.columns.get_loc('PD_STOP_DATE')]
-        dia_m = dia_m.as_matrix()
+        dia_m = dia_m.values
 
         # All SCR
         print('Loading SCr values (may take a while)...')
@@ -144,7 +152,7 @@ def main():
         scr_date_loc = scr_all_m.columns.get_loc('SCR_ENTERED')
         scr_val_loc = scr_all_m.columns.get_loc('SCR_VALUE')
         scr_desc_loc = scr_all_m.columns.get_loc('SCR_ENCOUNTER_TYPE')
-        scr_all_m = scr_all_m.as_matrix()
+        scr_all_m = scr_all_m.values
 
         # Demographics
         print('Loading demographics...')
@@ -152,21 +160,21 @@ def main():
         dem_m.sort_values(by=sort_id, inplace=True)
         sex_loc = dem_m.columns.get_loc('GENDER')
         eth_loc = dem_m.columns.get_loc('RACE')
-        dem_m = dem_m.as_matrix()
+        dem_m = dem_m.values
 
         # DOB
         print('Loading birthdates...')
         dob_m = pd.read_csv(dataPath + 'all_sheets/DOB.csv')
         dob_m.sort_values(by=sort_id, inplace=True)
         birth_loc = dob_m.columns.get_loc("DOB")
-        dob_m = dob_m.as_matrix()
+        dob_m = dob_m.values
 
         # load death data
         print('Loading dates of death...')
         mort_m = pd.read_csv(dataPath + 'all_sheets/OUTCOMES.csv')
         mort_m.sort_values(by=sort_id, inplace=True)
         mdate_loc = mort_m.columns.get_loc("DECEASED_DATE")
-        mort_m = mort_m.as_matrix()
+        mort_m = mort_m.values
 
         # Determine relative admits
         if t_analyze == 'ICU':
@@ -203,7 +211,7 @@ def main():
             bsln_m = pd.read_csv(baseline_file)
             bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
             admit_loc = bsln_m.columns.get_loc('admit_date')
-            bsln_m = bsln_m.as_matrix()
+            bsln_m = bsln_m.values
 
         except:
             kf.get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc,
@@ -212,7 +220,7 @@ def main():
             bsln_m = pd.read_csv(baseline_file)
             bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
             admit_loc = bsln_m.columns.get_loc('admit_date')
-            bsln_m = bsln_m.as_matrix()
+            bsln_m = bsln_m.values
 
         count_log = open(outPath + 'patient_summary.csv', 'w')
         exc_log = open(outPath + 'excluded_patients.csv', 'w')
@@ -329,7 +337,7 @@ def main():
 
     if 'dm' + dm_tag not in list(f):
         dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv', resPath + 'kdigo_dtwlog' + dm_tag + '.csv',
-                                  incl_0=False, alpha=alpha, dic=kdigo_dic, use_dic=use_dic)
+                                  incl_0=False, alpha=alpha, dic=kdigo_dic, use_dic_dtw=use_dic_dtw, use_dic_dist=use_dic_dist)
         f.create_dataset('dm' + dm_tag, data=dm)
 
     # Calculate individual trajectory based statistics if not already done
@@ -362,17 +370,17 @@ def main():
 
     # Load clusters or launch interactive clustering
     try:
-        lbls = np.loadtxt(resPath + 'clusters/composite/clusters.txt', dtype=str)
+        lbls = np.loadtxt(resPath + 'clusters' + dm_tag + '/composite/clusters.txt', dtype=str)
     except:
         if not os.path.exists(resPath + 'clusters/'):
             os.mkdir(resPath + 'clusters/')
         lbls = post_dm_process(h5_name, '', output_base_path=resPath + 'clusters/', eps=0.05)
 
-        if not os.path.exists(resPath + 'clusters/composite/'):
-            os.mkdir(resPath + 'clusters/composite/')
-        np.savetxt(resPath + 'clusters/composite/clusters.txt', lbls, fmt='%s')
+        if not os.path.exists(resPath + 'clusters' + dm_tag + '/composite/'):
+            os.mkdir(resPath + 'clusters' + dm_tag + '/composite/')
+        np.savetxt(resPath + 'clusters' + dm_tag + '/composite/clusters.txt', lbls, fmt='%s')
 
-    if 'composite' not in list(f['clusters']):
+    if 'composite' not in list(f['clusters' + dm_tag]):
         n_clust = '%d_clusters' % len(np.unique(lbls))
         ccg = f['clusters'].create_group('composite')
         _ = ccg.create_dataset('ids', data=ids[aki_idx], dtype=int)
@@ -390,9 +398,9 @@ def main():
         fg.create_dataset('template_clusters', data=all_temp_c, dtype=float)
         fg.create_dataset('slope_clusters', data=all_slope_c, dtype=float)
     else:
-        desc_c = fg['descriptive_clusters'][:]
-        slope_c = fg['slope_clusters'][:]
-        temp_c = fg['template_clusters'][:]
+        all_desc_c = fg['descriptive_clusters'][:]
+        all_slope_c = fg['slope_clusters'][:]
+        all_temp_c = fg['template_clusters'][:]
 
     if sofa is None:
         _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
@@ -416,7 +424,7 @@ def main():
 
     if 'all_trajectory_individual' not in list(fg):
         all_traj_ind = np.hstack((desc, slope_norm, temp_norm))
-        all_traj_c = np.hstack((desc_c, slope_c, temp_c))
+        all_traj_c = np.hstack((all_desc_c, all_slope_c, all_temp_c))
         _ = fg.create_dataset('all_trajectory_individual', data=all_traj_ind)
         _ = fg.create_dataset('all_trajectory_clusters', data=all_traj_c)
 

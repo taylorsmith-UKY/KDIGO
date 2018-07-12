@@ -4,7 +4,6 @@ import math
 import numpy as np
 import pandas as pd
 from scipy.spatial import distance
-import dtw
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler as mms
 from sklearn.svm import SVC, LinearSVC
@@ -23,23 +22,32 @@ def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs, v
         print 'Number non-dialysis records, #CRRT, #HD, #PD'
     for i in range(len(mask)):
         this_id = scr_m[i, 0]
-        this_date = scr_m[i, scr_date_loc]
-        this_date.resolution = datetime.timedelta(0, 1)
+        date_str = str(scr_m[i, scr_date_loc]).lower()
+        if date_str == 'nan' or date_str == 'nat':
+            continue
+        else:
+            this_date = datetime.datetime.strptime(str(scr_m[i, scr_date_loc]), '%Y-%m-%d %H:%M:%S')
         rows = np.where(dia_m[:, 0] == this_id)[0]
         for row in rows:
             if dia_m[row, crrt_locs[0]]:
                 if str(dia_m[row, crrt_locs[0]]) != 'nan' and \
                         str(dia_m[row, crrt_locs[1]]) != 'nan':
-                    if dia_m[row, crrt_locs[0]] < this_date < dia_m[row, crrt_locs[1]] + datetime.timedelta(2):
+                    left = datetime.datetime.strptime(str(dia_m[row, crrt_locs[0]]), '%Y-%m-%d %H:%M:%S')
+                    right = datetime.datetime.strptime(str(dia_m[row, crrt_locs[1]]), '%Y-%m-%d %H:%M:%S')
+                    if left < this_date < right + datetime.timedelta(2):
                         mask[i] = 1
             if dia_m[row, hd_locs[0]]:
                 if str(dia_m[row, hd_locs[0]]) != 'nan' and \
                         str(dia_m[row, hd_locs[1]]) != 'nan':
-                    if dia_m[row, hd_locs[0]] < this_date < dia_m[row, hd_locs[1]] + datetime.timedelta(2):
+                    left = datetime.datetime.strptime(str(dia_m[row, hd_locs[0]]), '%Y-%m-%d %H:%M:%S')
+                    right = datetime.datetime.strptime(str(dia_m[row, hd_locs[1]]), '%Y-%m-%d %H:%M:%S')
+                    if left < this_date < right + datetime.timedelta(2):
                         mask[i] = 2
             if dia_m[row, pd_locs[0]]:
                 if str(dia_m[row, pd_locs[0]]) != 'nan' and str(dia_m[row, pd_locs[1]]) != 'nan':
-                    if dia_m[row, pd_locs[0]] < this_date < dia_m[row, pd_locs[1]] + datetime.timedelta(2):
+                    left = datetime.datetime.strptime(str(dia_m[row, pd_locs[0]]), '%Y-%m-%d %H:%M:%S')
+                    right = datetime.datetime.strptime(str(dia_m[row, pd_locs[1]]), '%Y-%m-%d %H:%M:%S')
+                    if left < this_date < right + datetime.timedelta(2):
                         mask[i] = 3
     if v:
         nwo = len(np.where(mask == 0)[0])
@@ -64,7 +72,7 @@ def get_admits(date_m, admit_loc):
             if tdate < admit:
                 admit = tdate
         admit_info[i, 1] = admit
-    return admit_infop
+    return admit_info
 
 
 # %%
@@ -74,13 +82,18 @@ def get_t_mask(scr_m, scr_date_loc, scr_val_loc, date_m, hosp_locs, icu_locs, ad
         print('Getting masks for icu and hospital admit-discharge')
     for i in range(len(mask)):
         this_id = scr_m[i, 0]
+        date_str = str(scr_m[i, scr_date_loc]).lower()
+        if date_str == 'nan' or date_str == 'nat':
+            continue
         this_date = datetime.datetime.strptime(str(scr_m[i, scr_date_loc]).split('.')[0], '%Y-%m-%d %H:%M:%S')
         this_val = scr_m[i, scr_val_loc]
         if this_val == np.nan:
             continue
-
-        admit_idx = np.where(admits[:, 0] == this_id)[0][0]
-        admit = datetime.datetime.strptime(str(admits[admit_idx, 1]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+        try:
+            admit_idx = np.where(admits[:, 0] == str(this_id))[0][0]
+            admit = datetime.datetime.strptime(str(admits[admit_idx, 1]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+        except:
+            continue
 
         rows = np.where(date_m[:, 0] == this_id)[0]
         for row in rows:
@@ -131,7 +144,6 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
     bsln_gfr = []
     t_range = []
     ages = []
-    durations = []
 
     # Counters for total number of patients and how many removed for each exclusion criterium
     count = 0
@@ -143,7 +155,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
     kid_xplt_count = 0
     esrd_count = 0
     dem_count = 0
-    ids = np.unique(scr_all_m[:, 0])
+    ids = np.unique(scr_all_m[:, 0]).astype(int)
     ids.sort()
     if v:
         print('Getting patient vectors')
@@ -326,7 +338,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
                 if tdate > start:
                     if td == datetime.timedelta(0):
                         td = tdate-start
-                    elif (date_m[all_drows[j], icu_locs[0]]-start) < td:
+                    elif (tdate-start) < td:
                         td = tdate-start
             if delta == datetime.timedelta(0):
                 delta = td
@@ -355,6 +367,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
 
         # get duration vector
         tdates = scr_all_m[keep, scr_date_loc]
+        tdates = [datetime.datetime.strptime(tdates[i], '%Y-%m-%d %H:%M:%S') for i in range(len(tdates))]
         duration = [tdates[x] - admit for x in range(len(tdates))]
         duration = np.array(duration)
         dkeep = np.where(duration < datetime.timedelta(max_days))[0]
@@ -376,15 +389,15 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         bslns.append(bsln)
         bsln_gfr.append(gfr)
         if v:
-            'Patient_ID,Admit_Date,Discharge_Date,Duration,Baseline_SCr,Mort_Date,Days_To_Death\n'
-            print('%d\t%s\t%s\t%.3f\t%.3f\t%s\t%.3f' % (idx, admit, discharge, bsln, mort_date, death_dur))
-            log.write('%d,%s,%s,%.3f,%.3f,%s,%.3f\n' % (idx, admit, discharge, bsln, mort_date, death_dur))
+            'Patient_ID,Admit_Date,Discharge_Date,Baseline_SCr,Mort_Date,Days_To_Death\n'
+            print('%d\t%s\t%s\t%.3f\t%s\t%.3f' % (idx, admit, discharge, bsln, mort_date, death_dur))
+            log.write('%d,%s,%s,%.3f,%s,%.3f\n' % (idx, admit, discharge, bsln, mort_date, death_dur))
         tmask = mask[keep]
         tmasks.append(tmask)
         dmask = dia_mask[keep]
         dmasks.append(dmask)
         scr.append(scr_all_m[keep, scr_val_loc])
-        dates.append(scr_all_m[keep, scr_date_loc][x])
+        dates.append(scr_all_m[keep, scr_date_loc])
         ages.append(age)
 
         tmin = duration[0].total_seconds() / (60 * 60)
@@ -763,7 +776,7 @@ def scr2kdigo(scr, base, masks, days, valid):
                 continue
             elif scr[i][j] <= (1.5 * base[i]):
                 if j > 7:
-                    window = np.where(days[i] <= days[i][j])[0]
+                    window = np.where(days[i] >= days[i][j] - 2)[0]
                     window = window[np.where(window < j)[0]]
                     window = np.intersect1d(window, np.where(valid[i])[0])
                     if window.size > 0:
@@ -789,7 +802,7 @@ def scr2kdigo(scr, base, masks, days, valid):
 
 # %%
 def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True,
-                      alpha=1.0, dic={0: 34, 1: 33, 2: 31, 3: 25, 4: 0}, use_dic=True):
+                      alpha=1.0, dic={0: 34, 1: 33, 2: 31, 3: 25, 4: 0}, use_dic_dtw=False, use_dic_dist=False):
     df = open(dm_fname, 'w')
     dis = []
     if v and dtw_name is not None:
@@ -799,44 +812,53 @@ def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True,
             continue
         if v:
             print('#'+str(i+1)+' vs #'+str(i+2)+' to '+str(len(patients)))
-        patient1 = np.zeros(len(patients[i]))
-        if use_dic:
-            for k in range(len(patient1)):
-                patient1[k] = dic[patients[i][k]]
-        else:
-            patient1[:] = patients[i]
+        patient1 = np.array(patients[i])
+        patient1_co = np.zeros(len(patients[i]))
+        for k in range(len(patient1)):
+            patient1_co[k] = dic[patients[i][k]]
         for j in range(i+1,len(patients)):
             if not incl_0 and np.all(patients[j] == 0):
                 continue
             df.write('%d,%d,' % (ids[i], ids[j]))
-            patient2 = np.zeros(len(patients[j]))
-            if use_dic:
-                for k in range(len(patient2)):
-                    patient2[k] = dic[patients[j][k]]
-            else:
-                patient2[:] = patients[j]
+            patient2 = np.array(patients[j])
+            patient2_co = np.zeros(len(patients[j]))
+            for k in range(len(patient2)):
+                patient2_co[k] = dic[patients[j][k]]
             if np.all(patients[i] == 0) and np.all(patients[j] == 0):
                 df.write('%f\n' % 0)
                 dis.append(0)
             else:
                 if len(patients[i]) > 1 and len(patients[j]) > 1:
-                    dist, _, _, path = dtw_p(patients[i], patients[j], lambda y, yy: np.abs(y-yy), alpha=alpha)
+                    if use_dic_dtw:
+                        dist, _, _, path = dtw_p(patient1_co, patient2_co, lambda y, yy: np.abs(y - yy), alpha=alpha)
+                    else:
+                        dist, _, _, path = dtw_p(patient1, patient2, lambda y, yy: np.abs(y-yy), alpha=alpha)
                     p1_path = path[0]
                     p2_path = path[1]
                     p1 = [patient1[p1_path[x]] for x in range(len(p1_path))]
                     p2 = [patient2[p2_path[x]] for x in range(len(p2_path))]
+                    p1_co = [patient1[p1_path[x]] for x in range(len(p1_path))]
+                    p2_co = [patient2[p2_path[x]] for x in range(len(p2_path))]
                 elif len(patients[i]) == 1:
-                    p1 = np.repeat(patients[i][0], len(patients[j]))
-                    p2 = patients[j]
+                    p1 = np.repeat(patient1[0], len(patient2))
+                    p2 = patient2
+                    p1_co = np.repeat(patient1_co[0], len(patient2))
+                    p2_co = patient2_co
                 elif len(patients[j]) == 1:
-                    p1 = patients[i]
-                    p2 = np.repeat(patients[j][0], len(patients[i]))
+                    p1 = patient1
+                    p2 = np.repeat(patient2[0], len(patient1))
+                    p1_co = patient1_co
+                    p2_co = np.repeat(patient2_co[0], len(patient1))
                 if np.all(p1 == p2):
                     df.write('%f\n' % 0)
                     dis.append(0)
                 else:
-                    df.write('%f\n' % (distance.braycurtis(p1,p2)))
-                    dis.append(distance.braycurtis(p1,p2))
+                    if use_dic_dist:
+                        df.write('%f\n' % (distance.braycurtis(p1_co, p2_co)))
+                        dis.append(distance.braycurtis(p1_co, p2_co))
+                    else:
+                        df.write('%f\n' % (distance.braycurtis(p1, p2)))
+                        dis.append(distance.braycurtis(p1, p2))
             if v and dtw_name is not None:
                 log.write(arr2str(p1, fmt='%d')+'\n')
                 log.write(arr2str(p2, fmt='%d')+'\n\n')
@@ -1320,14 +1342,15 @@ def feature_selection(data, lbls, method='univariate', params=[]):
         pct = params[0]
         sel = VarianceThreshold(threshold=(pct * (1 - pct)))
         sf = sel.fit_transform(data)
-        return sf
+        return sel, sf
 
     elif method == 'univariate':
         assert len(params) == 2
         n_feats = params[0]
         scoring = params[1]
-        sf = SelectKBest(scoring, k=n_feats).fit_transform(data, lbls)
-        return sf
+        sel = SelectKBest(scoring, k=n_feats)
+        sf = sel.fit_transform(data, lbls)
+        return sel, sf
 
     elif method == 'recursive':
         assert len(params) == 2
@@ -1338,7 +1361,7 @@ def feature_selection(data, lbls, method='univariate', params=[]):
         rfecv.fit(data, lbls)
         sel = rfecv.support_
         sf = data[:, sel]
-        return sf
+        return rfecv, sf
 
     elif method == 'linear':
         assert len(params) == 1
@@ -1346,15 +1369,15 @@ def feature_selection(data, lbls, method='univariate', params=[]):
         lsvc = LinearSVC(C=c, penalty='l1', dual=False).fit(data, lbls)
         model = SelectFromModel(lsvc, prefit=True)
         sf = model.transform(data)
-        return sf
+        return model, sf
 
     elif method == 'tree':
         assert params == []
-        clf = ExtraTreesClassifier()
+        clf = RandomForestClassifier()
         clf.fit(data, lbls)
         model = SelectFromModel(clf, prefit=True)
         sf = model.transform(data)
-        return sf
+        return model, sf
 
     else:
         print("Please select one of the following methods:")

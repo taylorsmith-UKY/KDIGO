@@ -5,112 +5,137 @@ Created on Fri Jan 19 14:31:03 2018
 """
 import numpy as np
 from scipy.spatial.distance import squareform
-from scipy.cluster.hierarchy import dendrogram, fcluster
+from scipy.cluster.hierarchy import dendrogram, fcluster, to_tree
 from scipy.stats.mstats import normaltest
-from sklearn.cluster import DBSCAN, SpectralClustering
+from sklearn.cluster import DBSCAN
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, homogeneity_score, completeness_score,\
     v_measure_score, fowlkes_mallows_score, silhouette_score, calinski_harabaz_score
 import fastcluster as fc
-from kdigo_funcs import arr2csv
+from kdigo_funcs import arr2csv, load_csv, daily_max_kdigo
+import datetime
+from stat_funcs import get_cstats
 import matplotlib.pyplot as plt
 import h5py
+import os
 
 
 # %%
-def cluster(X, ids, fname, hfile, method='ward', metric='precomputed', title='Clustering Dendrogram',
-            eps=0.5, leaf_size=30, n_clusters=5):
-    # if X is 1-D, it is condensed distance matrix, otherwise it is assumed to be
-    # an array of m observations of n dimensions
-    if method == 'dbscan':
-        db = DBSCAN(eps=eps, n_jobs=-1, metric='precomputed', leaf_size=leaf_size)
-        db.fit_predict(X)
-        lbls = db.labels_
-        n_clust = str(len(set(lbls)) - 1)
-        cgrp_name = n_clust+'clust'
-        try:
-            mgrp = hfile['clusters'][method]
-        except:
-            mgrp = hfile['clusters'].create_group(method)
-            mgrp.create_dataset('ids', data=ids, dtype=int)
-        mgrp.create_dataset(cgrp_name, data=lbls, dtype=int)
-        np.savetxt(fname, np.transpose(np.vstack(ids, lbls)), fmt='%d')
-        return lbls
-    elif method == 'spectral':
-        db = SpectralClustering(n_clusters=n_clusters, affinity='precomputed')
-        db.fit_predict(X)
-        lbls = db.labels_
-        n_clust = str(len(set(lbls)))
-        cgrp_name = n_clust + 'clust'
-        try:
-            mgrp = hfile['clusters'][method]
-        except:
-            mgrp = hfile['clusters'].create_group(method)
-            mgrp.create_dataset('ids', data=ids, dtype=int)
-        mgrp.create_dataset(cgrp_name, data=lbls, dtype=int)
-        np.savetxt(fname, np.transpose(np.vstack(ids, lbls)), fmt='%d')
-        return lbls
+def dist_cut_cluster(h5_fname, dm, meta_grp='meta', path='', eps=0.015, p_thresh=0.05,
+                     min_size=20, height_lim=5, interactive=True, save=True):
+    f = h5py.File(h5_fname, 'r')
+    if type(dm) == str:
+        dm = f[dm]
+    if dm.ndim == 1:
+        sqdm = squareform(dm)
     else:
-        link = fc.linkage(X, method=method, metric=metric)
-        mgrp = hfile['clusters'].create_group(method)
-        mgrp.create_dataset('linkage',data=link)
-        mgrp.create_dataset('ids', data=ids, dtype=int)
-        np.savetxt(fname, link)
-        dendrogram(link, p=50, truncate_mode='lastp')
-        plt.ylabel('Distance')
-        plt.suptitle(title, fontweight='bold', fontsize=14)
-        plt.show()
-        return link
-
-
-def linkage_clust_grps(in_file, cluster_method, n_clusts):
-    if type(in_file) == str:
-        f = h5py.File(in_file, 'r+')
-    else:
-        f = in_file
-    grp_name = str(n_clusts)+'clusts'
-    link = f['clusters'][cluster_method]['linkage']
-    grps = fcluster(link, n_clusts, 'maxclust')
-    f['clusters'][cluster_method].create_dataset(grp_name, data=grps, dtype=int)
-    return grps
-
-
-def zero_dist_clusters(zero_dist_file, out_fname, val_trans=False):
-    f = open(zero_dist_file,'r')
-    l = f.readline()
-    clusters = []
-    while l != '':
-        idx = l.split(',')[0]
-        ex = []
-        for i in range(len(clusters)):
-            ex.append(int(idx) in clusters[i])
-        if np.any(ex):
-            # the section contains an extra search for validation purposes
-            # and can be skipped by setting `val_trans` to False. This was included
-            # so it could be run both ways to ensure there aren't any inconsistencies
-            # in the distance calculations in the previous step.
-
-            while l.split(',')[0] == idx:
-                if val_trans:
-                    cnum = np.where(ex)[0][0]
-                    # transitive property - if x belongs to cluster C, then any
-                    t = int(l.split(',')[1])    # patient y s.t.  dist(x,y) = 0 must
-                    if t not in clusters[cnum]: # belong to the same cluster
-                        clusters[cnum].append(t)
-                l = f.readline()
+        sqdm = np.array(dm, copy=True)
+    db = DBSCAN(eps=eps, metric='precomputed', n_jobs=-1)
+    cont = True
+    date_str = datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d')
+    while cont:
+        db.fit(sqdm)
+        lbls = np.array(db.labels_, dtype=int)
+        nclust = len(np.unique(lbls)) - 1
+        print('Number of Clusters = %d' % nclust)
+        if interactive:
+            eps = raw_input('New epsilon (non-numeric to continue): ')
+            try:
+                eps = float(eps)
+                db = DBSCAN(eps=eps, metric='precomputed', n_jobs=-1)
+            except:
+                cont = False
         else:
-            clusters.append([int(idx)])
-            while l.split(',')[0] == idx:
-                clusters[-1].append(int(l.split(',')[1]))
-                l = f.readline()
-    f.close()
-    arr2csv(out_fname, clusters, fmt='%d')
-    outFile = open(out_fname, 'w')
-    for i in range(len(clusters)):
-        outFile.write('Cluster #%d' % (i+1))
-        for j in range(len(clusters[i])):
-            outFile.write(',%d' % (clusters[i][j]))
-        outFile.write('\n')
-    outFile.close()
+            cont = False
+    lbls[np.where(lbls >= 0)] += 1
+    lbl_names = np.unique(lbls)
+    for i in range(1, nclust + 1):
+        tlbl = lbl_names[i]
+        idx = np.where(lbls == tlbl)[0]
+        if len(idx) < min_size:
+            lbls[idx] = -1
+    n_clusters = len(np.unique(lbls))
+    if save:
+        if not os.path.exists(path + 'dbscan'):
+            os.makedirs(path + 'dbscan')
+        if not os.path.exists(path + 'dbscan/%d_clusters-%s' % (n_clusters, date_str)):
+            os.makedirs(path + 'dbscan/%d_clusters-%s' % (n_clusters, date_str))
+        np.savetxt(path + 'dbscan/%d_clusters-%s/clusters.txt' % (n_clusters, date_str), lbls, fmt='%s')
+        if not os.path.exists(path + 'dbscan/%d_clusters-%s/max_dist/' % (n_clusters, date_str)):
+            os.makedirs(path + 'dbscan/%d_clusters-%s/max_dist/' % (n_clusters, date_str))
+        all_inter, all_intra, db_pvals = inter_intra_dist(sqdm, lbls,
+                                                          out_path=path + 'dbscan/%d_clusters-%s/max_dist/' % (
+                                                          n_clusters, date_str),
+                                                          op='max', plot='both')
+    else:
+        all_inter, all_intra, db_pvals = inter_intra_dist(sqdm, lbls,
+                                                          out_path=path + 'dbscan/%d_clusters-%s/max_dist/' % (n_clusters, date_str),
+                                                          op='max', plot='nosave')
+    if save:
+        np.savetxt(path + 'dbscan/%d_clusters-%s/max_dist/all_intra.txt' % (n_clusters, date_str), all_intra, fmt='%.3f')
+        np.savetxt(path + 'dbscan/%d_clusters-%s/max_dist/all_inter.txt' % (n_clusters, date_str), all_inter, fmt='%.3f')
+    lbls = np.array(lbls)
+    lbl_names = np.unique(lbls).astype(str)
+    lbls = lbls.astype(str)
+    for i in range(len(lbl_names)):
+        p_val = db_pvals[i]
+        if p_val < p_thresh:
+            tlbl = lbl_names[i]
+            if tlbl == '-1':
+                continue
+            idx = np.where(lbls == tlbl)[0]
+            sel = np.ix_(idx, idx)
+            tdm = squareform(sqdm[sel])
+            link = fc.ward(tdm)
+            root = to_tree(link)
+            tlbls = lbls[idx]
+            nlbls = dist_cut_tree(root, tlbls, tlbl, all_intra[idx], p_thresh, min_size=min_size, height_lim=height_lim)
+            lbls[idx] = nlbls
+    n_clusters = len(np.unique(lbls))
+    print('Final number of clusters: %d' % n_clusters)
+    if save:
+        if not os.path.exists(path + 'composite/%d_clusters-%s' % (n_clusters, date_str)):
+            os.makedirs(path + 'composite/%d_clusters-%s' % (n_clusters, date_str))
+        n_clusters = len(np.unique(lbls))
+        np.savetxt(path + 'composite/%d_clusters-%s/clusters.txt' % (n_clusters, date_str), lbls, fmt='%s')
+        get_cstats(f, path + 'composite/%d_clusters-%s/' % (n_clusters, date_str), meta_grp=meta_grp)
+    return lbls
+
+
+def dist_cut_tree(node, lbls, base_name, feat, p_thresh, min_size=20, height_lim=5):
+    height = len(base_name.split('-'))
+    if height > height_lim:
+        print('Height limit reached for node: %s' % base_name)
+        return lbls
+    left = node.get_left()
+    right = node.get_right()
+    left_name = base_name + '-l'
+    right_name = base_name + '-r'
+    left_idx = left.pre_order()
+    right_idx = right.pre_order()
+    for idx in left_idx:
+        lbls[left_idx] = base_name + '-l'
+    for idx in right_idx:
+        lbls[right_idx] = base_name + '-r'
+    if len(left_idx) < min_size:
+        print('Node %s minimum size' % left_name)
+    else:
+        _, left_p = normaltest(feat[left_idx])
+        if left_p < p_thresh:
+            print('Splitting node %s: p-value=%.2E' % (left_name, left_p))
+            lbls = dist_cut_tree(left, lbls, left_name, feat, p_thresh, min_size=min_size, height_lim=height_lim)
+        else:
+            print('Node %s final: p-value=%.2E' % (left_name, left_p))
+
+    if len(right_idx) < min_size:
+        print('Node %s minimum size' % right_name)
+    else:
+        _, right_p = normaltest(feat[right_idx])
+        if right_p < p_thresh:
+            print('Splitting node %s: p-value=%.2E' % (right_name, right_p))
+            lbls = dist_cut_tree(right, lbls, right_name, feat, p_thresh, min_size=min_size, height_lim=height_lim)
+        else:
+            print('Node %s final: p-value=%.2E' % (right_name, right_p))
+    return lbls
 
 
 def eval_clusters(data_file, cluster_method, cg_name, sel=None, labels_true=None):
@@ -148,24 +173,16 @@ def eval_clusters(data_file, cluster_method, cg_name, sel=None, labels_true=None
         return ss, chs, ars, nmi, hs, cs, vms, fms
 
 
-def inter_intra_dist(in_file, dm, cluster_method, n_clust, op='mean', out_path='', plot='both'):
-    if type(in_file) == str:
-        f = h5py.File(in_file, 'r')
+def inter_intra_dist(dm, lbls, op='mean', out_path='', plot='both'):
+    if dm.ndim == 1:
+        sqdm = squareform(dm)
     else:
-        f = in_file
-    if type(dm) == str:
-        sqdm = f[dm][:]
-    else:
-        sqdm = np.copy(dm[:])
-    if sqdm.ndim == 1:
-        sqdm = squareform(sqdm)
+        sqdm = np.array(dm, copy=True)
 
     np.fill_diagonal(sqdm, np.nan)
-    ids = f['clusters'][cluster_method]['ids'][:]
-    clusters = f['clusters'][cluster_method][n_clust][:]
 
-    lbls = np.unique(clusters)
-    n_clusters = len(lbls)
+    lbl_names = np.unique(lbls)
+    n_clusters = len(lbl_names)
 
     if op == 'mean':
         func = lambda x: np.nanmean(x)
@@ -174,29 +191,28 @@ def inter_intra_dist(in_file, dm, cluster_method, n_clust, op='mean', out_path='
     elif op == 'min':
         func = lambda x: np.nanmin(x)
 
-    all_inter = []
-    all_intra = []
-    for i in range(len(ids)):
-        clust = clusters[i]
-        idx = np.array((i,))
-        cids = np.where(clusters == clust)[0]
-        intra = np.ix_(idx, np.setdiff1d(cids, idx))
-        inter = np.ix_(idx, np.setdiff1d(range(len(ids)), cids))
-        intrad = func(sqdm[intra])
-        interd = func(sqdm[inter])
-        all_inter.append(interd)
-        all_intra.append(intrad)
-    all_inter = np.array(all_inter)
-    all_intra = np.array(all_intra)
-    print('Normal tests:')
-    for i in range(n_clusters):
+    all_inter = np.zeros(len(lbls))
+    all_intra = np.zeros(len(lbls))
+    for i in range(len(lbls)):
         clust = lbls[i]
-        cidx = np.where(clusters == clust)[0]
+        idx = np.array((i,))
+        cids = np.where(lbls == clust)[0]
+        intra = np.ix_(idx, np.setdiff1d(cids, idx))
+        inter = np.ix_(idx, np.setdiff1d(np.arange(len(lbls)), cids))
+        all_intra[i] = func(sqdm[intra])
+        all_inter[i] = func(sqdm[inter])
+
+    print('Normal tests:')
+    p_vals = np.zeros(n_clusters)
+    for i in range(n_clusters):
+        clust = lbl_names[i]
+        cidx = np.where(lbls == clust)[0]
         if len(cidx) < 8:
             print('Cluster ' + str(clust) + ':\tLess Than 8 Samples')
         else:
-            n = normaltest(all_intra[cidx].flatten())
-            print('Cluster ' + str(clust) + ':\t' + str(n))
+            _, p = normaltest(all_intra[cidx].flatten())
+            p_vals[i] = p
+            print('Cluster ' + str(clust) + ':\t' + str(p))
         plt.figure()
         if plot == 'both':
             plt.subplot(121)
@@ -234,8 +250,7 @@ def inter_intra_dist(in_file, dm, cluster_method, n_clust, op='mean', out_path='
             plt.savefig(out_path + 'cluster' + str(clust) + '_intra_dist_hist.png')
         plt.close()
 
-    np.savetxt(out_path+'inter_intra_dist.txt', np.transpose(np.vstack((all_inter, all_intra))))
-    return sqdm, all_inter, all_intra
+    return all_inter, all_intra, p_vals
 
 
 def assign_feature_vectors(lbls, reference_vectors):
@@ -257,3 +272,54 @@ def dm_to_sim(dist_file, out_name, beta=1, eps=1e-6):
         sim = np.exp(-beta * dm[i, 2] / dm_std) + eps
         out.write('%d,%d,%.4f\n' % (dm[i, 0], dm[i, 1], sim))
     out.close()
+
+
+def plot_cluster_centers(datapath, ids, sqdm, lbls, outpath=''):
+    c_lbls = np.unique(lbls)
+    n_clusters = len(c_lbls)
+    if np.ndim(sqdm) == 1:
+        sqdm = squareform(sqdm)
+    centers = np.zeros(n_clusters, dtype=int)
+    for i in range(n_clusters):
+        tlbl = c_lbls[i]
+        idx = np.where(lbls == tlbl)[0]
+        sel = np.ix_(idx, idx)
+        tdm = sqdm[sel]
+        mins = np.min(tdm, axis=0)
+        center = np.argsort(mins)[0]
+        centers[i] = ids[idx[center]]
+
+    _, scrs = load_csv(datapath + 'scr_raw.csv', centers)
+    _, bslns = load_csv(datapath + 'baselines.csv', centers)
+    _, dmasks = load_csv(datapath + 'dialysis.csv', centers, dt=int)
+    _, str_admits = load_csv(datapath + 'patient_summary.csv', centers, dt=str, sel=1, skip_header=True)
+    admits = []
+    for i in range(n_clusters):
+        admits.append(datetime.datetime.strptime('%s' % str_admits[i], '%Y-%m-%d %H:%M:%S'))
+
+    _, str_dates = load_csv(datapath + 'dates.csv', centers, dt=str)
+    for i in range(n_clusters):
+        for j in range(len(str_dates[i])):
+            str_dates[i][j] = str_dates[i][j].split('\'')[1].split('.')[0]
+    dates = []
+    for i in range(n_clusters):
+        temp = []
+        for j in range(len(str_dates[i])):
+            temp.append(datetime.datetime.strptime('%s' % str_dates[i][j], '%Y-%m-%d %H:%M:%S'))
+        dates.append(temp)
+
+    daily_max = []
+    for i in range(n_clusters):
+        dmax = daily_max_kdigo(scrs[i], dates[i], bslns[i], admits[i], dmasks[i])
+        daily_max.append(dmax)
+        if outpath != '':
+            tfig = plt.figure()
+            tplot = tfig.add_subplot(111)
+            tplot.plot(range(len(dmax)), dmax)
+            tplot.set_xlabel('Day')
+            tplot.set_ylabel('KDIGO Score')
+            tplot.set_title('Cluster %s Representative' % c_lbls[i])
+            plt.savefig(outpath + '%s.png' % c_lbls[i])
+
+    return daily_max
+
