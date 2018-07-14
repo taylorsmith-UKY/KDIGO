@@ -255,7 +255,7 @@ def baseline_delta_string_summarize(deltas, selection):
     return '%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f' % (count, mean, std, med, p25, p75, minv, maxv)
 
 
-def post_dm_process(h5_fname, csv_fname, output_base_path, dm_name='dm', eps=0.015, p_thresh=1e-3, no_save=False):
+def post_dm_process(h5_fname, csv_fname, output_base_path, dm_tag='_norm_norm_a1', eps=0.015, p_thresh=1e-3, no_save=False, interactive=False):
     try:
         if no_save:
             f = h5py.File(h5_fname, 'r')
@@ -264,10 +264,10 @@ def post_dm_process(h5_fname, csv_fname, output_base_path, dm_name='dm', eps=0.0
     except:
         f = h5py.File(h5_fname, 'w')
     try:
-        dm = f[dm_name][:]
+        dm = f['dm' + dm_tag][:]
     except:
         dm = np.loadtxt(csv_fname, usecols=2, dtype=float, delimiter=',')
-        _ = f.create_dataset(dm_name, data=dm)
+        _ = f.create_dataset('dm' + dm_tag, data=dm)
     stats = f['meta']
     ids = stats['ids'][:]
 
@@ -277,9 +277,9 @@ def post_dm_process(h5_fname, csv_fname, output_base_path, dm_name='dm', eps=0.0
 
     if not no_save:
         try:
-            cg = f['clusters']
+            cg = f['clusters' + dm_tag]
         except:
-            cg = f.create_group('clusters')
+            cg = f.create_group('clusters' + dm_tag)
         try:
             dbg = cg['dbscan']
         except:
@@ -294,11 +294,14 @@ def post_dm_process(h5_fname, csv_fname, output_base_path, dm_name='dm', eps=0.0
         lbls = np.array(db.labels_, dtype=int)
         nclust = len(np.unique(lbls)) - 1
         print('Number of Clusters = %d' % nclust)
-        eps = raw_input('New epsilon (non-numeric to continue): ')
-        try:
-            eps = float(eps)
-            db = DBSCAN(eps=eps, metric='precomputed', n_jobs=-1)
-        except:
+        if interactive:
+            eps = raw_input('New epsilon (non-numeric to continue): ')
+            try:
+                eps = float(eps)
+                db = DBSCAN(eps=eps, metric='precomputed', n_jobs=-1)
+            except:
+                cont = False
+        else:
             cont = False
     lbls[np.where(lbls >= 0)] += 1  # because dbscan starts with cluster label 0
     lbls = lbls.astype(str)

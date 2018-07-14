@@ -22,8 +22,8 @@ def summarize_stats(ids, kdigos,
                     charl_m, charl_loc, elix_m, elix_loc,
                     mech_m, mech_loc,
                     date_m, hosp_locs, icu_locs,
-                    sofa, apache,
-                    out_name, grp_name='meta'):
+                    sofa, apache, io_m,
+                    out_name, data_path, grp_name='meta'):
 
     f = open(data_path + 'disch_disp.csv', 'r')
     dd = []
@@ -35,8 +35,8 @@ def summarize_stats(ids, kdigos,
     f.close()
     dd = np.array(dd)
 
-    sofa = np.array(sofa, axis=0)
-    apache = np.array(apache, axis=0)
+    sofa = np.sum(sofa, axis=0)
+    apache = np.sum(apache, axis=0)
 
     n_eps = []
     for i in range(len(kdigos)):
@@ -94,45 +94,45 @@ def summarize_stats(ids, kdigos,
         diag_ids = np.where(diag_m[:, 0] == idx)[0]
         for j in range(len(diag_ids)):
             tid = diag_ids[j]
-            try:
-                if 'sep' in str(diag_m[tid, diag_loc]).lower():
-                    if int(diag_m[tid, diag_nb_loc]) == 1:
-                        sepsis = 1
-                        break
-            except:
-                sepsis = 0
+            if 'sep' in str(diag_m[tid, diag_loc]).lower():
+                if int(diag_m[tid, diag_nb_loc]) == 1:
+                    sepsis = 1
+                    break
 
         male = 0
         dem_idx = np.where(dem_m[:, 0] == idx)[0][0]
-        try:
-            if dem_m[dem_idx, sex_loc].upper()[0] == 'M':
-                male = 1
-        except:
-            male = -1
+        if str(dem_m[dem_idx, sex_loc]).upper()[0] == 'M':
+            male = 1
 
-        dob_idx = np.where(dob_m[:, 0] == idx)[0]
-        dob = dob_m[dob_idx, dob_loc]
+        dob_idx = np.where(dob_m[:, 0] == idx)[0][0]
+        dob = datetime.datetime.strptime(str(dob_m[dob_idx, dob_loc]).split('.')[0], '%Y-%m-%d %H:%M:%S')
         date_idx = np.where(date_m[:, 0] == idx)[0][0]
-        admit = date_m[date_idx, hosp_locs[0]]
+        admit = datetime.datetime.strptime(str(date_m[date_idx, hosp_locs[0]]).split('.')[0], '%Y-%m-%d %H:%M:%S')
         tage = admit - dob
-        age = tage[0].total_seconds() / (60 * 60 * 24 * 365)
+        age = tage.total_seconds() / (60 * 60 * 24 * 365)
 
-        race = dem_m[dem_idx, eth_loc]
-        if race == "BLACK/AFR AMERI":
+        race = str(dem_m[dem_idx, eth_loc]).upper()
+        if "BLACK" in race:
             eth = 1
         else:
             eth = 0
 
         io_idx = np.where(io_m[:, 0] == idx)[0]
         if io_idx.size > 0:
-            try:
-                net = np.nansum((io_m[io_idx, 1], io_m[io_idx, 3], io_m[io_idx, 5])) - \
-                      np.nansum((io_m[io_idx, 2], io_m[io_idx, 4], io_m[io_idx, 6]))
-                tot = np.nansum((io_m[io_idx, 1], io_m[io_idx, 3], io_m[io_idx, 5])) + \
-                      np.nansum((io_m[io_idx, 2], io_m[io_idx, 4], io_m[io_idx, 6]))
-            except:
-                net = np.nan
-                tot = np.nan
+            net = 0
+            tot = 0
+            for tid in io_idx:
+                if not np.isnan(io_m[tid, 1]) and not np.isnan(io_m[tid, 2]):
+                    net += (io_m[tid, 1] - io_m[tid, 2])
+                    tot += (io_m[tid, 1] + io_m[tid, 2])
+
+                if not np.isnan(io_m[tid, 3]) and not np.isnan(io_m[tid, 4]):
+                    net += (io_m[tid, 3] - io_m[tid, 4])
+                    tot += (io_m[tid, 3] + io_m[tid, 4])
+
+                if not np.isnan(io_m[tid, 5]) and not np.isnan(io_m[tid, 6]):
+                    net += (io_m[tid, 5] - io_m[tid, 6])
+                    tot += (io_m[tid, 5] + io_m[tid, 6])
         else:
             net = np.nan
             tot = np.nan
@@ -170,7 +170,7 @@ def summarize_stats(ids, kdigos,
     nepss = np.array(nepss, dtype=int)
     hosp_frees = np.array(hosp_frees, dtype=float)
     icu_frees = np.array(icu_frees, dtype=float)
-    sepsiss = np.array(sepsis, dtype=bool)
+    sepsiss = np.array(sepsiss, dtype=bool)
     net_fluids = np.array(net_fluids, dtype=float)
     gross_fluids = np.array(gross_fluids, dtype=float)
     c_scores = np.array(c_scores, dtype=float)  # Float bc possible NaNs
@@ -419,11 +419,15 @@ def get_los(pid, date_m, hosp_locs, icu_locs):
 
     h_dur = datetime.timedelta(0)
     for i in range(len(hosp)):
-        h_dur += hosp[i][1].to_pydatetime() - hosp[i][0].to_pydatetime()
+        start = datetime.datetime.strptime(str(hosp[i][0]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+        stop = datetime.datetime.strptime(str(hosp[i][1]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+        h_dur += stop - start
 
     icu_dur = datetime.timedelta(0)
     for i in range(len(icu)):
-        icu_dur += icu[i][1].to_pydatetime() - icu[i][0].to_pydatetime()
+        start = datetime.datetime.strptime(str(icu[i][0]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+        stop = datetime.datetime.strptime(str(icu[i][1]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+        icu_dur += stop - start
 
     h_dur = h_dur.total_seconds() / (60 * 60 * 24)
     icu_dur = icu_dur.total_seconds() / (60 * 60 * 24)
@@ -572,6 +576,13 @@ def get_sofa(ids,
         if len(mv_rows) > 0:
             for row in range(len(mv_rows)):
                 tmv = organ_sup[row, mech_vent]
+                dstr = '%Y-%m-%d %H:%M:%S'
+                try:
+                    tmv[0] = datetime.datetime.strptime(str(tmv[0]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+                    tmv[1] = datetime.datetime.strptime(str(tmv[1]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+                except:
+                    tmv[0] = datetime.datetime.strptime(str(tmv[0]).split('.')[0], '%m/%d/%Y')
+                    tmv[1] = datetime.datetime.strptime(str(tmv[1]).split('.')[0], '%m/%d/%Y')
                 if tmv[0] <= admit <= tmv[1]:
                     vent = 1
         if vent:

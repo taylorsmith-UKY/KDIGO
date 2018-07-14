@@ -82,7 +82,7 @@ for dm_tag in dm_tags:
         pt_sel = np.union1d(np.union1d(np.where(dtd < mort_exc[0]), np.where(np.isnan(dtd))), np.union1d(np.where(dtd > mort_exc[1]), np.where(np.isnan(dtd))))
         y = f['meta'][lbls][:][pt_sel]
         n_samples = len(y)
-        fg = f['features']
+        fg = f['features' + dm_tag]
 
         temp1 = basepath
         basepath += lbls + '/'

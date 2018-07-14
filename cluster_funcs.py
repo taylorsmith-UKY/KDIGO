@@ -20,11 +20,9 @@ import os
 
 
 # %%
-def dist_cut_cluster(h5_fname, dm, meta_grp='meta', path='', eps=0.015, p_thresh=0.05,
+def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_thresh=0.05,
                      min_size=20, height_lim=5, interactive=True, save=True):
     f = h5py.File(h5_fname, 'r')
-    if type(dm) == str:
-        dm = f[dm]
     if dm.ndim == 1:
         sqdm = squareform(dm)
     else:
@@ -59,7 +57,7 @@ def dist_cut_cluster(h5_fname, dm, meta_grp='meta', path='', eps=0.015, p_thresh
             os.makedirs(path + 'dbscan')
         if not os.path.exists(path + 'dbscan/%d_clusters-%s' % (n_clusters, date_str)):
             os.makedirs(path + 'dbscan/%d_clusters-%s' % (n_clusters, date_str))
-        np.savetxt(path + 'dbscan/%d_clusters-%s/clusters.txt' % (n_clusters, date_str), lbls, fmt='%s')
+        arr2csv(path + 'dbscan/%d_clusters-%s/clusters.txt' % (n_clusters, date_str), lbls, ids, fmt='%s')
         if not os.path.exists(path + 'dbscan/%d_clusters-%s/max_dist/' % (n_clusters, date_str)):
             os.makedirs(path + 'dbscan/%d_clusters-%s/max_dist/' % (n_clusters, date_str))
         all_inter, all_intra, db_pvals = inter_intra_dist(sqdm, lbls,
@@ -71,8 +69,8 @@ def dist_cut_cluster(h5_fname, dm, meta_grp='meta', path='', eps=0.015, p_thresh
                                                           out_path=path + 'dbscan/%d_clusters-%s/max_dist/' % (n_clusters, date_str),
                                                           op='max', plot='nosave')
     if save:
-        np.savetxt(path + 'dbscan/%d_clusters-%s/max_dist/all_intra.txt' % (n_clusters, date_str), all_intra, fmt='%.3f')
-        np.savetxt(path + 'dbscan/%d_clusters-%s/max_dist/all_inter.txt' % (n_clusters, date_str), all_inter, fmt='%.3f')
+        arr2csv(path + 'dbscan/%d_clusters-%s/max_dist/all_intra.txt' % (n_clusters, date_str), all_intra, ids, fmt='%.3f')
+        arr2csv(path + 'dbscan/%d_clusters-%s/max_dist/all_inter.txt' % (n_clusters, date_str), all_inter, ids, fmt='%.3f')
     lbls = np.array(lbls)
     lbl_names = np.unique(lbls).astype(str)
     lbls = lbls.astype(str)
@@ -96,8 +94,9 @@ def dist_cut_cluster(h5_fname, dm, meta_grp='meta', path='', eps=0.015, p_thresh
         if not os.path.exists(path + 'composite/%d_clusters-%s' % (n_clusters, date_str)):
             os.makedirs(path + 'composite/%d_clusters-%s' % (n_clusters, date_str))
         n_clusters = len(np.unique(lbls))
-        np.savetxt(path + 'composite/%d_clusters-%s/clusters.txt' % (n_clusters, date_str), lbls, fmt='%s')
+        arr2csv(path + 'composite/%d_clusters-%s/clusters.txt' % (n_clusters, date_str), lbls, ids, fmt='%s')
         get_cstats(f, path + 'composite/%d_clusters-%s/' % (n_clusters, date_str), meta_grp=meta_grp)
+    f.close()
     return lbls
 
 
@@ -274,52 +273,121 @@ def dm_to_sim(dist_file, out_name, beta=1, eps=1e-6):
     out.close()
 
 
-def plot_cluster_centers(datapath, ids, sqdm, lbls, outpath=''):
+def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7):
     c_lbls = np.unique(lbls)
     n_clusters = len(c_lbls)
     if np.ndim(sqdm) == 1:
         sqdm = squareform(sqdm)
-    centers = np.zeros(n_clusters, dtype=int)
-    for i in range(n_clusters):
-        tlbl = c_lbls[i]
-        idx = np.where(lbls == tlbl)[0]
-        sel = np.ix_(idx, idx)
-        tdm = sqdm[sel]
-        mins = np.min(tdm, axis=0)
-        center = np.argsort(mins)[0]
-        centers[i] = ids[idx[center]]
 
-    _, scrs = load_csv(datapath + 'scr_raw.csv', centers)
-    _, bslns = load_csv(datapath + 'baselines.csv', centers)
-    _, dmasks = load_csv(datapath + 'dialysis.csv', centers, dt=int)
-    _, str_admits = load_csv(datapath + 'patient_summary.csv', centers, dt=str, sel=1, skip_header=True)
+    _, scrs = load_csv(datapath + 'scr_raw.csv', ids)
+    _, bslns = load_csv(datapath + 'baselines.csv', ids)
+    _, dmasks = load_csv(datapath + 'dialysis.csv', ids, dt=int)
+    _, str_admits = load_csv(datapath + 'patient_summary.csv', ids, dt=str, sel=1, skip_header=True)
     admits = []
-    for i in range(n_clusters):
+    for i in range(len(ids)):
         admits.append(datetime.datetime.strptime('%s' % str_admits[i], '%Y-%m-%d %H:%M:%S'))
 
-    _, str_dates = load_csv(datapath + 'dates.csv', centers, dt=str)
-    for i in range(n_clusters):
+    _, str_dates = load_csv(datapath + 'dates.csv', ids, dt=str)
+    for i in range(len(ids)):
         for j in range(len(str_dates[i])):
-            str_dates[i][j] = str_dates[i][j].split('\'')[1].split('.')[0]
+            str_dates[i][j] = str_dates[i][j].split('.')[0]
     dates = []
-    for i in range(n_clusters):
+    for i in range(len(ids)):
         temp = []
         for j in range(len(str_dates[i])):
             temp.append(datetime.datetime.strptime('%s' % str_dates[i][j], '%Y-%m-%d %H:%M:%S'))
         dates.append(temp)
 
-    daily_max = []
+    blank_daily = np.repeat(np.nan, max_day + 2)
+    all_daily = np.vstack([blank_daily for x in range(len(ids))])
+    for i in range(len(ids)):
+        l = np.min([len(x) for x in [scrs[i], dates[i], dmasks[i]]])
+        if l < 2:
+            continue
+        tmax = daily_max_kdigo(scrs[i][:l], dates[i][:l], bslns[i], admits[i], dmasks[i][:l])
+        all_daily[i, :len(tmax)] = tmax
+
+    centers = np.zeros(n_clusters, dtype=int)
+    cluster_idx = {}
     for i in range(n_clusters):
-        dmax = daily_max_kdigo(scrs[i], dates[i], bslns[i], admits[i], dmasks[i])
-        daily_max.append(dmax)
-        if outpath != '':
+        tlbl = c_lbls[i]
+        idx = np.where(lbls == tlbl)[0]
+        cluster_idx[tlbl] = idx
+        sel = np.ix_(idx, idx)
+        tdm = sqdm[sel]
+        sums = np.sum(tdm, axis=0)
+        center = np.argsort(sums)[0]
+        centers[i] = idx[center]
+
+    if outpath != '':
+        f = h5py.File(h5_name, 'r')
+        inp_death = f['meta']['died_inp'][:]
+        if not os.path.exists(outpath + 'all_w_mean/'):
+            os.mkdir(outpath + 'all_w_mean/')
+        if not os.path.exists(outpath + 'mean_std/'):
+            os.mkdir(outpath + 'mean_std/')
+        if not os.path.exists(outpath + 'center/'):
+            os.mkdir(outpath + 'center/')
+        for i in range(n_clusters):
+            cidx = cluster_idx[c_lbls[i]]
+            mort = (float(len(np.where(inp_death[cidx])[0])) / len(cidx)) * 100
+            # Only cluster center
+            dmax = all_daily[centers[i], :]
             tfig = plt.figure()
             tplot = tfig.add_subplot(111)
-            tplot.plot(range(len(dmax)), dmax)
+            tplot.plot(range(len(dmax)), dmax, label='Cluster Mortality = %.2f%%' % mort)
+            plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
+            tplot.set_xlim(-0.05, 7.15)
+            tplot.set_ylim(-0.05, 4.15)
             tplot.set_xlabel('Day')
             tplot.set_ylabel('KDIGO Score')
             tplot.set_title('Cluster %s Representative' % c_lbls[i])
-            plt.savefig(outpath + '%s.png' % c_lbls[i])
+            plt.legend()
+            plt.savefig(outpath + 'center/%s_center.png' % c_lbls[i])
+            plt.close(tfig)
 
-    return daily_max
+            # All clusters
+            fig = plt.figure()
+            for j in range(len(cidx)):
+                plt.plot(range(max_day + 2), all_daily[cidx[j]], lw=1, alpha=0.3)
+
+            mean_daily = np.nanmean(all_daily[cidx], axis=0)
+            plt.plot(range(max_day + 2), mean_daily, color='b',
+                     label='Cluster Mortality = %.2f%%' % mort,
+                     lw=2, alpha=.8)
+            std_daily = np.nanstd(all_daily[cidx], axis=0)
+            stds_upper = np.minimum(mean_daily + std_daily, 4)
+            stds_lower = np.maximum(mean_daily - std_daily, 0)
+            plt.fill_between(range(max_day + 2), stds_lower, stds_upper, color='grey', alpha=.2,
+                             label=r'$\pm$ 1 std. dev.')
+
+            plt.xlim([-0.05, 7.15])
+            plt.ylim([-0.05, 4.15])
+            plt.xlabel('Time (Days)')
+            plt.ylabel('KDIGO Score')
+            plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
+            plt.legend()
+            plt.title('Average Daily KDIGO\nCluster %s' % c_lbls[i])
+            plt.savefig(outpath + 'all_w_mean/%s_all.png' % c_lbls[i])
+            plt.close(fig)
+
+            fig = plt.figure()
+
+            plt.plot(range(max_day + 2), mean_daily, color='b',
+                     label='Cluster Mortality = %.2f%%' % mort,
+                     lw=2, alpha=.8)
+            plt.fill_between(range(max_day + 2), stds_lower, stds_upper, color='grey', alpha=.2,
+                             label=r'$\pm$ 1 std. dev.')
+
+            plt.xlim([-0.05, 7.15])
+            plt.ylim([-0.05, 4.15])
+            plt.xlabel('Time (Days)')
+            plt.ylabel('KDIGO Score')
+            plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
+            plt.legend()
+            plt.title('Average Daily KDIGO\nCluster %s' % c_lbls[i])
+            plt.savefig(outpath + 'mean_std/%s_mean_std.png' % c_lbls[i])
+            plt.close(fig)
+        f.close()
+    return all_daily
 

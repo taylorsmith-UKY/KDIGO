@@ -4,9 +4,8 @@ import numpy as np
 import pandas as pd
 import kdigo_funcs as kf
 import stat_funcs as sf
-from cluster_funcs import assign_feature_vectors
-from kdigo_commands import post_dm_process
-import matplotlib as mpl
+from cluster_funcs import assign_feature_vectors, dist_cut_cluster
+import datetime
 
 # ------------------------------- PARAMETERS ----------------------------------#
 basePath = "../"
@@ -15,22 +14,22 @@ xl_file = "KDIGO_full.xlsx"
 timescale = 6  # in hours
 id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
-h5_name = 'kdigo_dm.h5'
+h5_name = 'stats.h5'
 folder_name = '/7days_071118/'
 alpha = 1.0
-kdigo_dic = {0: 34,
-             1: 33,
-             2: 31,
-             3: 25,
-             4: 0}
+kdigo_dic = {0: 11.3,
+             1: 9.8,
+             2: 8,
+             3: 5.25,
+             4: 1}
 use_dic_dtw = False
 use_dic_dist = False
-    # Dictionary explanation:
-    # cost(0, 1) = 1
-    # cost(1, 2) = 2 + 1 = 3
-    # cost(2, 3) = 6 + 3 = 9
-    # cost(3, 4) = 24 + 24 = 33
-    # order is reversed so the bray-curtis distance
+# Dictionary explanation:
+# cost(0, 1) = 1
+# cost(1, 2) = 2 + 1 = 3
+# cost(2, 3) = 6 + 3 = 9
+# cost(3, 4) = 24 + 24 = 33
+# order is reversed so the bray-curtis distance
 
 
 # -----------------------------------------------------------------------------#
@@ -55,6 +54,7 @@ inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 baseline_file = dataPath + 'baselines_1_7-365_mdrd.csv'
 h5_name = resPath + h5_name
+date_str = datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d')
 
 
 def main():
@@ -70,22 +70,22 @@ def main():
         print('Loaded previous ids.')
         # try to load final KDIGO values
         try:
-            _, kdigos = kf.load_csv(outPath + 'kdigo.csv', ids)
+            kdigos = kf.load_csv(outPath + 'kdigo.csv', ids)
             print('Loaded previously extracted KDIGO vectors')
         # try to load extracted raw data
         except:
-            _, scr = kf.load_csv(outPath + 'scr_raw.csv', ids)
-            # _, dates = kf.load_csv(outPath + 'dates.csv', ids, dt=str)
-            _, masks = kf.load_csv(outPath + 'masks.csv', ids, dt=int)
-            _, dmasks = kf.load_csv(outPath + 'dialysis.csv', ids, dt=int)
-            _, baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
+            scr = kf.load_csv(outPath + 'scr_raw.csv', ids)
+            dates = kf.load_csv(outPath + 'dates.csv', ids, dt=str)
+            masks = kf.load_csv(outPath + 'masks.csv', ids, dt=int)
+            dmasks = kf.load_csv(outPath + 'dialysis.csv', ids, dt=int)
+            baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
             print('Loaded previously extracted raw data')
 
             try:
-                _, post_interpo = kf.load_csv(outPath + 'scr_interp.csv', ids)
-                _, dmasks_interp = kf.load_csv(outPath + 'dmasks_interp.csv', ids, dt=int)
-                _, interp_masks = kf.load_csv(outPath + 'interp_masks.csv', ids, dt=int)
-                _, days_interp = kf.load_csv(outPath + 'days_interp.csv', ids, dt=int)
+                post_interpo = kf.load_csv(outPath + 'scr_interp.csv', ids)
+                dmasks_interp = kf.load_csv(outPath + 'dmasks_interp.csv', ids, dt=int)
+                interp_masks = kf.load_csv(outPath + 'interp_masks.csv', ids, dt=int)
+                days_interp = kf.load_csv(outPath + 'days_interp.csv', ids, dt=int)
                 print('Loaded previously interpolated values')
             except:
                 # Interpolate missing values
@@ -108,21 +108,20 @@ def main():
         # Load raw data from individual CSV files
         ((date_m, hosp_locs, icu_locs, adisp_loc,
           surg_m, surg_des_loc,
-          dx_m, dx_loc,
+          diag_m, diag_loc, diag_nb_loc,
           esrd_m, esrd_locs,
           dia_m, crrt_locs, hd_locs, pd_locs,
           scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
           dem_m, sex_loc, eth_loc,
           dob_m, birth_loc,
           mort_m, mdate_loc,
-          diag_m, diag_loc, diag_nb_loc,
-          io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
+          io_m, charl_m, charl_loc, elix_m, elix_loc,
           blood_gas, pa_o2, pa_co2, p_h,
           clinical_oth, resp, fi_o2, g_c_s,
           clinical_vit, temp, m_a_p, cuff, h_r,
           labs, bili, pltlts, na, p_k, hemat, w_b_c,
           medications, med_name, med_date, med_dur,
-          organ_sup, mech_vent,
+          organ_sup, mech_vent_dates, mech_vent_days,
           scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
 
         # Determine relative admits
@@ -177,7 +176,7 @@ def main():
         (ids, scr, dates, masks, dmasks, baselines,
          bsln_gfr, d_disp, t_range, ages) = kf.get_patients(scr_all_m, scr_val_loc, scr_date_loc, adisp_loc,
                                                             mask, dia_mask,
-                                                            dx_m, dx_loc,
+                                                            diag_m, diag_loc,
                                                             esrd_m, esrd_locs,
                                                             bsln_m, bsln_scr_loc, admit_loc,
                                                             date_m, icu_locs,
@@ -220,71 +219,71 @@ def main():
     if not os.path.exists(outPath + 'sofa.csv'):
         if dem_m is None:
             ((date_m, hosp_locs, icu_locs, adisp_loc,
-             surg_m, surg_des_loc,
-             dx_m, dx_loc,
-             esrd_m, esrd_locs,
-             dia_m, crrt_locs, hd_locs, pd_locs,
-             scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
-             dem_m, sex_loc, eth_loc,
-             dob_m, birth_loc,
-             mort_m, mdate_loc,
-             diag_m, diag_loc, diag_nb_loc,
-             io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
-             blood_gas, pa_o2, pa_co2, p_h,
-             clinical_oth, resp, fi_o2, g_c_s,
-             clinical_vit, temp, m_a_p, cuff, h_r,
-             labs, bili, pltlts, na, p_k, hemat, w_b_c,
-             medications, med_name, med_date, med_dur,
-             organ_sup, mech_vent,
-             scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
+              surg_m, surg_des_loc,
+              diag_m, diag_loc, diag_nb_loc,
+              esrd_m, esrd_locs,
+              dia_m, crrt_locs, hd_locs, pd_locs,
+              scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
+              dem_m, sex_loc, eth_loc,
+              dob_m, birth_loc,
+              mort_m, mdate_loc,
+              io_m, charl_m, charl_loc, elix_m, elix_loc,
+              blood_gas, pa_o2, pa_co2, p_h,
+              clinical_oth, resp, fi_o2, g_c_s,
+              clinical_vit, temp, m_a_p, cuff, h_r,
+              labs, bili, pltlts, na, p_k, hemat, w_b_c,
+              medications, med_name, med_date, med_dur,
+              organ_sup, mech_vent_dates, mech_vent_days,
+              scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
         print('Getting SOFA scores')
         sofa = sf.get_sofa(ids,
-                           admit_info, icu_locs[0],
+                           date_m, icu_locs[0],
                            blood_gas, pa_o2,
                            clinical_oth, fi_o2, g_c_s,
                            clinical_vit, m_a_p, cuff,
                            labs, bili, pltlts,
                            medications, med_name, med_date, med_dur,
-                           organ_sup, mech_vent,
+                           organ_sup, mech_vent_dates,
                            scr_agg, s_c_r,
                            out_name=outPath + 'sofa.csv')
     else:
-        _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
+        sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
+        sofa = np.array(sofa)
 
     apache = None
     if not os.path.exists(outPath + 'apache.csv'):
         if dem_m is None:
             ((date_m, hosp_locs, icu_locs, adisp_loc,
-             surg_m, surg_des_loc,
-             dx_m, dx_loc,
-             esrd_m, esrd_locs,
-             dia_m, crrt_locs, hd_locs, pd_locs,
-             scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
-             dem_m, sex_loc, eth_loc,
-             dob_m, birth_loc,
-             mort_m, mdate_loc,
-             diag_m, diag_loc, diag_nb_loc,
-             io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
-             blood_gas, pa_o2, pa_co2, p_h,
-             clinical_oth, resp, fi_o2, g_c_s,
-             clinical_vit, temp, m_a_p, cuff, h_r,
-             labs, bili, pltlts, na, p_k, hemat, w_b_c,
-             medications, med_name, med_date, med_dur,
-             organ_sup, mech_vent,
-             scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
+              surg_m, surg_des_loc,
+              diag_m, diag_loc, diag_nb_loc,
+              esrd_m, esrd_locs,
+              dia_m, crrt_locs, hd_locs, pd_locs,
+              scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
+              dem_m, sex_loc, eth_loc,
+              dob_m, birth_loc,
+              mort_m, mdate_loc,
+              io_m, charl_m, charl_loc, elix_m, elix_loc,
+              blood_gas, pa_o2, pa_co2, p_h,
+              clinical_oth, resp, fi_o2, g_c_s,
+              clinical_vit, temp, m_a_p, cuff, h_r,
+              labs, bili, pltlts, na, p_k, hemat, w_b_c,
+              medications, med_name, med_date, med_dur,
+              organ_sup, mech_vent_dates, mech_vent_days,
+              scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
         print('Getting APACHE-II Scores')
-        apache = sf.get_apache(ids, dataPath,
+        apache = sf.get_apache(ids, outPath,
                                clinical_vit, temp, m_a_p, cuff, h_r,
                                clinical_oth, resp, fi_o2, g_c_s,
                                blood_gas, pa_o2, pa_co2, p_h,
                                labs, na, p_k, hemat, w_b_c,
                                scr_agg, s_c_r,
-                               out_name=outPath + 'sofa.csv')
+                               out_name=outPath + 'apache.csv')
 
     else:
-        _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
+        apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
+        apache = np.array(apache)
 
-    # Get KDIGO Distance Matrix and summarize patient stats
+    # Summarize patient stats
     try:
         f = h5py.File(h5_name, 'r+')
     except:
@@ -299,43 +298,31 @@ def main():
             # Load raw data from individual CSV files
             ((date_m, hosp_locs, icu_locs, adisp_loc,
               surg_m, surg_des_loc,
-              dx_m, dx_loc,
+              diag_m, diag_loc, diag_nb_loc,
               esrd_m, esrd_locs,
               dia_m, crrt_locs, hd_locs, pd_locs,
               scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
               dem_m, sex_loc, eth_loc,
               dob_m, birth_loc,
               mort_m, mdate_loc,
-              diag_m, diag_loc, diag_nb_loc,
-              io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc)) = kf.load_all_csv(dataPath, sort_id)
-        print('Summarizing stats')
-        if dem_m is None:
-            ((date_m, hosp_locs, icu_locs, adisp_loc,
-              surg_m, surg_des_loc,
-              dx_m, dx_loc,
-              esrd_m, esrd_locs,
-              dia_m, crrt_locs, hd_locs, pd_locs,
-              scr_all_m, scr_date_loc, scr_val_loc, scr_desc_loc,
-              dem_m, sex_loc, eth_loc,
-              dob_m, birth_loc,
-              mort_m, mdate_loc,
-              diag_m, diag_loc, diag_nb_loc,
-              io_m, charl_m, charl_loc, elix_m, elix_loc, mech_m, mech_loc,
-              blood_gas, pa_o2,
-              clinical_oth, fi_o2, g_c_s,
-              clinical_vit, m_a_p, cuff,
-              labs, bili, pltlts,
+              io_m, charl_m, charl_loc, elix_m, elix_loc,
+              blood_gas, pa_o2, pa_co2, p_h,
+              clinical_oth, resp, fi_o2, g_c_s,
+              clinical_vit, temp, m_a_p, cuff, h_r,
+              labs, bili, pltlts, na, p_k, hemat, w_b_c,
               medications, med_name, med_date, med_dur,
-              organ_sup, mech_vent,
+              organ_sup, mech_vent_dates, mech_vent_days,
               scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
+        print('Summarizing stats')
         all_stats = sf.summarize_stats(ids, kdigos,
                                        dem_m, sex_loc, eth_loc,
-                                       dob_m, dob_loc,
+                                       dob_m, birth_loc,
                                        diag_m, diag_loc, diag_nb_loc,
                                        charl_m, charl_loc, elix_m, elix_loc,
-                                       mech_m, mech_loc,
+                                       organ_sup, mech_vent_days,
                                        date_m, hosp_locs, icu_locs,
-                                       sofa, apache, h5_name, grp_name='meta_all')
+                                       sofa, apache, io_m,
+                                       h5_name, outPath, grp_name='meta_all')
         max_kdigo = all_stats['max_kdigo'][:]
         aki_idx = np.where(max_kdigo > 0)[0]
         stats = f.create_group('meta')
@@ -346,6 +333,7 @@ def main():
                 stats.create_dataset(name, data=all_stats[name][:][aki_idx], dtype=all_stats[name].dtype)
             except:
                 print(name + ' was not copied from meta_all to meta')
+    f.close()
 
     aki_ids = np.array(ids)[aki_idx]
     aki_kdigos = []
@@ -353,118 +341,126 @@ def main():
         if np.max(kdigos[i]) > 0:
             aki_kdigos.append(kdigos[i])
 
-    if 'dm' + dm_tag not in list(f):
-        dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv', resPath + 'kdigo_dtwlog' + dm_tag + '.csv',
-                                  incl_0=False, alpha=alpha, dic=kdigo_dic, use_dic_dtw=use_dic_dtw, use_dic_dist=use_dic_dist)
-        f.create_dataset('dm' + dm_tag, data=dm)
+    # Calculate individual trajectory based features if not already done
+    if not os.path.exists(resPath + 'features'):
+        os.mkdir(resPath + 'features')
 
-    # Calculate individual trajectory based statistics if not already done
-    if 'features' + dm_tag in list(f):
-        fg = f['features' + dm_tag]
-    else:
-        fg = f.create_group('features' + dm_tag)
+    if not os.path.exists(resPath + 'features/trajectory_individual/'):
+        os.mkdir(resPath + 'features/trajectory_individual/')
+        desc = kf.descriptive_trajectory_features(aki_kdigos, aki_ids,
+                                                  filename=resPath + 'features/trajectory_individual/descriptive_features.csv')
 
-    if 'descriptive_individual' in list(fg):
-        desc = fg['descriptive_individual'][:]
-    else:
-        desc = kf.descriptive_trajectory_features(aki_kdigos, aki_ids, filename=outPath + 'descriptive_features.csv')
-        _ = fg.create_dataset('descriptive_individual', data=desc, dtype=int)
-
-    if 'slope_individual' in list(fg):
-        slope_norm = fg['slope_individual_norm'][:]
-    else:
-        slope = kf.slope_trajectory_features(aki_kdigos, aki_ids, filename=outPath + 'slope_features.csv')
+        slope = kf.slope_trajectory_features(aki_kdigos, aki_ids,
+                                             filename=resPath + 'features/trajectory_individual/slope_features.csv')
         slope_norm = kf.normalize_features(slope)
-        _ = fg.create_dataset('slope_individual', data=slope, dtype=int)
-        _ = fg.create_dataset('slope_individual_norm', data=slope_norm)
+        kf.arr2csv(resPath + 'features/trajectory_individual/slope_norm.csv', slope_norm, aki_ids)
 
-    if 'template_individual' in list(fg):
-        temp_norm = fg['template_individual_norm'][:]
-    else:
-        temp = kf.template_trajectory_features(aki_kdigos, aki_ids, filename=outPath + 'template_features.csv')
+        temp = kf.template_trajectory_features(aki_kdigos, aki_ids,
+                                               filename=resPath + 'features/trajectory_individual/template_features.csv')
         temp_norm = kf.normalize_features(temp)
-        _ = fg.create_dataset('template_individual', data=temp, dtype=int)
-        _ = fg.create_dataset('template_individual_norm', data=temp_norm)
+        kf.arr2csv(resPath + 'features/trajectory_individual/template_norm.csv', temp_norm, aki_ids)
+
+        all_traj_ind = np.hstack((desc, slope_norm, temp_norm))
+        kf.arr2csv(resPath + 'features/trajectory_individual/all_trajectory.csv',
+                   all_traj_ind, aki_ids, fmt='%.4f')
+    else:
+        desc = kf.load_csv(resPath + 'features/trajectory_individual/descriptive_features.csv', aki_ids, skip_header=True)
+        temp_norm = kf.load_csv(resPath + 'features/trajectory_individual/template_norm.csv', aki_ids, skip_header=False)
+        slope_norm = kf.load_csv(resPath + 'features/trajectory_individual/slope_norm.csv', aki_ids, skip_header=False)
+        all_traj_ind = np.hstack((desc, slope_norm, temp_norm))
+
+    # Calculate distance matrix
+    dm = None
+    if not os.path.exists(resPath + 'kdigo_dm' + dm_tag + '.csv'):
+        dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv',
+                                  resPath + 'kdigo_dtwlog' + dm_tag + '.csv',
+                                  incl_0=False, alpha=alpha, dic=kdigo_dic, use_dic_dtw=use_dic_dtw,
+                                  use_dic_dist=use_dic_dist)
 
     # Load clusters or launch interactive clustering
-    try:
-        lbls = np.loadtxt(resPath + 'clusters' + dm_tag + '/composite/clusters.txt', dtype=str)
-    except:
-        if not os.path.exists(resPath + 'clusters/'):
-            os.mkdir(resPath + 'clusters/')
-        lbls = post_dm_process(h5_name, '', output_base_path=resPath + 'clusters/', eps=0.05)
+    lbls = None
+    if os.path.exists(resPath + 'clusters/%s/' % dm_tag[1:]):
+        for (dirpath, dirnames, filenames) in os.walk(resPath + 'clusters/%s/composite/' % dm_tag[1:]):
+            if lbls is None:
+                for filename in filenames:
+                    if filename == 'clusters.txt':
+                        lbls = np.loadtxt(dirpath + '/' + filename, dtype=str)
+    if lbls is None:
+        if dm is None:
+            dm = kf.load_dm(resPath + 'kdigo_dm' + dm_tag + '.csv', aki_ids)
+        if not os.path.exists(resPath + 'clusters/%s/' % dm_tag[1:]):
+            os.mkdir(resPath + 'clusters/%s/' % dm_tag[1:])
+        lbls = dist_cut_cluster(h5_name, dm, aki_ids, path=resPath + 'clusters/%s/' % dm_tag[1:], interactive=True, save=True)
 
-        if not os.path.exists(resPath + 'clusters' + dm_tag + '/composite/'):
-            os.mkdir(resPath + 'clusters' + dm_tag + '/composite/')
-        np.savetxt(resPath + 'clusters' + dm_tag + '/composite/clusters.txt', lbls, fmt='%s')
+    n_clusters = len(np.unique(lbls))
+    clust_str = '%dclusters-%s' % (n_clusters, date_str)
+    if not os.path.exists(resPath + 'features/%s/' % dm_tag[1:]):
+        os.mkdir(resPath + 'features/%s/' % dm_tag[1:])
+    if not os.path.exists(resPath + 'features/%s/%s/' % (dm_tag[1:], clust_str)):
+        os.mkdir(resPath + 'features/%s/%s/' % (dm_tag[1:], clust_str))
 
-    if 'composite' not in list(f['clusters' + dm_tag]):
-        n_clust = '%d_clusters' % len(np.unique(lbls))
-        ccg = f['clusters'].create_group('composite')
-        _ = ccg.create_dataset('ids', data=ids[aki_idx], dtype=int)
-        _ = ccg.create_dataset(n_clust, data=lbls, dtype=str)
-        sf.get_cstats(f, 'composite', n_clust, resPath + 'clusters/composite/cluster_stats.csv', report_kdigo0=False,
-                      meta_grp='meta')
-
-    # Get corresponding cluster features
-    if 'descriptive_clusters' not in list(fg):
         desc_c, temp_c, slope_c = kf.cluster_feature_vectors(desc, temp_norm, slope_norm, lbls)
         all_desc_c = assign_feature_vectors(lbls, desc_c)
         all_temp_c = assign_feature_vectors(lbls, temp_c)
         all_slope_c = assign_feature_vectors(lbls, slope_c)
-        fg.create_dataset('descriptive_clusters', data=all_desc_c, dtype=int)
-        fg.create_dataset('template_clusters', data=all_temp_c, dtype=float)
-        fg.create_dataset('slope_clusters', data=all_slope_c, dtype=float)
+        kf.arr2csv(resPath + 'features/%s/%s/descriptive.csv' % (dm_tag[1:], clust_str),
+                   all_desc_c, aki_ids, fmt='%.4f')
+        kf.arr2csv(resPath + 'features/%s/%s/slope.csv' % (dm_tag[1:], clust_str),
+                   all_slope_c, aki_ids, fmt='%.4f')
+        kf.arr2csv(resPath + 'features/%s/%s/template.csv' % (dm_tag[1:], clust_str),
+                   all_temp_c, aki_ids, fmt='%.4f')
+
+        all_traj_c = np.hstack((all_desc_c, all_slope_c, all_temp_c))
+        kf.arr2csv(resPath + 'features/%s/%s/all_trajectory.csv' % (dm_tag[1:], clust_str),
+                   all_traj_c, aki_ids, fmt='%.4f')
     else:
-        all_desc_c = fg['descriptive_clusters'][:]
-        all_slope_c = fg['slope_clusters'][:]
-        all_temp_c = fg['template_clusters'][:]
+        all_desc_c = kf.load_csv(resPath + 'features/%s/%s/descriptive.csv' % (dm_tag[1:], clust_str), aki_ids)
+        all_slope_c = kf.load_csv(resPath + 'features/%s/%s/slope.csv' % (dm_tag[1:], clust_str), aki_ids)
+        all_temp_c = kf.load_csv(resPath + 'features/%s/%s/template.csv' % (dm_tag[1:], clust_str), aki_ids)
+        all_traj_c = np.hstack((all_desc_c, all_slope_c, all_temp_c))
 
     if sofa is None:
-        _, sofa = kf.load_csv(outPath + 'sofa.csv', ids, dt=int)
-        sofa = np.array(sofa[aki_idx, :])
-        sofa_norm = kf.normalize_features(sofa)
+        sofa = kf.load_csv(outPath + 'sofa.csv', aki_ids, dt=int)
     else:
-        sofa = np.array(sofa[aki_idx, :])
-        sofa_norm = kf.normalize_features(sofa)
-    if 'sofa' not in list(fg):
-        _ = fg.create_dataset('sofa', data=sofa, dtype=int)
-        _ = fg.create_dataset('sofa_norm', data=sofa_norm)
+        if sofa.shape[0] == len(ids):
+            sofa = sofa[aki_idx, :]
+    sofa_norm = kf.normalize_features(sofa)
 
     if apache is None:
-        _, apache = kf.load_csv(outPath + 'apache.csv', ids, dt=int)
-        apache = np.array(apache[aki_idx, :])
-        apache_norm = kf.normalize_features(apache)
+        apache = kf.load_csv(outPath + 'apache.csv', aki_ids, dt=int)
+        apache = np.array(apache)
     else:
-        apache = np.array(apache[aki_idx, :])
-        apache_norm = kf.normalize_features(apache)
-    if 'apache' not in list(fg):
-        _ = fg.create_dataset('apache', data=apache, dtype=int)
-        _ = fg.create_dataset('apache_norm', data=apache_norm)
+        if apache.shape[0] == len(ids):
+            apache = np.array(apache[aki_idx, :])
+    apache_norm = kf.normalize_features(apache)
 
-    if 'all_clinical' not in list(fg):
+    if not os.path.exists(resPath + 'features/clinical/'):
+        os.mkdir(resPath + 'features/clinical/')
+        kf.arr2csv(resPath + 'features/clinical/sofa.csv',
+                   sofa, aki_ids, fmt='%d')
+        kf.arr2csv(resPath + 'features/clinical/sofa_norm.csv',
+                   sofa_norm, aki_ids, fmt='%.4f')
+        kf.arr2csv(resPath + 'features/clinical/apache.csv',
+                   apache, aki_ids, fmt='%d')
+        kf.arr2csv(resPath + 'features/clinical/apache_norm.csv',
+                   apache_norm, aki_ids, fmt='%.4f')
         all_clin = np.hstack((sofa_norm, apache_norm))
-        _ = fg.create_dataset('all_clinical', data=all_clin)
+        kf.arr2csv(resPath + 'features/clinical/all_clinical.csv',
+                   all_clin, aki_ids, fmt='%.4f')
+    else:
+        all_clin = kf.load_csv(resPath + 'features/clinical/all_clinical.csv', aki_ids)
 
-    if 'all_trajectory_individual' not in list(fg):
-        all_traj_ind = np.hstack((desc, slope_norm, temp_norm))
-        all_traj_c = np.hstack((all_desc_c, all_slope_c, all_temp_c))
-        _ = fg.create_dataset('all_trajectory_individual', data=all_traj_ind)
-        _ = fg.create_dataset('all_trajectory_clusters', data=all_traj_c)
+    if not os.path.exists(resPath + 'features/trajectory_individual/everything.csv'):
+        everything_ind = np.hstack((all_clin, all_traj_ind))
+        kf.arr2csv(resPath + 'features/trajectory_individual/everything.csv',
+                   everything_ind, aki_ids, fmt='%.4f')
 
-    if 'everything_individual' not in list(fg):
-        all_traj = fg['all_trajectory_individual'][:]
-        all_traj_c = fg['all_trajectory_clusters'][:]
-        all_clin = fg['all_clinical'][:]
-        everything_ind = np.hstack((all_traj, all_clin))
-        everything_clusters = np.hstack((all_traj_c, fg['all_clinical'][:]))
-        _ = fg.create_dataset('everything_individual', data=everything_ind)
-        _ = fg.create_dataset('everything_clusters', data=everything_clusters)
+    if not os.path.exists(resPath + 'features/%s/%s/everything.csv' % (dm_tag[1:], clust_str)):
+        everything_clusters = np.hstack((all_clin, all_traj_c))
+        kf.arr2csv(resPath + 'features/%s/%s/everything.csv' % (dm_tag[1:], clust_str),
+                   everything_clusters, aki_ids, fmt='%.4f')
 
     print('Ready for classification. Please run script \'classify_features.py\'')
-    print('Available features:')
-    for k in fg.keys():
-        print('\t' + k)
 
 
 main()

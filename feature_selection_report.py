@@ -6,12 +6,12 @@ import os
 
 # --------------------------------------------------- PARAMETERS ----------------------------------------------------- #
 data_file = '../RESULTS/icu/7days_070118/kdigo_dm.h5'
-features = ['apache_norm', 'all_clinical', 'all_trajectory_clusters', 'everything_clusters']
+features = ['everything_clusters']
 # features = ['all_trajectory_clusters', 'everything_clusters']
 lbl_list = ['died_inp', ]
 basepath = '../RESULTS/icu/7days_070118/feature_selection/'
 
-dm_tag = 'norm_a1'
+dm_tag = 'norm_norm_a1'
 
 # selection_models = [['univariate', [[2, chi2], ]],
 #                     ['variance', [[0.03, ],  [0.01, ]]],
