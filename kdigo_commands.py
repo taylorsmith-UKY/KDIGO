@@ -502,3 +502,9 @@ def get_ref(lbls, stats, baseline_file, data_path, out_name):
                         tstr += ',%d' % apache[m]
                     print(tstr)
     return out
+
+
+def pickle_dms(path, dm_tags):
+    for dm_tag in dm_tags:
+        dm = np.loadtxt(path + 'kdigo_dm%s.csv' % dm_tag, delimiter=',', usecols=2)
+        np.save(path + 'kdigo_dm%s' % dm_tag, dm)

@@ -218,7 +218,7 @@ def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta'):
         f = in_file
     meta = f[meta_grp]
     ids = meta['ids'][:]
-    lbls = np.loadtxt(label_path + 'clusters.txt', dtype=str)
+    lbls = load_csv(label_path + 'clusters.txt', ids, dt=str)
 
     ages = meta['age'][:]
     genders = meta['gender'][:]

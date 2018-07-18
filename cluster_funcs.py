@@ -21,8 +21,9 @@ import os
 
 # %%
 def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_thresh=0.05,
-                     min_size=20, height_lim=5, interactive=True, save=True):
+                     min_size=20, height_lim=5, interactive=True, save=True, max_noise=100):
     f = h5py.File(h5_fname, 'r')
+    n_pts = len(ids)
     if dm.ndim == 1:
         sqdm = squareform(dm)
     else:
@@ -34,11 +35,14 @@ def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_t
         db.fit(sqdm)
         lbls = np.array(db.labels_, dtype=int)
         nclust = len(np.unique(lbls)) - 1
-        print('Number of Clusters = %d' % nclust)
+        print('Number of DBSCAN Clusters = %d' % nclust)
         if interactive:
-            eps = raw_input('New epsilon (non-numeric to continue): ')
+            lbl_names = np.unique(lbls)
+            for i in range(len(lbl_names)):
+                print('Cluster %d: %d members' % (lbl_names[i], len(np.where(lbls == lbl_names[i])[0])))
+            t = raw_input('New epsilon (non-numeric to continue): ')
             try:
-                eps = float(eps)
+                eps = float(t)
                 db = DBSCAN(eps=eps, metric='precomputed', n_jobs=-1)
             except:
                 cont = False
@@ -52,28 +56,77 @@ def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_t
         if len(idx) < min_size:
             lbls[idx] = -1
     n_clusters = len(np.unique(lbls))
+    if len(np.where(lbls == -1)[0]) > max_noise * n_pts:
+        print('%d patients designated as noise...' % len(np.where(lbls == -1)[0]))
+        print('eps\tmin_size')
+        print('%.3f\t%d' % (eps, min_size))
+        return
+    db_pvals = None
     if save:
         if not os.path.exists(path + 'dbscan'):
             os.makedirs(path + 'dbscan')
-        if not os.path.exists(path + 'dbscan/%d_clusters-%s' % (n_clusters, date_str)):
-            os.makedirs(path + 'dbscan/%d_clusters-%s' % (n_clusters, date_str))
-        arr2csv(path + 'dbscan/%d_clusters-%s/clusters.txt' % (n_clusters, date_str), lbls, ids, fmt='%s')
-        if not os.path.exists(path + 'dbscan/%d_clusters-%s/max_dist/' % (n_clusters, date_str)):
-            os.makedirs(path + 'dbscan/%d_clusters-%s/max_dist/' % (n_clusters, date_str))
-        all_inter, all_intra, db_pvals = inter_intra_dist(sqdm, lbls,
-                                                          out_path=path + 'dbscan/%d_clusters-%s/max_dist/' % (
-                                                          n_clusters, date_str),
-                                                          op='max', plot='both')
-    else:
-        all_inter, all_intra, db_pvals = inter_intra_dist(sqdm, lbls,
-                                                          out_path=path + 'dbscan/%d_clusters-%s/max_dist/' % (n_clusters, date_str),
-                                                          op='max', plot='nosave')
-    if save:
-        arr2csv(path + 'dbscan/%d_clusters-%s/max_dist/all_intra.txt' % (n_clusters, date_str), all_intra, ids, fmt='%.3f')
-        arr2csv(path + 'dbscan/%d_clusters-%s/max_dist/all_inter.txt' % (n_clusters, date_str), all_inter, ids, fmt='%.3f')
-    lbls = np.array(lbls)
-    lbl_names = np.unique(lbls).astype(str)
-    lbls = lbls.astype(str)
+        if not os.path.exists(path + 'dbscan/%d_clusters' % n_clusters):
+            os.makedirs(path + 'dbscan/%d_clusters' % n_clusters)
+            arr2csv(path + 'dbscan/%d_clusters/clusters.txt' % n_clusters, lbls, ids, fmt='%d')
+            if not os.path.exists(path + 'dbscan/%d_clusters/mean_dist/' % n_clusters):
+                os.makedirs(path + 'dbscan/%d_clusters/mean_dist/' % n_clusters)
+            all_inter, all_intra, db_pvals = inter_intra_dist(sqdm, lbls,
+                                                              out_path=path + 'dbscan/%d_clusters/mean_dist/' %
+                                                              n_clusters, op='mean', plot='both')
+            log = open(path + 'dbscan/%d_clusters/cluster_settings.txt' % n_clusters, 'w')
+            log.write('DBSCAN Epsilon:\t\t%.4f\n' % eps)
+            log.write('NormalTest p-thresh:\t%.2E\n' % p_thresh)
+            log.write('Ward Height Lim:\t%d\n' % height_lim)
+            log.write('Min Cluster Size:\t%d\n' % min_size)
+            log.close()
+
+            arr2csv(path + 'dbscan/%d_clusters/mean_dist/all_intra.txt' % n_clusters, all_intra, ids,
+                    fmt='%.3f')
+            arr2csv(path + 'dbscan/%d_clusters/mean_dist/all_inter.txt' % n_clusters, all_inter, ids,
+                    fmt='%.3f')
+
+        else:  # if folder already exists, append and create new
+            ref = load_csv(path + 'dbscan/%d_clusters/clusters.txt' % n_clusters, ids).astype(int)
+            if np.all(ref == lbls):
+                cont = False
+            else:
+                cont = True
+                tag = 'a'
+            while cont:
+                if os.path.exists(path + 'dbscan/%d_clusters_%s' % (n_clusters, tag)):
+                    ref = load_csv(path + 'dbscan/%d_clusters_%s/clusters.txt'
+                                   % (n_clusters, tag), ids).astype(int)
+                    if np.all(ref == lbls):
+                        cont = False
+                    else:
+                        tag = chr(ord(tag) + 1)
+                else:
+                    os.makedirs(path + 'dbscan/%d_clusters_%s' % (n_clusters, tag))
+                    cont = False
+                    arr2csv(path + 'dbscan/%d_clusters_%s/clusters.txt' % (n_clusters, tag), lbls, ids, fmt='%d')
+                    if not os.path.exists(path + 'dbscan/%d_clusters_%s/mean_dist/' % (n_clusters, tag)):
+                        os.makedirs(path + 'dbscan/%d_clusters_%s/mean_dist/' % (n_clusters, tag))
+                    all_inter, all_intra, db_pvals = inter_intra_dist(sqdm, lbls,
+                                                                      out_path=path + 'dbscan/%d_clusters_%s/mean_dist/' %
+                                                                               (n_clusters, tag),
+                                                                      op='mean', plot='both')
+                    log = open(path + 'dbscan/%d_clusters_%s/cluster_settings.txt' % (n_clusters, tag), 'w')
+                    log.write('DBSCAN Epsilon:\t\t%.4f\n' % eps)
+                    log.write('NormalTest p-thresh:\t%.2E\n' % p_thresh)
+                    log.write('Ward Height Lim:\t%d\n' % height_lim)
+                    log.write('Min Cluster Size:\t%d\n' % min_size)
+                    log.close()
+
+                    arr2csv(path + 'dbscan/%d_clusters_%s/mean_dist/all_intra.txt' % (n_clusters, tag), all_intra,
+                            ids,
+                            fmt='%.3f')
+                    arr2csv(path + 'dbscan/%d_clusters_%s/mean_dist/all_inter.txt' % (n_clusters, tag), all_inter,
+                            ids,
+                            fmt='%.3f')
+    if db_pvals is None:
+        all_inter, all_intra, db_pvals = inter_intra_dist(sqdm, lbls, out_path='', op='mean', plot='none')
+    lbls = np.array(lbls).astype(str)
+    lbl_names = np.unique(lbls)
     for i in range(len(lbl_names)):
         p_val = db_pvals[i]
         if p_val < p_thresh:
@@ -82,25 +135,62 @@ def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_t
                 continue
             idx = np.where(lbls == tlbl)[0]
             sel = np.ix_(idx, idx)
-            tdm = squareform(sqdm[sel])
+            tsqdm = sqdm[sel]
+            tdm = squareform(tsqdm)
             link = fc.ward(tdm)
             root = to_tree(link)
             tlbls = lbls[idx]
-            nlbls = dist_cut_tree(root, tlbls, tlbl, all_intra[idx], p_thresh, min_size=min_size, height_lim=height_lim)
+            nlbls = dist_cut_tree(root, tlbls, tlbl, tsqdm, p_thresh, min_size=min_size, height_lim=height_lim)
             lbls[idx] = nlbls
     n_clusters = len(np.unique(lbls))
     print('Final number of clusters: %d' % n_clusters)
     if save:
-        if not os.path.exists(path + 'composite/%d_clusters-%s' % (n_clusters, date_str)):
-            os.makedirs(path + 'composite/%d_clusters-%s' % (n_clusters, date_str))
-        n_clusters = len(np.unique(lbls))
-        arr2csv(path + 'composite/%d_clusters-%s/clusters.txt' % (n_clusters, date_str), lbls, ids, fmt='%s')
-        get_cstats(f, path + 'composite/%d_clusters-%s/' % (n_clusters, date_str), meta_grp=meta_grp)
+        if not os.path.exists(path + 'composite/%d_clusters' % n_clusters):
+            os.makedirs(path + 'composite/%d_clusters' % n_clusters)
+            n_clusters = len(np.unique(lbls))
+            arr2csv(path + 'composite/%d_clusters/clusters.txt' % n_clusters, lbls, ids, fmt='%s')
+            get_cstats(f, path + 'composite/%d_clusters/' % n_clusters, meta_grp=meta_grp)
+            log = open(path + 'composite/%d_clusters/cluster_settings.txt' % n_clusters, 'w')
+            log.write('DBSCAN Epsilon:\t\t%.4f\n' % eps)
+            log.write('NormalTest p-thresh:\t%.2E\n' % p_thresh)
+            log.write('Ward Height Lim:\t%d\n' % height_lim)
+            log.write('Min Cluster Size:\t%d\n' % min_size)
+            log.close()
+
+        else:
+            ref = load_csv(path + 'composite/%d_clusters/clusters.txt' % n_clusters, ids, str)
+            if np.all(ref == lbls):
+                cont = False
+            else:
+                cont = True
+                tag = 'a'
+            while cont:
+                if os.path.exists(path + 'composite/%d_clusters_%s' % (n_clusters, tag)):
+                    ref = load_csv(path + 'composite/%d_clusters_%s/clusters.txt'
+                                   % (n_clusters, tag), ids, str)
+                    if np.all(ref == lbls):
+                        cont = False
+                    else:
+                        cont = True
+                        tag = chr(ord(tag) + 1)
+                else:
+                    os.makedirs(path + 'composite/%d_clusters_%s' % (n_clusters, tag))
+                    cont = False
+                    n_clusters = len(np.unique(lbls))
+                    arr2csv(path + 'composite/%d_clusters_%s/clusters.txt' % (n_clusters, tag), lbls, ids,
+                            fmt='%s')
+                    get_cstats(f, path + 'composite/%d_clusters_%s/' % (n_clusters, tag), meta_grp=meta_grp)
+                    log = open(path + 'composite/%d_clusters_%s/cluster_settings.txt' % (n_clusters, tag), 'w')
+                    log.write('DBSCAN Epsilon:\t\t%.4f\n' % eps)
+                    log.write('NormalTest p-thresh:\t%.2E\n' % p_thresh)
+                    log.write('Ward Height Lim:\t%d\n' % height_lim)
+                    log.write('Min Cluster Size:\t%d\n' % min_size)
+                    log.close()
     f.close()
     return lbls
 
 
-def dist_cut_tree(node, lbls, base_name, feat, p_thresh, min_size=20, height_lim=5):
+def dist_cut_tree(node, lbls, base_name, sqdm, p_thresh, min_size=20, height_lim=5):
     height = len(base_name.split('-'))
     if height > height_lim:
         print('Height limit reached for node: %s' % base_name)
@@ -110,30 +200,32 @@ def dist_cut_tree(node, lbls, base_name, feat, p_thresh, min_size=20, height_lim
     left_name = base_name + '-l'
     right_name = base_name + '-r'
     left_idx = left.pre_order()
+    left_sel = np.ix_(left_idx, left_idx)
+    left_intra = np.mean(sqdm[left_sel], axis=0)
+    
     right_idx = right.pre_order()
-    for idx in left_idx:
-        lbls[left_idx] = base_name + '-l'
-    for idx in right_idx:
-        lbls[right_idx] = base_name + '-r'
-    if len(left_idx) < min_size:
-        print('Node %s minimum size' % left_name)
+    right_sel = np.ix_(right_idx, right_idx)
+    right_intra = np.mean(sqdm[right_sel], axis=0)
+
+    if len(left_idx) < min_size or len(right_idx) < min_size:
+        print('Splitting current node creates children < min_size: %s' % base_name)
+        return lbls
+    lbls[left_idx] = base_name + '-l'
+    lbls[right_idx] = base_name + '-r'
+
+    _, left_p = normaltest(left_intra)
+    if left_p < p_thresh:
+        print('Splitting node %s: p-value=%.2E' % (left_name, left_p))
+        lbls = dist_cut_tree(left, lbls, left_name, sqdm, p_thresh, min_size=min_size, height_lim=height_lim)
     else:
-        _, left_p = normaltest(feat[left_idx])
-        if left_p < p_thresh:
-            print('Splitting node %s: p-value=%.2E' % (left_name, left_p))
-            lbls = dist_cut_tree(left, lbls, left_name, feat, p_thresh, min_size=min_size, height_lim=height_lim)
-        else:
             print('Node %s final: p-value=%.2E' % (left_name, left_p))
 
-    if len(right_idx) < min_size:
-        print('Node %s minimum size' % right_name)
+    _, right_p = normaltest(right_intra)
+    if right_p < p_thresh:
+        print('Splitting node %s: p-value=%.2E' % (right_name, right_p))
+        lbls = dist_cut_tree(right, lbls, right_name, sqdm, p_thresh, min_size=min_size, height_lim=height_lim)
     else:
-        _, right_p = normaltest(feat[right_idx])
-        if right_p < p_thresh:
-            print('Splitting node %s: p-value=%.2E' % (right_name, right_p))
-            lbls = dist_cut_tree(right, lbls, right_name, feat, p_thresh, min_size=min_size, height_lim=height_lim)
-        else:
-            print('Node %s final: p-value=%.2E' % (right_name, right_p))
+        print('Node %s final: p-value=%.2E' % (right_name, right_p))
     return lbls
 
 
@@ -279,15 +371,15 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7)
     if np.ndim(sqdm) == 1:
         sqdm = squareform(sqdm)
 
-    _, scrs = load_csv(datapath + 'scr_raw.csv', ids)
-    _, bslns = load_csv(datapath + 'baselines.csv', ids)
-    _, dmasks = load_csv(datapath + 'dialysis.csv', ids, dt=int)
-    _, str_admits = load_csv(datapath + 'patient_summary.csv', ids, dt=str, sel=1, skip_header=True)
+    scrs = load_csv(datapath + 'scr_raw.csv', ids)
+    bslns = load_csv(datapath + 'baselines.csv', ids)
+    dmasks = load_csv(datapath + 'dialysis.csv', ids, dt=int)
+    str_admits = load_csv(datapath + 'patient_summary.csv', ids, dt=str, sel=1, skip_header=True)
     admits = []
     for i in range(len(ids)):
         admits.append(datetime.datetime.strptime('%s' % str_admits[i], '%Y-%m-%d %H:%M:%S'))
 
-    _, str_dates = load_csv(datapath + 'dates.csv', ids, dt=str)
+    str_dates = load_csv(datapath + 'dates.csv', ids, dt=str)
     for i in range(len(ids)):
         for j in range(len(str_dates[i])):
             str_dates[i][j] = str_dates[i][j].split('.')[0]

@@ -1012,9 +1012,12 @@ def load_csv(fname, ids, dt=float, skip_header=False, sel=None):
     else:
         rid = np.array(rid)
         ids = np.array(ids)
+        res = np.array(res)
         assert np.all(rid == ids)
-        if np.all([len(res[x]) == len(res[0]) for x in range(len(res))]):
-            res = np.array(res)
+        if res.ndim > 1:
+            if np.all([len(res[x]) == len(res[0]) for x in range(len(res))]):
+                if res.shape[1] == 1:
+                    res = np.squeeze(res)
         if skip_header == 'keep':
             return hdr, res
         else:

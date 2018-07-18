@@ -376,6 +376,7 @@ def main():
                                   resPath + 'kdigo_dtwlog' + dm_tag + '.csv',
                                   incl_0=False, alpha=alpha, dic=kdigo_dic, use_dic_dtw=use_dic_dtw,
                                   use_dic_dist=use_dic_dist)
+        np.save(resPath + 'kdigo_dm' + dm_tag, dm)
 
     # Load clusters or launch interactive clustering
     lbls = None
@@ -387,7 +388,7 @@ def main():
                         lbls = np.loadtxt(dirpath + '/' + filename, dtype=str)
     if lbls is None:
         if dm is None:
-            dm = kf.load_dm(resPath + 'kdigo_dm' + dm_tag + '.csv', aki_ids)
+            dm = np.load(resPath + 'kdigo_dm' + dm_tag + '.pkl', dm)
         if not os.path.exists(resPath + 'clusters/%s/' % dm_tag[1:]):
             os.mkdir(resPath + 'clusters/%s/' % dm_tag[1:])
         lbls = dist_cut_cluster(h5_name, dm, aki_ids, path=resPath + 'clusters/%s/' % dm_tag[1:], interactive=True, save=True)

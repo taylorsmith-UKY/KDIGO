@@ -1,44 +1,59 @@
 import numpy as np
 import h5py
 from cluster_funcs import assign_feature_vectors
-from kdigo_funcs import cluster_feature_vectors
+from kdigo_funcs import cluster_feature_vectors, load_csv, arr2csv
+import os
 
-h5_fname = '../RESULTS/icu/7days_070118/features.h5'
-lbl_paths = ['../RESULTS/icu/7days_070118/clusters/norm_norm_a1/composite/23_clusters/',
-             '../RESULTS/icu/7days_070118/clusters/norm_norm_a2/composite/20_clusters/',
-             '../RESULTS/icu/7days_070118/clusters/custcost_custcost_a1/composite/12_clusters/',
-             '../RESULTS/icu/7days_070118/clusters/custcost_custcost_a2/composite/12_clusters/',
-             '../RESULTS/icu/7days_070118/clusters/custcost_custcost_a4/composite/12_clusters/',
-             '../RESULTS/icu/7days_070118/clusters/custcost_norm_a1/composite/14_clusters/',
-             '../RESULTS/icu/7days_070118/clusters/custcost_norm_a2/composite/13_clusters/',
-             '../RESULTS/icu/7days_070118/clusters/custcost_norm_a4/composite/13_clusters/',
-             '../RESULTS/icu/7days_070118/clusters/norm_custcost_a1/composite/16_clusters/',
-             '../RESULTS/icu/7days_070118/clusters/norm_custcost_a2/composite/12_clusters/']
+h5_fname = '../RESULTS/icu/7days_071118/stats.h5'
+lbl_path = '../RESULTS/icu/7days_071118/clusters/'
+feature_path = '../RESULTS/icu/7days_071118/features/'
 
-tags = ['_nna1', '_nna2', '_cca1', '_cca2', '_cca4', '_cna1', '_cna2', '_cna4', '_nca1', '_nca2']
+methods = ['ward']
 
-tags = [tags[x] + '-2' for x in range(len(tags))]
+tags = ['_norm_norm_a1', '_norm_norm_a2', '_norm_norm_a4',
+        '_norm_custcost_a1', '_norm_custcost_a2',  # '_norm_custcost_a4',
+        '_custcost_norm_a1', '_custcost_norm_a2',  # '_custcost_norm_a4',
+        '_custcost_custcost_a1', '_custcost_custcost_a2']  # , '_custcost_custcost_a4']
 
-f = h5py.File(h5_fname, 'r+')
-fg = f['features']
-desc = fg['descriptive_individual'][:]
-temp_norm = fg['template_individual_norm']
-slope_norm = fg['slope_individual_norm'][:]
+f = h5py.File(h5_fname, 'r')
+ids = f['meta']['ids'][:]
+f.close()
 
-for (path, tag) in zip(lbl_paths,  tags):
-    lbls = np.loadtxt(path + 'clusters.txt', dtype=str)
+desc = load_csv(feature_path + 'trajectory_individual/descriptive_features.csv', ids, int, skip_header=True)
+temp_norm = load_csv(feature_path + 'trajectory_individual/template_norm.csv', ids)
+slope_norm = load_csv(feature_path + 'trajectory_individual/slope_norm.csv', ids)
+all_clin = load_csv(feature_path + 'clinical/all_clinical.csv', ids)
 
-    desc_c, temp_c, slope_c = cluster_feature_vectors(desc, temp_norm, slope_norm, lbls)
-    all_desc_c = assign_feature_vectors(lbls, desc_c)
-    all_temp_c = assign_feature_vectors(lbls, temp_c)
-    all_slope_c = assign_feature_vectors(lbls, slope_c)
-    fg.create_dataset('descriptive_clusters' + tag, data=all_desc_c, dtype=int)
-    fg.create_dataset('template_clusters' + tag, data=all_temp_c, dtype=float)
-    fg.create_dataset('slope_clusters' + tag, data=all_slope_c, dtype=float)
 
-    all_traj_c = np.hstack((all_desc_c, all_slope_c, all_temp_c))
-    fg.create_dataset('all_trajectory_clusters' + tag, data=all_traj_c)
-    everything_clusters = np.hstack((all_traj_c, fg['all_clinical'][:]))
-    fg.create_dataset('everything_clusters' + tag, data=everything_clusters)
+for tag in tags:
+    for method in methods:
+        for (dirpath, dirnames, filenames) in os.walk(lbl_path + tag[1:] + '/' + method + '/'):
+            for dirname in dirnames:
+                lbls = np.loadtxt(dirpath + '/' + dirname + '/clusters.txt', dtype=str)
+
+                desc_c, temp_c, slope_c = cluster_feature_vectors(desc, temp_norm, slope_norm, lbls)
+                all_desc_c = assign_feature_vectors(lbls, desc_c)
+                all_temp_c = assign_feature_vectors(lbls, temp_c)
+                all_slope_c = assign_feature_vectors(lbls, slope_c)
+
+                all_traj_c = np.hstack((all_desc_c, all_slope_c, all_temp_c))
+                everything_clusters = np.hstack((all_clin, all_traj_c))
+
+                fpath = feature_path + tag[1:] + '/'
+                if not os.path.exists(fpath):
+                    os.mkdir(fpath)
+                fpath += method + '/'
+                if not os.path.exists(fpath):
+                    os.mkdir(fpath)
+                fpath += dirname + '/'
+                if not os.path.exists(fpath):
+                    os.mkdir(fpath)
+
+                arr2csv(fpath + 'descriptive.csv', all_desc_c, ids, fmt='%.4f')
+                arr2csv(fpath + 'template.csv', all_temp_c, ids, fmt='%.4f')
+                arr2csv(fpath + 'slope.csv', all_slope_c, ids, fmt='%.4f')
+                arr2csv(fpath + 'all_trajectory.csv', all_traj_c, ids, fmt='%.4f')
+                arr2csv(fpath + 'everything.csv', everything_clusters, ids, fmt='%.4f')
+
 
 f.close()
