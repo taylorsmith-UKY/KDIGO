@@ -248,7 +248,7 @@ for (sel_str, mort_exc) in params:
                                             sel = np.sort(np.concatenate((neg_idx, pos_sel)))
                                         vX = X[sel]
                                         vy = y[sel]
-                                        log_file.write('Fold_#,Accuracy,Precision,Recall,F1-Score,TP,FP,TN,FN\n')
+                                        log_file.write('Fold_#,Accuracy,Precision,Recall,F1-Score,TP,FP,TN,FN,ROC_AUC\n')
 
                                         tprs = []
                                         aucs = []
@@ -300,7 +300,7 @@ for (sel_str, mort_exc) in params:
                                             plt.title('ROC Curve (area = %0.2f)' % roc_auc)
                                             plt.legend(loc="lower right")
                                             plt.tight_layout()
-                                            plt.savefig(score_path + tstr + '/fold' + str(i + 1) + '_evaluation.png')
+                                            plt.savefig(cpath + 'fold' + str(i + 1) + '_evaluation.png')
                                             plt.close(fig)
                                             tprs.append(interp(mean_fpr, fpr, tpr))
                                             tprs[-1][0] = 0.0
@@ -313,7 +313,7 @@ for (sel_str, mort_exc) in params:
 
                                             tp, fp, tn, fn = perf_measure(y_val, pred)
 
-                                            log_file.write('%d,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d\n' % (i+1, acc, prec, rec, f1, tp, fp, tn, fn))
+                                            log_file.write('%d,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d,%.4f\n' % (i+1, acc, prec, rec, f1, tp, fp, tn, fn, roc_auc))
                                         log_file.close()
                                         fig = plt.figure()
                                         for i in range(cv_num):

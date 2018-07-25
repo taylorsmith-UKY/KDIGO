@@ -23,6 +23,7 @@ def summarize_stats(ids, kdigos,
                     mech_m, mech_loc,
                     date_m, hosp_locs, icu_locs,
                     sofa, apache, io_m,
+                    mort_m, mort_date,
                     out_name, data_path, grp_name='meta'):
 
     f = open(data_path + 'disch_disp.csv', 'r')
@@ -56,6 +57,7 @@ def summarize_stats(ids, kdigos,
     e_scores = []
     mv_frees = []
     eths = []
+    dtds = []
     for i in range(len(ids)):
         idx = ids[i]
         mk = np.max(kdigos[i])
@@ -149,6 +151,17 @@ def summarize_stats(ids, kdigos,
         else:
             elix = np.nan
 
+        mort_idx = np.where(mort_m[:, 0] == idx)[0]
+        dtd = np.nan
+        if mort_idx.size > 0:
+            tstr = str(mort_m[mort_idx[0], mort_date]).split('.')[0]
+            if tstr != 'nan':
+                try:
+                    mdate = datetime.datetime.strptime(tstr, '%m/%d/%Y')
+                except:
+                    mdate = datetime.datetime.strptime(tstr, '%Y-%m-%d %H:%M:%S')
+            dtd = (mdate - admit).total_seconds() / (60 * 60 * 24)
+
         ages.append(age)
         genders.append(male)
         mks.append(mk)
@@ -163,6 +176,7 @@ def summarize_stats(ids, kdigos,
         e_scores.append(elix)
         mv_frees.append(mech)
         eths.append(eth)
+        dtds.append(dtd)
     ages = np.array(ages, dtype=float)
     genders = np.array(genders, dtype=bool)
     mks = np.array(mks, dtype=int)
@@ -177,6 +191,7 @@ def summarize_stats(ids, kdigos,
     e_scores = np.array(e_scores, dtype=float)  # Float bc possible NaNs
     mv_frees = np.array(mv_frees, dtype=float)
     eths = np.array(eths, dtype=bool)
+    dtds = np.array(dtds, dtype=foat)
     try:
         f = h5py.File(out_name, 'r+')
     except:
@@ -204,6 +219,7 @@ def summarize_stats(ids, kdigos,
     meta.create_dataset('mv_free_days', data=mv_frees, dtype=int)
     meta.create_dataset('sofa', data=sofa, dtype=int)
     meta.create_dataset('apache', data=apache, dtype=int)
+    meta.create_dataset('days_to_death', data=dtds, dtype=float)
 
     return meta
 

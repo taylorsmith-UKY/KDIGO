@@ -57,6 +57,14 @@ def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs, v
         print('%d, %d, %d, %d\n' % (nwo, ncrrt, nhd, npd))
     return mask
 
+
+def get_dia_mask_UT(scr_m, dia_locs):
+    mask = np.zeros(len(scr_m), dtype=int)
+    for col in dia_locs:
+        mask[np.where(scr_m[:, loc])] = 1
+    return mask
+
+
 # %%
 def get_admits(date_m, admit_loc):
     temp_id = 0
