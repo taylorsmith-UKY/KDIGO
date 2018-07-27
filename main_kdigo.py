@@ -17,11 +17,11 @@ incl_0 = False
 h5_name = 'stats.h5'
 folder_name = '/7days_071118/'
 alpha = 1.0
-kdigo_dic = {0: 11.3,
-             1: 9.8,
-             2: 8,
-             3: 5.25,
-             4: 1}
+transition_costs = [1.5,    # [0 - 1]
+                    1.8,    # [1 - 2]
+                    2.75,   # [2 - 3]
+                    4.25]   # [3 - 4]
+
 use_dic_dtw = False
 use_dic_dist = False
 # Dictionary explanation:
@@ -31,16 +31,35 @@ use_dic_dist = False
 # cost(3, 4) = 24 + 24 = 33
 # order is reversed so the bray-curtis distance
 
-
 # -----------------------------------------------------------------------------#
+
+
+dtw_dic = {}
+bc_dic = {}
+
+s = 0
+dtw_dic[0] = 0
+for i in range(len(transition_costs)):
+    s += transition_costs[i]
+    dtw_dic[i + 1] = s
+
+bc_dic[0] = s
+for i in range(len(transition_costs) - 1):
+    s -= transition_costs[i]
+    bc_dic[i + 1] = s
+bc_dic[len(transition_costs)] = 0
+
+
 if use_dic_dtw:
     dm_tag = '_custcost'
 else:
+    dtw_dic = None
     dm_tag = '_norm'
 
 if use_dic_dist:
     dm_tag += '_custcost'
 else:
+    bc_dic = None
     dm_tag += '_norm'
 
 dm_tag += '_a%d' % alpha
@@ -374,8 +393,7 @@ def main():
     if not os.path.exists(resPath + 'kdigo_dm' + dm_tag + '.csv'):
         dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv',
                                   resPath + 'kdigo_dtwlog' + dm_tag + '.csv',
-                                  incl_0=False, alpha=alpha, dic=kdigo_dic, use_dic_dtw=use_dic_dtw,
-                                  use_dic_dist=use_dic_dist)
+                                  incl_0=False, alpha=alpha, dtw_dic=dtw_dic, bc_dic=bc_dic)
         np.save(resPath + 'kdigo_dm' + dm_tag, dm)
 
     # Load clusters or launch interactive clustering

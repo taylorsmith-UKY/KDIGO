@@ -808,8 +808,7 @@ def scr2kdigo(scr, base, masks, days, valid):
 
 
 # %%
-def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True,
-                      alpha=1.0, dic={0: 34, 1: 33, 2: 31, 3: 25, 4: 0}, use_dic_dtw=False, use_dic_dist=False):
+def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True, dtw_dic=None, bc_dic=None, alpha=1.0):
     df = open(dm_fname, 'w')
     dis = []
     if v and dtw_name is not None:
@@ -820,49 +819,62 @@ def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True,
         if v:
             print('#'+str(i+1)+' vs #'+str(i+2)+' to '+str(len(patients)))
         patient1 = np.array(patients[i])
-        patient1_co = np.zeros(len(patients[i]))
-        for k in range(len(patient1)):
-            patient1_co[k] = dic[patients[i][k]]
+        if dtw_dic is not None:
+            patient1_dtw = np.zeros(len(patients[i]))
+            for k in range(len(patient1)):
+                patient1_dtw[k] = dtw_dic[patients[i][k]]
+        if bc_dic is not None:
+            patient1_bc = np.zeros(len(patients[i]))
+            for k in range(len(patient1)):
+                patient1_bc[k] = bc_dic[patients[i][k]]
         for j in range(i+1,len(patients)):
             if not incl_0 and np.all(patients[j] == 0):
                 continue
             df.write('%d,%d,' % (ids[i], ids[j]))
             patient2 = np.array(patients[j])
-            patient2_co = np.zeros(len(patients[j]))
-            for k in range(len(patient2)):
-                patient2_co[k] = dic[patients[j][k]]
+            if dtw_dic is not None:
+                patient2_dtw = np.zeros(len(patients[j]))
+                for k in range(len(patient2)):
+                    patient2_dtw[k] = dtw_dic[patients[j][k]]
+            if bc_dic is not None:
+                patient2_bc = np.zeros(len(patients[j]))
+                for k in range(len(patient2)):
+                    patient2_bc[k] = bc_dic[patients[j][k]]
             if np.all(patients[i] == 0) and np.all(patients[j] == 0):
                 df.write('%f\n' % 0)
                 dis.append(0)
             else:
                 if len(patients[i]) > 1 and len(patients[j]) > 1:
-                    if use_dic_dtw:
-                        dist, _, _, path = dtw_p(patient1_co, patient2_co, lambda y, yy: np.abs(y - yy), alpha=alpha)
+                    if dtw_dic is not None:
+                        dist, _, _, path = dtw_p(patient1_dtw, patient2_dtw, lambda y, yy: np.abs(y - yy), alpha=alpha)
                     else:
                         dist, _, _, path = dtw_p(patient1, patient2, lambda y, yy: np.abs(y-yy), alpha=alpha)
                     p1_path = path[0]
                     p2_path = path[1]
                     p1 = [patient1[p1_path[x]] for x in range(len(p1_path))]
                     p2 = [patient2[p2_path[x]] for x in range(len(p2_path))]
-                    p1_co = [patient1[p1_path[x]] for x in range(len(p1_path))]
-                    p2_co = [patient2[p2_path[x]] for x in range(len(p2_path))]
+                    if bc_dic is not None:
+                        p1_bc = [patient1_bc[p1_path[x]] for x in range(len(p1_path))]
+                        p2_bc = [patient2_bc[p2_path[x]] for x in range(len(p2_path))]
                 elif len(patients[i]) == 1:
                     p1 = np.repeat(patient1[0], len(patient2))
                     p2 = patient2
-                    p1_co = np.repeat(patient1_co[0], len(patient2))
-                    p2_co = patient2_co
+                    if bc_dic is not None:
+                        p1_bc = np.repeat(patient1_co[0], len(patient2))
+                        p2_bc = patient2_bc
                 elif len(patients[j]) == 1:
                     p1 = patient1
                     p2 = np.repeat(patient2[0], len(patient1))
-                    p1_co = patient1_co
-                    p2_co = np.repeat(patient2_co[0], len(patient1))
+                    if bc_dic is not None:
+                        p1_bc = patient1_bc
+                        p2_bc = np.repeat(patient2_bc[0], len(patient1))
                 if np.all(p1 == p2):
                     df.write('%f\n' % 0)
                     dis.append(0)
                 else:
-                    if use_dic_dist:
-                        df.write('%f\n' % (distance.braycurtis(p1_co, p2_co)))
-                        dis.append(distance.braycurtis(p1_co, p2_co))
+                    if bc_dic is not None:
+                        df.write('%f\n' % (distance.braycurtis(p1_bc, p2_bc)))
+                        dis.append(distance.braycurtis(p1_bc, p2_bc))
                     else:
                         df.write('%f\n' % (distance.braycurtis(p1, p2)))
                         dis.append(distance.braycurtis(p1, p2))
