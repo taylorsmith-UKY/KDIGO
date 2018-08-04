@@ -11,15 +11,14 @@ from sklearn.feature_selection import chi2
 
 data_path = '../DATA/icu/7days_071118/'
 base_path = '../RESULTS/icu/7days_071118/'
+full_kdigo_path = '../DATA/icu/7days_073118/'
 
 methods = ['composite', 'ward']
 
 feat_sel = 'everything'
 
 tags = ['_norm_norm_a1', '_norm_norm_a2', '_norm_norm_a4',
-        '_norm_custcost_a1', '_norm_custcost_a2',  # '_norm_custcost_a4',
-        '_custcost_norm_a1', '_custcost_norm_a2',  # '_custcost_norm_a4',
-        '_custcost_custcost_a1', '_custcost_custcost_a2']  # , '_custcost_custcost_a4']
+        '_norm_custcost_a1', '_norm_custcost_a2']
 
 selection_models = [['linear', [0.01, ]],
                     ['univariate', [10, chi2]],
@@ -31,7 +30,7 @@ f = h5py.File(base_path + '/' + h5_name, 'r')
 ids = f['meta']['ids'][:]
 
 all_feat_names = get_feature_names(base_path + 'features/')['everything_clusters']
-kdigos = load_csv(data_path + 'kdigo.csv', ids, int)
+kdigos = load_csv(full_kdigo_path + 'kdigo.csv', ids, int)
 
 for tag in tags:
     try:
@@ -46,20 +45,20 @@ for tag in tags:
                 if 'clusters' in dirname:
                     lbls = load_csv(dirpath + '/' + dirname + '/clusters.txt', ids, str)
 
-                    feats = load_csv(base_path + 'features/%s/%s/%s/%s.csv' %
-                                     (tag[1:], method, dirname, feat_sel), ids)
-
-                    if not os.path.exists(dirpath + '/' + dirname + '/feature_selection/'):
-                        os.mkdir(dirpath + '/' + dirname + '/feature_selection/')
-                        for (model, params) in selection_models:
-                            plot_feature_selection(f, lbls, feats, all_feat_names, lbl_name='died_inp',
-                                                   method=model, parameters=params,
-                                                   outpath=dirpath + '/' + dirname + '/feature_selection/')
-                    if not os.path.exists(dirpath + '/' + dirname + '/daily_kdigos/'):
-                        os.mkdir(dirpath + '/' + dirname + '/daily_kdigos/')
-                        plot_daily_kdigos(data_path, ids, base_path + '/' + h5_name, sqdm, lbls,
-                                          outpath=dirpath + '/' + dirname + '/daily_kdigos/', max_day=7)
-
-                    stacked_bar(dirpath + '/' + dirname + '/cluster_stats.csv',
-                                fname=dirpath + '/' + dirname + '/mort_vs_kdigo_bar.png',
-                                title='Cluster Mortality vs. Max KDIGO')
+                    # feats = load_csv(base_path + 'features/%s/%s/%s/%s.csv' %
+                    #                  (tag[1:], method, dirname, feat_sel), ids)
+                    #
+                    # if not os.path.exists(dirpath + '/' + dirname + '/feature_selection/'):
+                    #     os.mkdir(dirpath + '/' + dirname + '/feature_selection/')
+                    #     for (model, params) in selection_models:
+                    #         plot_feature_selection(f, lbls, feats, all_feat_names, lbl_name='died_inp',
+                    #                                method=model, parameters=params,
+                    #                                outpath=dirpath + '/' + dirname + '/feature_selection/')
+                    if not os.path.exists(dirpath + '/' + dirname + '/daily_kdigos_ext/'):
+                        os.mkdir(dirpath + '/' + dirname + '/daily_kdigos_ext/')
+                        plot_daily_kdigos(full_kdigo_path, ids, base_path + '/' + h5_name, sqdm, lbls,
+                                          outpath=dirpath + '/' + dirname + '/daily_kdigos_ext/', max_day=20)
+                    #
+                    # stacked_bar(dirpath + '/' + dirname + '/cluster_stats.csv',
+                    #             fname=dirpath + '/' + dirname + '/mort_vs_kdigo_bar.png',
+                    #             title='Cluster Mortality vs. Max KDIGO')

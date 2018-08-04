@@ -15,8 +15,8 @@ from scipy import interp
 
 # --------------------------------------------------- PARAMETERS ----------------------------------------------------- #
 base_path = '../RESULTS/icu/7days_071118/'
-features = ['max_kdigo']
-# features = ['everything_clusters', ]
+# features = ['max_kdigo']
+features = ['everything_clusters', 'all_trajectory_clusters']
 h5_name = 'stats.h5'
 
 lbl_list = ['died_inp', ]
@@ -26,8 +26,11 @@ lbl_list = ['died_inp', ]
 #         '_custcost_norm_a1', '_custcost_norm_a2',  # '_custcost_norm_a4',
 #         '_custcost_custcost_a1', '_custcost_custcost_a2']  # , '_custcost_custcost_a4']
 
-tags = ['clinical', ]
+# tags = ['clinical', ]
+# tags = ['_norm_norm_a1', '_norm_norm_a2', '_norm_norm_a4',
+#         '_norm_custcost_a1', '_norm_custcost_a2']
 
+tags = ['_cDTW_normdist_a1', '_cDTW_normdist_a2', '_cDTW_cdist_a1', '_cDTW_cdist_a1']
 test_size = 0.2
 
 # Note: There will be an equal number of positive and negative examples in the training set, however ALL
@@ -36,11 +39,9 @@ cv_num = 10
 
 models = ['svm', 'rf']
 
-cluster_methods = ['individual']
+cluster_methods = ['composite', 'ward']
 
-params = [['all', (0, 0)],
-          ['exc_24hr', (0, 1)],
-          ['exc_48hr', (0, 2)]]
+params = [['exc_7days', (0, 7)]]
 
 # tuple indicating when patients should be removed based on their mortality date
 # In days, e.g. (0, 2) will exclude patients who die in the first 48 hrs
@@ -93,8 +94,11 @@ if not os.path.exists(base_path + 'classification'):
 all_ids = f['meta']['ids'][:]
 for (sel_str, mort_exc) in params:
     dtd = f['meta']['days_to_death'][:]
-    pt_sel = np.union1d(np.union1d(np.where(dtd < mort_exc[0]), np.where(np.isnan(dtd))),
-                        np.union1d(np.where(dtd >= mort_exc[1]), np.where(np.isnan(dtd))))
+    nan_sel = np.where(np.isnan(dtd))[0]
+    non_nan = np.setdiff1d(np.arange(len(dtd)), nan_sel)
+    dtd_nonan = dtd[non_nan]
+    pt_sel = np.union1d(np.union1d(non_nan[np.where(dtd_nonan < mort_exc[0])], nan_sel),
+                        np.union1d(non_nan[np.where(dtd_nonan >= mort_exc[1])], nan_sel))
     ids = all_ids[pt_sel]
     if not os.path.exists(base_path + 'classification/%s/' % sel_str):
         os.mkdir(base_path + 'classification/%s/' % sel_str)

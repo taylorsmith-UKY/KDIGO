@@ -8,12 +8,9 @@ h5_fname = '../RESULTS/icu/7days_071118/stats.h5'
 lbl_path = '../RESULTS/icu/7days_071118/clusters/'
 feature_path = '../RESULTS/icu/7days_071118/features/'
 
-methods = ['ward']
+methods = ['composite', 'ward']
 
-tags = ['_norm_norm_a1', '_norm_norm_a2', '_norm_norm_a4',
-        '_norm_custcost_a1', '_norm_custcost_a2',  # '_norm_custcost_a4',
-        '_custcost_norm_a1', '_custcost_norm_a2',  # '_custcost_norm_a4',
-        '_custcost_custcost_a1', '_custcost_custcost_a2']  # , '_custcost_custcost_a4']
+tags = ['_cDTW_normdist_a1', '_cDTW_normdist_a2', '_cDTW_cdist_a1', '_cDTW_cdist_a1']
 
 f = h5py.File(h5_fname, 'r')
 ids = f['meta']['ids'][:]

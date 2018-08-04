@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import kdigo_funcs as kf
+from scipy.spatial import distance
 
 # ------------------------------- PARAMETERS ----------------------------------#
 basePath = "../"
@@ -11,11 +12,22 @@ id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if des
 incl_0 = False
 h5_name = 'kdigo_dm.h5'
 folder_name = '/7days_071118/'
-alphas = [2.0, 4.0]
-transition_costs = [1.5,    # [0 - 1]
-                    1.8,    # [1 - 2]
-                    2.75,   # [2 - 3]
-                    4.25]   # [3 - 4]
+alphas = [0.25, 0.5, 1.0]
+transition_costs = [1.00,   # [0 - 1]
+                    2.95,   # [1 - 2]
+                    4.71,   # [2 - 3]
+                    7.62]   # [3 - 4]
+
+use_extension_penalty = True
+use_mismatch_penalty = True
+use_custom_braycurtis = True
+
+bc_shift = 1        # Value to add to coordinates for BC distance
+# With bc_shift=0, the distance from KDIGO 3D to all
+# other KDIGO stages is maximal (ie. 1.0). Increaseing
+# bc_shift allows discrimination between KDIGO 3D and
+# the other KDIGO scores
+
 
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
@@ -25,10 +37,9 @@ resPath = basePath + 'RESULTS/' + t_analyze.lower() + folder_name
 inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 baseline_file = dataPath + 'baselines_1_7-365_mdrd.csv'
-h5_fname = resPath + '/' + h5_name
 
 ids = np.loadtxt(id_ref, dtype=int)
-_, kdigos = kf.load_csv(outPath + 'kdigo.csv', ids, int)
+kdigos = kf.load_csv(outPath + 'kdigo.csv', ids, int)
 
 mk = np.zeros(len(ids))
 for i in range(len(ids)):
@@ -37,39 +48,35 @@ for i in range(len(ids)):
 aki_idx = np.where(mk)[0]
 
 aki_ids = ids[aki_idx]
-_, aki_kdigos = kf.load_csv(outPath + 'kdigo.csv', aki_ids, int)
-
-dtw_dic = {}
-bc_dic = {}
-
-s = 0
-dtw_dic[0] = 0
-for i in range(len(transition_costs)):
-    s += transition_costs[i]
-    dtw_dic[i + 1] = s
-
-bc_dic[0] = s
-for i in range(len(transition_costs) - 1):
-    s -= transition_costs[i]
-    bc_dic[i + 1] = s
-bc_dic[len(transition_costs)] = 0
+aki_kdigos = kf.load_csv(outPath + 'kdigo.csv', aki_ids, int)
 
 for alpha in alphas:
     for use_dic_dtw in [dtw_dic, None]:
         for use_dic_dist in [bc_dic, None]:
-            if use_dic_dtw:
-                dm_tag = '_cDTW'
+            if use_mismatch_penalty:
+                mismatch = kf.mismatch_penalty_func(*transition_costs)
+                dm_tag = '_custmismatch'
             else:
-                dm_tag = '_normDTW'
-            if use_dic_dist:
-                dm_tag += 'cdist'
+                mismatch = lambda x, y: abs(x - y)
+                dm_tag = '_absmismatch'
+            if use_extension_penalty:
+                extension = kf.extension_penalty_func(*transition_costs)
+                dm_tag += '_extension_a%.0E' % alpha
             else:
-                dm_tag += '_normdist'
-            dm_tag += '_a%d' % alpha
+                extension = lambda x: 0
+            if use_custom_braycurtis:
+                bc_dist = kf.get_custom_braycurtis(*transition_costs, shift=bc_shift)
+                dm_tag += '_custBC'
+            else:
+                bc_dist = distance.braycurtis
+                dm_tag += '_normBC'
 
             if not os.path.exists(resPath + 'kdigo_dm' + dm_tag + '.csv'):
                 dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv', None,
-                                          incl_0=False, alpha=alpha, dtw_dic=use_dic_dtw, bc_dic=use_dic_dist)
+                                          incl_0=False, mismatch=mismatch,
+                                          extension=extension,
+                                          bc_dist=bc_dist,
+                                          alpha=alpha)
                 np.save(resPath + 'kdigo_dm' + dm_tag, dm)
 
 

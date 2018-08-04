@@ -6,70 +6,57 @@ import kdigo_funcs as kf
 import stat_funcs as sf
 from cluster_funcs import assign_feature_vectors, dist_cut_cluster
 import datetime
+from scipy.spatial import distance
 
 # ------------------------------- PARAMETERS ----------------------------------#
 basePath = "../"
 t_analyze = 'ICU'
-xl_file = "KDIGO_full.xlsx"
+t_lim = None    # in days
 timescale = 6  # in hours
 id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
 h5_name = 'stats.h5'
-folder_name = '/7days_071118/'
+folder_name = '/7days_073118/'
 alpha = 1.0
-transition_costs = [1.5,    # [0 - 1]
-                    1.8,    # [1 - 2]
-                    2.75,   # [2 - 3]
-                    4.25]   # [3 - 4]
+transition_costs = [1.00,   # [0 - 1]
+                    2.95,   # [1 - 2]
+                    4.71,   # [2 - 3]
+                    7.62]   # [3 - 4]
 
-use_dic_dtw = False
-use_dic_dist = False
-# Dictionary explanation:
-# cost(0, 1) = 1
-# cost(1, 2) = 2 + 1 = 3
-# cost(2, 3) = 6 + 3 = 9
-# cost(3, 4) = 24 + 24 = 33
-# order is reversed so the bray-curtis distance
+use_extension_penalty = True
+use_mismatch_penalty = True
+use_custom_braycurtis = True
 
+bc_shift = 1        # Value to add to coordinates for BC distance
+# With bc_shift=0, the distance from KDIGO 3D to all
+# other KDIGO stages is maximal (ie. 1.0). Increaseing
+# bc_shift allows discrimination between KDIGO 3D and
+# the other KDIGO scores
 # -----------------------------------------------------------------------------#
 
-
-dtw_dic = {}
-bc_dic = {}
-
-s = 0
-dtw_dic[0] = 0
-for i in range(len(transition_costs)):
-    s += transition_costs[i]
-    dtw_dic[i + 1] = s
-
-bc_dic[0] = s
-for i in range(len(transition_costs) - 1):
-    s -= transition_costs[i]
-    bc_dic[i + 1] = s
-bc_dic[len(transition_costs)] = 0
-
-
-if use_dic_dtw:
-    dm_tag = '_custcost'
+if use_mismatch_penalty:
+    mismatch = kf.mismatch_penalty_func(*transition_costs)
+    dm_tag = '_custmismatch'
 else:
-    dtw_dic = None
-    dm_tag = '_norm'
-
-if use_dic_dist:
-    dm_tag += '_custcost'
+    mismatch = lambda x, y: abs(x - y)
+    dm_tag = '_absmismatch'
+if use_extension_penalty:
+    extension = kf.extension_penalty_func(*transition_costs)
+    dm_tag += '_extension_a%.0E' % alpha
 else:
-    bc_dic = None
-    dm_tag += '_norm'
-
-dm_tag += '_a%d' % alpha
+    extension = lambda x: 0
+if use_custom_braycurtis:
+    bc_dist = kf.get_custom_braycurtis(*transition_costs, shift=bc_shift)
+    dm_tag += '_custBC'
+else:
+    bc_dist = distance.braycurtis
+    dm_tag += '_normBC'
 
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
 dataPath = basePath + "DATA/"
 outPath = dataPath + t_analyze.lower() + folder_name
 resPath = basePath + 'RESULTS/' + t_analyze.lower() + folder_name
-inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 baseline_file = dataPath + 'baselines_1_7-365_mdrd.csv'
 h5_name = resPath + h5_name
@@ -153,7 +140,7 @@ def main():
         dia_mask = kf.get_dialysis_mask(scr_all_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs)
 
         # Get mask indicating whether each point was in hospital or ICU
-        t_mask = kf.get_t_mask(scr_all_m, scr_date_loc, scr_val_loc, date_m, hosp_locs, icu_locs, admit_info)
+        t_mask = kf.get_t_mask(scr_all_m, scr_date_loc, scr_val_loc, date_m, hosp_locs, icu_locs, admit_info, t_lim=t_lim)
 
         # Get mask for the desired data
         mask = np.zeros(len(scr_all_m))
@@ -192,22 +179,23 @@ def main():
         count_log = open(outPath + 'patient_summary.csv', 'w')
         exc_log = open(outPath + 'excluded_patients.csv', 'w')
         # Extract patients into separate list elements
-        (ids, scr, dates, masks, dmasks, baselines,
-         bsln_gfr, d_disp, t_range, ages) = kf.get_patients(scr_all_m, scr_val_loc, scr_date_loc, adisp_loc,
-                                                            mask, dia_mask,
-                                                            diag_m, diag_loc,
-                                                            esrd_m, esrd_locs,
-                                                            bsln_m, bsln_scr_loc, admit_loc,
-                                                            date_m, icu_locs,
-                                                            surg_m, surg_des_loc,
-                                                            dem_m, sex_loc, eth_loc,
-                                                            dob_m, birth_loc,
-                                                            mort_m, mdate_loc,
-                                                            count_log, exc_log)
+        (ids, scr, dates, days, masks, dmasks,
+         baselines, bsln_gfr, d_disp, t_range, ages) = kf.get_patients(scr_all_m, scr_val_loc, scr_date_loc, adisp_loc,
+                                                                       mask, dia_mask,
+                                                                       diag_m, diag_loc,
+                                                                       esrd_m, esrd_locs,
+                                                                       bsln_m, bsln_scr_loc, admit_loc,
+                                                                       date_m, icu_locs,
+                                                                       surg_m, surg_des_loc,
+                                                                       dem_m, sex_loc, eth_loc,
+                                                                       dob_m, birth_loc,
+                                                                       mort_m, mdate_loc,
+                                                                       count_log, exc_log)
         count_log.close()
         exc_log.close()
         kf.arr2csv(outPath + 'scr_raw.csv', scr, ids, fmt='%.3f')
         kf.arr2csv(outPath + 'dates.csv', dates, ids, fmt='%s')
+        kf.arr2csv(outPath + 'days.csv', days, ids, fmt='%d')
         kf.arr2csv(outPath + 'masks.csv', masks, ids, fmt='%d')
         kf.arr2csv(outPath + 'dialysis.csv', dmasks, ids, fmt='%d')
         kf.arr2csv(outPath + 'baselines.csv', baselines, ids, fmt='%.3f')
@@ -392,8 +380,11 @@ def main():
     dm = None
     if not os.path.exists(resPath + 'kdigo_dm' + dm_tag + '.csv'):
         dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv',
-                                  resPath + 'kdigo_dtwlog' + dm_tag + '.csv',
-                                  incl_0=False, alpha=alpha, dtw_dic=dtw_dic, bc_dic=bc_dic)
+                                  resPath + 'kdigo_dtwlog' + dm_tag + '.csv', incl_0=False,
+                                  mismatch=mismatch,
+                                  extension=extension,
+                                  bc_dist=bc_dist,
+                                  alpha=alpha)
         np.save(resPath + 'kdigo_dm' + dm_tag, dm)
 
     # Load clusters or launch interactive clustering

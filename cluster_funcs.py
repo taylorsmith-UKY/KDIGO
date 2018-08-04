@@ -21,7 +21,7 @@ import os
 
 # %%
 def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_thresh=0.05,
-                     min_size=20, height_lim=5, interactive=True, save=True, max_noise=100):
+                     min_size=20, height_lim=5, interactive=True, save=True, max_noise=100, max_clust=None):
     f = h5py.File(h5_fname, 'r')
     n_pts = len(ids)
     if dm.ndim == 1:
@@ -56,10 +56,15 @@ def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_t
         if len(idx) < min_size:
             lbls[idx] = -1
     n_clusters = len(np.unique(lbls))
+    if max_clust:
+        if n_clusters > max_clust:
+            f.close()
+            return
     if len(np.where(lbls == -1)[0]) > max_noise * n_pts:
         print('%d patients designated as noise...' % len(np.where(lbls == -1)[0]))
         print('eps\tmin_size')
         print('%.3f\t%d' % (eps, min_size))
+        f.close()
         return
     db_pvals = None
     if save:
@@ -73,6 +78,7 @@ def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_t
             all_inter, all_intra, db_pvals = inter_intra_dist(sqdm, lbls,
                                                               out_path=path + 'dbscan/%d_clusters/mean_dist/' %
                                                               n_clusters, op='mean', plot='both')
+            get_cstats(f, path + 'dbscan/%d_clusters/' % n_clusters, meta_grp=meta_grp)
             log = open(path + 'dbscan/%d_clusters/cluster_settings.txt' % n_clusters, 'w')
             log.write('DBSCAN Epsilon:\t\t%.4f\n' % eps)
             log.write('NormalTest p-thresh:\t%.2E\n' % p_thresh)
@@ -110,6 +116,7 @@ def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_t
                                                                       out_path=path + 'dbscan/%d_clusters_%s/mean_dist/' %
                                                                                (n_clusters, tag),
                                                                       op='mean', plot='both')
+                    get_cstats(f, path + 'dbscan/%d_clusters_%s/' % (n_clusters, tag), meta_grp=meta_grp)
                     log = open(path + 'dbscan/%d_clusters_%s/cluster_settings.txt' % (n_clusters, tag), 'w')
                     log.write('DBSCAN Epsilon:\t\t%.4f\n' % eps)
                     log.write('NormalTest p-thresh:\t%.2E\n' % p_thresh)
@@ -144,6 +151,10 @@ def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_t
             lbls[idx] = nlbls
     n_clusters = len(np.unique(lbls))
     print('Final number of clusters: %d' % n_clusters)
+    if max_clust:
+        if n_clusters > max_clust:
+            f.close()
+            return
     if save:
         if not os.path.exists(path + 'composite/%d_clusters' % n_clusters):
             os.makedirs(path + 'composite/%d_clusters' % n_clusters)
@@ -370,6 +381,8 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7)
     n_clusters = len(c_lbls)
     if np.ndim(sqdm) == 1:
         sqdm = squareform(sqdm)
+    if type(lbls) is list:
+        lbls = np.array(lbls, dtype=str)
 
     scrs = load_csv(datapath + 'scr_raw.csv', ids)
     bslns = load_csv(datapath + 'baselines.csv', ids)
@@ -396,8 +409,11 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7)
         l = np.min([len(x) for x in [scrs[i], dates[i], dmasks[i]]])
         if l < 2:
             continue
-        tmax = daily_max_kdigo(scrs[i][:l], dates[i][:l], bslns[i], admits[i], dmasks[i][:l])
-        all_daily[i, :len(tmax)] = tmax
+        tmax = daily_max_kdigo(scrs[i][:l], dates[i][:l], bslns[i], admits[i], dmasks[i][:l], tlim=max_day)
+        if len(tmax) > max_day + 2:
+            all_daily[i, :] = tmax[:max_day + 2]
+        else:
+            all_daily[i, :len(tmax)] = tmax
 
     centers = np.zeros(n_clusters, dtype=int)
     cluster_idx = {}
@@ -453,7 +469,7 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7)
             plt.fill_between(range(max_day + 2), stds_lower, stds_upper, color='grey', alpha=.2,
                              label=r'$\pm$ 1 std. dev.')
 
-            plt.xlim([-0.05, 7.15])
+            plt.xlim([-0.05, max_day + 0.15])
             plt.ylim([-0.05, 4.15])
             plt.xlabel('Time (Days)')
             plt.ylabel('KDIGO Score')
@@ -471,7 +487,7 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7)
             plt.fill_between(range(max_day + 2), stds_lower, stds_upper, color='grey', alpha=.2,
                              label=r'$\pm$ 1 std. dev.')
 
-            plt.xlim([-0.05, 7.15])
+            plt.xlim([-0.05, max_day + 0.15])
             plt.ylim([-0.05, 4.15])
             plt.xlabel('Time (Days)')
             plt.ylabel('KDIGO Score')
@@ -482,4 +498,60 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7)
             plt.close(fig)
         f.close()
     return all_daily
+
+
+def return_centers(ids, dm_f, lbl_f):
+    dm = np.load(dm_f)
+    sqdm = squareform(dm)
+    lbls = load_csv(lbl_f, ids, str)
+    lbl_names = np.unique(lbls)
+    centers = np.zeros(len(lbl_names), dtype=int)
+    for i in range(len(lbl_names)):
+        tlbl = lbl_names[i]
+        idx = np.where(lbls == tlbl)[0]
+        sel = np.ix_(idx, idx)
+        tdm = sqdm[sel]
+        all_intra = np.sum(tdm, axis=0)
+        cid = np.argsort(all_intra)[0]
+        centers[i] = ids[idx[cid]]
+    return centers, lbl_names
+
+
+from dtw import dtw
+from scipy.spatial import distance
+def find_from_centers(centers, lbl_names, kdigos):
+    lbls = np.zeros(len(kdigos), dtype=lbl_names.dtype)
+    for i in range(len(kdigos)):
+        p1 = kdigos[i]
+        min_dist = None
+        center_id = None
+        for j in range(len(centers)):
+            p2 = centers[j]
+            _, _, _, path = dtw(p1, p2, lambda y, yy: np.abs(y - yy))
+            if len(p1) > 1 and len(p2) > 1:
+                dist, _, _, path = dtw(p1, p2, lambda y, yy: np.abs(y - yy))
+                p1_path = path[0]
+                p2_path = path[1]
+                p1_m = [p1[p1_path[x]] for x in range(len(p1_path))]
+                p2_m = [p2[p2_path[x]] for x in range(len(p2_path))]
+            elif len(p1) == 1:
+                p1_m = np.repeat(p1[0], len(p2))
+                p2_m = p2
+            elif len(p2) == 1:
+                p1_m = p1
+                p2_m = np.repeat(p2[0], len(p1))
+            if np.all(p1_m == p2_m):
+                dist = 0
+            else:
+                dist = distance.braycurtis(p1_m, p2_m)
+            if min_dist is None:
+                min_dist = dist
+                center_id = j
+            else:
+                if dist < min_dist:
+                    min_dist = dist
+                    center_id = j
+        lbls[i] = lbl_names[center_id]
+    return lbls
+
 

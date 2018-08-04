@@ -229,8 +229,10 @@ def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta'):
     # get IDs and Clusters in order from cluster file
     # ids = np.loadtfxt(id_file, dtype=int, delimiter=',')
     if type(in_file) == str:
+        got_str = True
         f = h5py.File(in_file, 'r')
     else:
+        got_str = False
         f = in_file
     meta = f[meta_grp]
     ids = meta['ids'][:]
@@ -260,8 +262,8 @@ def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta'):
                'percent_male,fluid_overload_mean,fluid_overload_std,gross_fluid_mean,gross_fluid_std,' + \
                'charlson_mean,charlson_std,elixhauser_mean,elixhauser_std,mech_vent_free_med,mech_vent_25,mech_vent_75\n'
 
-    f = open(label_path + 'cluster_stats.csv', 'w')
-    f.write(c_header)
+    sf = open(label_path + 'cluster_stats.csv', 'w')
+    sf.write(c_header)
     for i in range(len(lbl_names)):
         tlbl = lbl_names[i]
         rows = np.where(lbls == tlbl)[0]
@@ -337,13 +339,15 @@ def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta'):
             plt.suptitle('Cluster ' + str(tlbl) + ' Distributions')
             plt.tight_layout()
             plt.savefig('cluster' + str(tlbl) + 'dist.png')
-        f.write(
+        sf.write(
             '%s,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
             (tlbl, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
              n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
              sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, net_mean, net_std,
              gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
-
+    sf.close()
+    if got_str:
+        f.close()
 
 # %%
 def get_disch_date(idx, date_m, hosp_locs):
@@ -694,7 +698,7 @@ def get_apache(ids, data_path,
                scr_agg, s_c_r,
                out_name):
 
-    _, ages = load_csv(data_path + 'ages.csv', ids)
+    ages = load_csv(data_path + 'ages.csv', ids)
 
     out = open(out_name, 'w')
     ct = 0
