@@ -12,21 +12,28 @@ import datetime
 # PARAMETERS
 #################################################################################
 base_path = '../RESULTS/icu/7days_071118/'
-dm_tags = ['_cDTW_normdist_a2', '_cDTW_cdist_a1', '_cDTW_cdist_a1']
+dm_tags = ['_absmismatch_custBC',
+           '_absmismatch_extension_a2E-01_normBC', '_absmismatch_extension_a2E-01_custBC',
+           '_absmismatch_extension_a5E-01_normBC', '_absmismatch_extension_a5E-01_custBC',
+           '_absmismatch_extension_a1E+00_normBC', '_absmismatch_extension_a1E+00_custBC',
+           '_custmismatch_normBC', '_custmismatch_custBC',
+           '_custmismatch_extension_a2E-01_normBC'] # , '_custmismatch_extension_a2E-01_custBC',
+           # '_custmismatch_extension_a5E-01_normBC', '_custmismatch_extension_a5E-01_custBC',
+           # '_custmismatch_extension_a1E+00_normBC', '_custmismatch_extension_a1E+00_custBC']
 
 h5_name = 'stats.h5'
 
-eps_l = [0.050, 0.075, 0.100]                              # Epsilon threshold for DBSCAN
-p_thresh_l = [1e-10, 1e-20, 1e-50]                         # NormalTest threshold to stop splitting
+eps_l = [0.05, 0.075]                                      # Epsilon threshold for DBSCAN
+p_thresh_l = [0.1, 1e-2, 1e-5, 1e-10, ]                    # NormalTest threshold to stop splitting
 hlim_l = [3, 4]                                            # Height limit for cutting dendrogram
-min_size_l = [40, 75]                                      # Minimum cluster size
+min_size_l = [15, 30]                                      # Minimum cluster size
 # Note: DBSCAN clusters smaller than min_size are grouped into the noise cluster,
 # whereas min_size is used as a stopping criteria when splitting ward's method clusters.
 
 max_noise = 0.1                                            # As fraction of total number patients
 # If > max_noise patients designated as noise (only applicable for DBSCAN), discard results
 
-max_clust = 30
+max_clust = 15
 # Which clustering algorithm to apply
 # Methods
 #   - composite     -   First apply DBSCAN, followed by modified Ward's method
@@ -50,16 +57,19 @@ for dm_tag in dm_tags:
         dm = np.load(base_path + 'kdigo_dm%s.npy' % dm_tag)
     else:
         dm = load_dm(base_path + 'kdigo_dm%s.csv' % dm_tag, ids)
-
+    interactive = True
     for method in methods:
         if method == 'composite':
-            for eps in eps_l:
-                for p_thresh in p_thresh_l:
-                    for hlim in hlim_l:
-                        for min_size in min_size_l:
-                            dist_cut_cluster(base_path + h5_name, dm, ids, path=base_path + 'clusters/%s/' % dm_tag[1:],
-                                             eps=eps, p_thresh=p_thresh, min_size=min_size, height_lim=hlim,
-                                             interactive=False, save=True, max_noise=max_noise, max_clust=max_clust)
+            eps = 0.05
+            # for eps in eps_l:
+            for p_thresh in p_thresh_l:
+                for hlim in hlim_l:
+                    for min_size in min_size_l:
+                        lbls, eps = dist_cut_cluster(base_path + h5_name, dm, ids, path=base_path + 'clusters/%s/' % dm_tag[1:],
+                                         eps=eps, p_thresh=p_thresh, min_size=min_size, height_lim=hlim,
+                                         interactive=interactive, save=True, max_noise=max_noise, max_clust=max_clust)
+                        interactive = False
+                        eps = eps
         elif method == 'ward':
             f = h5py.File(base_path + h5_name, 'r')
             link = ward(dm)

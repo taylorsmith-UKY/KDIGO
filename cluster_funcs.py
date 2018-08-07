@@ -34,7 +34,16 @@ def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_t
     while cont:
         db.fit(sqdm)
         lbls = np.array(db.labels_, dtype=int)
-        nclust = len(np.unique(lbls)) - 1
+        lbls[np.where(lbls >= 0)] += 1
+        lbl_names = np.unique(lbls)
+        nclust = len(lbl_names) - 1
+        for i in range(1, nclust + 1):
+            tlbl = lbl_names[i]
+            idx = np.where(lbls == tlbl)[0]
+            if len(idx) < min_size:
+                lbls[idx] = -1
+        lbl_names = np.unique(lbls)
+        nclust = len(lbl_names) - 1
         print('Number of DBSCAN Clusters = %d' % nclust)
         if interactive:
             lbl_names = np.unique(lbls)
@@ -48,14 +57,7 @@ def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_t
                 cont = False
         else:
             cont = False
-    lbls[np.where(lbls >= 0)] += 1
-    lbl_names = np.unique(lbls)
-    for i in range(1, nclust + 1):
-        tlbl = lbl_names[i]
-        idx = np.where(lbls == tlbl)[0]
-        if len(idx) < min_size:
-            lbls[idx] = -1
-    n_clusters = len(np.unique(lbls))
+    n_clusters = len(np.unique(lbls)) - 1
     if max_clust:
         if n_clusters > max_clust:
             f.close()
@@ -198,7 +200,7 @@ def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_t
                     log.write('Min Cluster Size:\t%d\n' % min_size)
                     log.close()
     f.close()
-    return lbls
+    return lbls, eps
 
 
 def dist_cut_tree(node, lbls, base_name, sqdm, p_thresh, min_size=20, height_lim=5):
@@ -376,7 +378,7 @@ def dm_to_sim(dist_file, out_name, beta=1, eps=1e-6):
     out.close()
 
 
-def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7):
+def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7, cutoff=7):
     c_lbls = np.unique(lbls)
     n_clusters = len(c_lbls)
     if np.ndim(sqdm) == 1:
@@ -443,7 +445,11 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7)
             dmax = all_daily[centers[i], :]
             tfig = plt.figure()
             tplot = tfig.add_subplot(111)
-            tplot.plot(range(len(dmax)), dmax, label='Cluster Mortality = %.2f%%' % mort)
+            # Trajectory used for model
+            tplot.plot(range(len(dmax))[:cutoff + 1], dmax[:cutoff + 1], color='blue')
+            # Rest of trajectory
+            tplot.axvline(x=cutoff, linestyle='dashed')
+            tplot.plot(range(len(dmax))[cutoff:], dmax[cutoff:], color='red', label='Cluster Mortality = %.2f%%' % mort)
             plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
             tplot.set_xlim(-0.05, 7.15)
             tplot.set_ylim(-0.05, 4.15)
@@ -460,9 +466,12 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7)
                 plt.plot(range(max_day + 2), all_daily[cidx[j]], lw=1, alpha=0.3)
 
             mean_daily = np.nanmean(all_daily[cidx], axis=0)
-            plt.plot(range(max_day + 2), mean_daily, color='b',
+            plt.plot(range(max_day + 2)[:cutoff + 1], mean_daily[:cutoff + 1], color='b',
+                     lw=2, alpha=.8)
+            plt.plot(range(max_day + 2)[cutoff:], mean_daily[cutoff:], color='r',
                      label='Cluster Mortality = %.2f%%' % mort,
                      lw=2, alpha=.8)
+            plt.axvline(x=cutoff, linestyle='dashed')
             std_daily = np.nanstd(all_daily[cidx], axis=0)
             stds_upper = np.minimum(mean_daily + std_daily, 4)
             stds_lower = np.maximum(mean_daily - std_daily, 0)
@@ -479,11 +488,15 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7)
             plt.savefig(outpath + 'all_w_mean/%s_all.png' % c_lbls[i])
             plt.close(fig)
 
+            # Mean and standard deviation
             fig = plt.figure()
 
-            plt.plot(range(max_day + 2), mean_daily, color='b',
+            plt.plot(range(max_day + 2)[:cutoff + 1], mean_daily[:cutoff + 1], color='b',
+                     lw=2, alpha=.8)
+            plt.plot(range(max_day + 2)[cutoff:], mean_daily[cutoff:], color='r', linestyle='dashed',
                      label='Cluster Mortality = %.2f%%' % mort,
                      lw=2, alpha=.8)
+            plt.axvline(x=cutoff, linestyle='dashed')
             plt.fill_between(range(max_day + 2), stds_lower, stds_upper, color='grey', alpha=.2,
                              label=r'$\pm$ 1 std. dev.')
 

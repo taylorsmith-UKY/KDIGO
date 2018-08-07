@@ -2,6 +2,7 @@ import os
 import numpy as np
 import kdigo_funcs as kf
 from scipy.spatial import distance
+import h5py
 
 # ------------------------------- PARAMETERS ----------------------------------#
 basePath = "../"
@@ -10,17 +11,13 @@ xl_file = "KDIGO_full.xlsx"
 timescale = 6  # in hours
 id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
-h5_name = 'kdigo_dm.h5'
-folder_name = '/7days_071118/'
+folder_name = '/7days_071118_subset/'
 alphas = [0.25, 0.5, 1.0]
 transition_costs = [1.00,   # [0 - 1]
                     2.95,   # [1 - 2]
                     4.71,   # [2 - 3]
                     7.62]   # [3 - 4]
-
-use_extension_penalty = True
-use_mismatch_penalty = True
-use_custom_braycurtis = True
+t_lims = range(3, 8)[::-1]
 
 bc_shift = 1        # Value to add to coordinates for BC distance
 # With bc_shift=0, the distance from KDIGO 3D to all
@@ -38,45 +35,54 @@ inFile = dataPath + xl_file
 id_ref = outPath + id_ref
 baseline_file = dataPath + 'baselines_1_7-365_mdrd.csv'
 
-ids = np.loadtxt(id_ref, dtype=int)
-kdigos = kf.load_csv(outPath + 'kdigo.csv', ids, int)
+f = h5py.File(resPath + 'stats.h5', 'r')
+all_ids = f['meta']['ids'][:]
+dtd = f['meta']['days_to_death'][:]
+f.close()
 
-mk = np.zeros(len(ids))
-for i in range(len(ids)):
-    mk[i] = np.max(kdigos[i])
+for t_lim in t_lims:
+    tpath = resPath + '%ddays/' % t_lim
+    if not os.path.exists(tpath):
+        os.mkdir(tpath)
+    pt_sel = np.union1d(np.where(np.isnan(dtd))[0], np.where(dtd > t_lim)[0])
+    ids = all_ids[pt_sel]
 
-aki_idx = np.where(mk)[0]
+    kdigos = kf.load_csv(outPath + 'kdigo.csv', ids, int)
+    days = kf.load_csv(outPath + 'days_interp.csv', ids, int)
 
-aki_ids = ids[aki_idx]
-aki_kdigos = kf.load_csv(outPath + 'kdigo.csv', aki_ids, int)
-
-for alpha in alphas:
-    for use_dic_dtw in [dtw_dic, None]:
-        for use_dic_dist in [bc_dic, None]:
-            if use_mismatch_penalty:
-                mismatch = kf.mismatch_penalty_func(*transition_costs)
-                dm_tag = '_custmismatch'
-            else:
-                mismatch = lambda x, y: abs(x - y)
-                dm_tag = '_absmismatch'
+    for use_mismatch_penalty in [True, False]:
+        for use_extension_penalty in [True, False]:
             if use_extension_penalty:
-                extension = kf.extension_penalty_func(*transition_costs)
-                dm_tag += '_extension_a%.0E' % alpha
+                alpha_list = alphas
             else:
-                extension = lambda x: 0
-            if use_custom_braycurtis:
-                bc_dist = kf.get_custom_braycurtis(*transition_costs, shift=bc_shift)
-                dm_tag += '_custBC'
-            else:
-                bc_dist = distance.braycurtis
-                dm_tag += '_normBC'
+                alpha_list = [0.0, ]
+            for alpha in alphas:
+                for use_custom_braycurtis in [False, True]:
+                    if use_mismatch_penalty:
+                        mismatch = kf.mismatch_penalty_func(*transition_costs)
+                        dm_tag = '_custmismatch'
+                    else:
+                        mismatch = lambda x, y: abs(x - y)
+                        dm_tag = '_absmismatch'
+                    if use_extension_penalty:
+                        extension = kf.extension_penalty_func(*transition_costs)
+                        dm_tag += '_extension_a%.0E' % alpha
+                    else:
+                        extension = lambda x: 0
+                    if use_custom_braycurtis:
+                        bc_dist = kf.get_custom_braycurtis(*transition_costs, shift=bc_shift)
+                        dm_tag += '_custBC'
+                    else:
+                        bc_dist = distance.braycurtis
+                        dm_tag += '_normBC'
 
-            if not os.path.exists(resPath + 'kdigo_dm' + dm_tag + '.csv'):
-                dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv', None,
-                                          incl_0=False, mismatch=mismatch,
-                                          extension=extension,
-                                          bc_dist=bc_dist,
-                                          alpha=alpha)
-                np.save(resPath + 'kdigo_dm' + dm_tag, dm)
-
-
+                    if not os.path.exists(tpath + 'kdigo_dm' + dm_tag + '.npy'):
+                        dm = kf.pairwise_dtw_dist(kdigos, days, ids, tpath + 'kdigo_dm' + dm_tag + '.csv', None,
+                                                  mismatch=mismatch,
+                                                  extension=extension,
+                                                  bc_dist=bc_dist,
+                                                  alpha=alpha,
+                                                  desc=dm_tag[1:], t_lim=t_lim)
+                        np.save(tpath + 'kdigo_dm' + dm_tag, dm)
+                    else:
+                        print(dm_tag + ' already completed.')

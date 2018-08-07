@@ -12,7 +12,7 @@ from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
 from sklearn.feature_selection import SelectFromModel, SelectKBest, chi2, VarianceThreshold, RFECV
 from sklearn.model_selection import StratifiedKFold
 import h5py
-import tqdm
+from tqdm import tqdm
 
 
 # %%
@@ -1098,52 +1098,64 @@ def scr2kdigo(scr, base, masks, days, valid):
 
 
 # %%
-def pairwise_dtw_dist(patients, ids, dm_fname, dtw_name, incl_0=True, v=True,
+def pairwise_dtw_dist(patients, days, ids, dm_fname, dtw_name, v=True,
                       mismatch=lambda y, yy: abs(y-yy),
                       extension=lambda y: 0,
                       bc_dist=distance.braycurtis,
-                      alpha=1.0):
+                      alpha=1.0, t_lim=7,
+                      desc='DTW and Distance Calculation'):
     df = open(dm_fname, 'w')
     dis = []
+    pdic = {}
     if v and dtw_name is not None:
         log = open(dtw_name, 'w')
-    for i in range(len(patients)):
-        if incl_0 == False and np.all(patients[i] == 0):
-            continue
-        if v:
-            print('#' + str(i + 1) + ' vs #' + str(i + 2) + ' to ' + str(len(patients)))
-        patient1 = np.array(patients[i])
-        for j in range(i + 1, len(patients)):
-            if not incl_0 and np.all(patients[j] == 0):
-                continue
-            df.write('%d,%d,' % (ids[i], ids[j]))
-            patient2 = np.array(patients[j])
-            if np.all(patients[i] == patients[j]):
-                df.write('%f\n' % 0)
-                dis.append(0)
-            else:
-                if len(patients[i]) > 1 and len(patients[j]) > 1:
-                    dist, _, _, path = dtw_p(patient1, patient2, mismatch, extension, alpha)
-                    p1_path = path[0]
-                    p2_path = path[1]
-                    p1 = [patient1[p1_path[x]] for x in range(len(p1_path))]
-                    p2 = [patient2[p2_path[x]] for x in range(len(p2_path))]
-                elif len(patients[i]) == 1:
-                    p1 = np.repeat(patient1[0], len(patient2))
-                    p2 = patient2
-                elif len(patients[j]) == 1:
-                    p1 = patient1
-                    p2 = np.repeat(patient2[0], len(patient1))
-                if np.all(p1 == p2):
+    for i in tqdm(range(len(patients)), desc=desc):
+        # if v:
+            # print('#' + str(i + 1) + ' vs #' + str(i + 2) + ' to ' + str(len(patients)))
+        sel = np.where(days[i] <= t_lim)[0]
+        patient1 = np.array(patients[i])[sel]
+        if tuple(patient1) in list(pdic):
+            tlist = pdic[tuple(patient1)]
+            start = len(tlist) - (len(patients) - i + 1)
+            ct = 0
+            for j in tqdm(range(i + 1, len(patients)), desc='Patient %d' % ids[i]):
+                dis.append(tlist[start + ct])
+        else:
+            dlist = []
+            for j in tqdm(range(i + 1, len(patients)), desc='Patient %d' % ids[i]):
+                df.write('%d,%d,' % (ids[i], ids[j]))
+                sel = np.where(days[j] < t_lim)[0]
+                patient2 = np.array(patients[j])[sel]
+                if np.all(patients[i] == patients[j]):
                     df.write('%f\n' % 0)
                     dis.append(0)
+                    dlist.append(0)
                 else:
-                    d = bc_dist(p1, p2)
-                    df.write('%f\n' % d)
-                    dis.append(d)
-            if v and dtw_name is not None:
-                log.write(arr2str(p1, fmt='%d') + '\n')
-                log.write(arr2str(p2, fmt='%d') + '\n\n')
+                    if len(patients[i]) > 1 and len(patients[j]) > 1:
+                        dist, _, _, path = dtw_p(patient1, patient2, mismatch, extension, alpha)
+                        p1_path = path[0]
+                        p2_path = path[1]
+                        p1 = [patient1[p1_path[x]] for x in range(len(p1_path))]
+                        p2 = [patient2[p2_path[x]] for x in range(len(p2_path))]
+                    elif len(patients[i]) == 1:
+                        p1 = np.repeat(patient1[0], len(patient2))
+                        p2 = patient2
+                    elif len(patients[j]) == 1:
+                        p1 = patient1
+                        p2 = np.repeat(patient2[0], len(patient1))
+                    if np.all(p1 == p2):
+                        df.write('%f\n' % 0)
+                        dis.append(0)
+                        dlist.append(0)
+                    else:
+                        d = bc_dist(p1, p2)
+                        df.write('%f\n' % d)
+                        dis.append(d)
+                        dlist.append(d)
+                if v and dtw_name is not None:
+                    log.write(arr2str(p1, fmt='%d') + '\n')
+                    log.write(arr2str(p2, fmt='%d') + '\n\n')
+            pdic[tuple(patient1)] = dlist
     if v and dtw_name is not None:
         log.close()
     return dis
@@ -1365,11 +1377,11 @@ def load_csv(fname, ids, dt=float, skip_header=False, sel=None):
                     idx = ids[i]
                     sel = np.where(rid == idx)[0][0]
                     res.append(temp[sel])
-        # if np.all([len(res[x]) == len(res[0]) for x in range(len(res))]):
-        #     res = np.array(res)
-        #     if res.ndim > 1:
-        #         if res.shape[1] == 1:
-        #             res = np.squeeze(res)
+        if np.all([len(res[x]) == len(res[0]) for x in range(len(res))]):
+            res = np.array(res)
+            if res.ndim > 1:
+                if res.shape[1] == 1:
+                    res = np.squeeze(res)
         if skip_header == 'keep':
             return hdr, res
         else:
@@ -1388,7 +1400,7 @@ def load_dm(fname, ids):
     return np.array(dm)
 
 
-def descriptive_trajectory_features(kdigos, ids, filename='descriptive_features.csv'):
+def descriptive_trajectory_features(kdigos, ids, days=None, t_lim=None, filename='descriptive_features.csv'):
     npts = len(kdigos)
     features = np.zeros((npts, 26))
     header = 'id,no_AKI,peak_at_KDIGO1,peak_at_KDIGO2,peak_at_KDIGO3,peak_at_KDIGO3D,KDIGO1_at_admit,KDIGO2_at_admit,' + \
@@ -1396,7 +1408,11 @@ def descriptive_trajectory_features(kdigos, ids, filename='descriptive_features.
              'onset_lt_3days,onset_gte_3days,complete_recovery_lt_3days,multiple_hits,KDIGO1_gt_24hrs,KDIGO2_gt_24hrs,' + \
              'KDIGO3_gt_24hrs,KDIGO4_gt_24hrs,flat,strictly_increase,strictly_decrease,slope_posTOneg,slope_negTOpos'
     for i in range(len(kdigos)):
-        kdigo = np.array(kdigos[i], dtype=int)
+        kdigo = kdigos[i]
+        if days is not None:
+            tdays = days[i]
+            sel = np.where(tdays <= t_lim)[0]
+            kdigo = kdigo[sel]
         kdigo1 = np.where(kdigo == 1)[0]
         kdigo2 = np.where(kdigo == 2)[0]
         kdigo3 = np.where(kdigo == 3)[0]
@@ -1557,7 +1573,7 @@ def descriptive_trajectory_features(kdigos, ids, filename='descriptive_features.
     return features
 
 
-def template_trajectory_features(kdigos, ids, filename='template_trajectory_features.csv',
+def template_trajectory_features(kdigos, ids, days=None,t_lim=None, filename='template_trajectory_features.csv',
                                  scores=np.array([0, 1, 2, 3, 4], dtype=int), npoints=3):
     combination = scores
     for i in range(npoints - 1):
@@ -1569,7 +1585,11 @@ def template_trajectory_features(kdigos, ids, filename='template_trajectory_feat
         header += ',' + str(templates[i])
     features = np.zeros((npts, len(templates)), dtype=int)
     for i in range(npts):
-        kdigo = np.array(kdigos[i])
+        kdigo = kdigos[i]
+        if days is not None:
+            tdays = days[i]
+            sel = np.where(tdays <= t_lim)[0]
+            kdigo = kdigo[sel]
         nwin = len(kdigo) - npoints + 1
         for j in range(nwin):
             tk = kdigo[j:j + npoints]
@@ -1580,7 +1600,7 @@ def template_trajectory_features(kdigos, ids, filename='template_trajectory_feat
     return features
 
 
-def slope_trajectory_features(kdigos, ids, scores=np.array([0, 1, 2, 3, 4]), filename='slope_features.csv'):
+def slope_trajectory_features(kdigos, ids, days=None,t_lim=None, scores=np.array([0, 1, 2, 3, 4]), filename='slope_features.csv'):
     slopes = []
     header = 'ids'
     for i in range(len(scores)):
@@ -1594,7 +1614,11 @@ def slope_trajectory_features(kdigos, ids, scores=np.array([0, 1, 2, 3, 4]), fil
     npts = len(kdigos)
     features = np.zeros((npts, len(slopes)), dtype=int)
     for i in range(npts):
-        kdigo = np.array(kdigos[i])
+        kdigo = kdigos[i]
+        if days is not None:
+            tdays = days[i]
+            sel = np.where(tdays <= t_lim)[0]
+            kdigo = kdigo[sel]
         nwin = len(kdigo) - 1
         for j in range(nwin):
             ts = kdigo[j + 1] - kdigo[j]

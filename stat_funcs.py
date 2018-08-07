@@ -268,7 +268,9 @@ def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta'):
         tlbl = lbl_names[i]
         rows = np.where(lbls == tlbl)[0]
         count = len(rows)
-        mort = float(len(np.where(died_inp[rows])[0])) / count
+        mort = float(len(np.where(died_inp[rows])[0]))
+        if mort > 0:
+            mort /= count
         k_counts = np.zeros(5)
         for j in range(5):
             k_counts[j] = len(np.where(m_kdigos[rows] == j)[0])
@@ -286,7 +288,9 @@ def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta'):
         apache_std = np.std(apache[rows])
         age_mean = np.mean(ages[rows])
         age_std = np.std(ages[rows])
-        pct_male = float(len(np.where(genders[rows])[0])) / count
+        pct_male = float(len(np.where(genders[rows])[0]))
+        if pct_male < 0:
+            pct_male /= count
         # pct_septic = float(len(np.where(sepsis[rows])[0]))/count
         net_mean = np.nanmean(net_fluid[rows])
         net_std = np.nanstd(net_fluid[rows])

@@ -9,16 +9,25 @@ from sklearn.ensemble import RandomForestClassifier as RFC
 from sklearn.feature_selection import chi2
 
 
-data_path = '../DATA/icu/7days_071118/'
-base_path = '../RESULTS/icu/7days_071118/'
+data_path = '../DATA/icu/7days_071118_subset/'
+base_path = '../RESULTS/icu/7days_071118_subset/'
 full_kdigo_path = '../DATA/icu/7days_073118/'
 
 methods = ['composite', 'ward']
 
 feat_sel = 'everything'
 
-tags = ['_norm_norm_a1', '_norm_norm_a2', '_norm_norm_a4',
-        '_norm_custcost_a1', '_norm_custcost_a2']
+# tags = ['_norm_norm_a1', '_norm_norm_a2', '_norm_norm_a4',
+#         '_norm_custcost_a1', '_norm_custcost_a2']
+
+tags = ['_absmismatch_custBC',
+        '_absmismatch_extension_a2E-01_normBC', '_absmismatch_extension_a2E-01_custBC',
+        '_absmismatch_extension_a5E-01_normBC', '_absmismatch_extension_a5E-01_custBC',
+        '_absmismatch_extension_a1E+00_normBC', '_absmismatch_extension_a1E+00_custBC',
+        '_custmismatch_normBC', '_custmismatch_custBC',
+        '_custmismatch_extension_a2E-01_normBC', '_custmismatch_extension_a2E-01_custBC',
+        '_custmismatch_extension_a5E-01_normBC', '_custmismatch_extension_a5E-01_custBC',
+        '_custmismatch_extension_a1E+00_normBC', '_custmismatch_extension_a1E+00_custBC']
 
 selection_models = [['linear', [0.01, ]],
                     ['univariate', [10, chi2]],
@@ -54,10 +63,10 @@ for tag in tags:
                     #         plot_feature_selection(f, lbls, feats, all_feat_names, lbl_name='died_inp',
                     #                                method=model, parameters=params,
                     #                                outpath=dirpath + '/' + dirname + '/feature_selection/')
-                    if not os.path.exists(dirpath + '/' + dirname + '/daily_kdigos_ext/'):
-                        os.mkdir(dirpath + '/' + dirname + '/daily_kdigos_ext/')
+                    if not os.path.exists(dirpath + '/' + dirname + '/daily_kdigos/'):
+                        os.mkdir(dirpath + '/' + dirname + '/daily_kdigos/')
                         plot_daily_kdigos(full_kdigo_path, ids, base_path + '/' + h5_name, sqdm, lbls,
-                                          outpath=dirpath + '/' + dirname + '/daily_kdigos_ext/', max_day=20)
+                                          outpath=dirpath + '/' + dirname + '/daily_kdigos/', max_day=20)
                     #
                     # stacked_bar(dirpath + '/' + dirname + '/cluster_stats.csv',
                     #             fname=dirpath + '/' + dirname + '/mort_vs_kdigo_bar.png',

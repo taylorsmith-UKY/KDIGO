@@ -4,13 +4,20 @@ from cluster_funcs import assign_feature_vectors
 from kdigo_funcs import cluster_feature_vectors, load_csv, arr2csv
 import os
 
-h5_fname = '../RESULTS/icu/7days_071118/stats.h5'
-lbl_path = '../RESULTS/icu/7days_071118/clusters/'
-feature_path = '../RESULTS/icu/7days_071118/features/'
+h5_fname = '../RESULTS/icu/7days_071118_subset/stats.h5'
+lbl_path = '../RESULTS/icu/7days_071118_subset/clusters/'
+feature_path = '../RESULTS/icu/7days_071118_subset/features/'
 
 methods = ['composite', 'ward']
 
-tags = ['_cDTW_normdist_a1', '_cDTW_normdist_a2', '_cDTW_cdist_a1', '_cDTW_cdist_a1']
+tags = ['_absmismatch_custBC',
+        '_absmismatch_extension_a2E-01_normBC', '_absmismatch_extension_a2E-01_custBC',
+        '_absmismatch_extension_a5E-01_normBC', '_absmismatch_extension_a5E-01_custBC',
+        '_absmismatch_extension_a1E+00_normBC', '_absmismatch_extension_a1E+00_custBC',
+        '_custmismatch_normBC', '_custmismatch_custBC',
+        '_custmismatch_extension_a2E-01_normBC', '_custmismatch_extension_a2E-01_custBC',
+        '_custmismatch_extension_a5E-01_normBC', '_custmismatch_extension_a5E-01_custBC',
+        '_custmismatch_extension_a1E+00_normBC', '_custmismatch_extension_a1E+00_custBC']
 
 f = h5py.File(h5_fname, 'r')
 ids = f['meta']['ids'][:]
