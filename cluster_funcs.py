@@ -7,6 +7,7 @@ import numpy as np
 from scipy.spatial.distance import squareform
 from scipy.cluster.hierarchy import dendrogram, fcluster, to_tree
 from scipy.stats.mstats import normaltest
+from scipy.stats import mode
 from sklearn.cluster import DBSCAN
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, homogeneity_score, completeness_score,\
     v_measure_score, fowlkes_mallows_score, silhouette_score, calinski_harabaz_score
@@ -21,8 +22,18 @@ import os
 
 # %%
 def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_thresh=0.05,
-                     min_size=20, height_lim=5, interactive=True, save=True, max_noise=100, max_clust=None):
+                     min_size=20, height_lim=5, interactive=True, save=True, max_noise=100,
+                     max_clust=None, hom_thresh=0.9, max_size_pct=0.2):
     f = h5py.File(h5_fname, 'r')
+    mk = f[meta_grp]['max_kdigo'][:]
+    if len(mk) != len(ids):
+        all_ids = f[meta_grp]['ids'][:]
+        all_mk = mk
+        mk = []
+        for i in range(len(all_ids)):
+            if all_ids[i] in ids:
+                mk.append(all_mk[i])
+        mk = np.array(mk)
     n_pts = len(ids)
     if dm.ndim == 1:
         sqdm = squareform(dm)
@@ -134,80 +145,115 @@ def dist_cut_cluster(h5_fname, dm, ids, meta_grp='meta', path='', eps=0.015, p_t
                             fmt='%.3f')
     if db_pvals is None:
         all_inter, all_intra, db_pvals = inter_intra_dist(sqdm, lbls, out_path='', op='mean', plot='none')
-    lbls = np.array(lbls).astype(str)
+    db_het = np.zeros(len(db_pvals))
     lbl_names = np.unique(lbls)
     for i in range(len(lbl_names)):
-        p_val = db_pvals[i]
-        if p_val < p_thresh:
+        tlbl = lbl_names[i]
+        sel = np.where(lbls == tlbl)[0]
+        mks = mk[sel]
+        tk, nm = mode(mks)
+        db_het[i] = float(nm) / len(mks)
+    max_size = int(max_size_pct * len(ids))
+    temp = lbls
+    cont = True
+    while cont:
+        if interactive:
+            p_thresh = input('Enter p-value threshold:')
+            min_size = input('Enter minimum size:')
+            height_lim = input('Enter height limit:')
+            hom_thresh = input('Enter max KDIGO homogeneity threshold (as fractional %... i.e. 1.0 means uniform):')
+            max_size_pct = input('Enter maximum cluster size (as fractional %):')
+            max_size = int(max_size_pct * len(ids))
+        lbls = np.array(temp).astype(str)
+        lbl_names = np.unique(lbls)
+        for i in range(len(lbl_names)):
+            p_val = db_pvals[i]
+            het = db_het[i]
             tlbl = lbl_names[i]
             if tlbl == '-1':
                 continue
             idx = np.where(lbls == tlbl)[0]
-            sel = np.ix_(idx, idx)
-            tsqdm = sqdm[sel]
-            tdm = squareform(tsqdm)
-            link = fc.ward(tdm)
-            root = to_tree(link)
-            tlbls = lbls[idx]
-            nlbls = dist_cut_tree(root, tlbls, tlbl, tsqdm, p_thresh, min_size=min_size, height_lim=height_lim)
-            lbls[idx] = nlbls
-    n_clusters = len(np.unique(lbls))
-    print('Final number of clusters: %d' % n_clusters)
-    if max_clust:
-        if n_clusters > max_clust:
-            f.close()
-            return
-    if save:
-        if not os.path.exists(path + 'composite/%d_clusters' % n_clusters):
-            os.makedirs(path + 'composite/%d_clusters' % n_clusters)
-            n_clusters = len(np.unique(lbls))
-            arr2csv(path + 'composite/%d_clusters/clusters.txt' % n_clusters, lbls, ids, fmt='%s')
-            get_cstats(f, path + 'composite/%d_clusters/' % n_clusters, meta_grp=meta_grp)
-            log = open(path + 'composite/%d_clusters/cluster_settings.txt' % n_clusters, 'w')
-            log.write('DBSCAN Epsilon:\t\t%.4f\n' % eps)
-            log.write('NormalTest p-thresh:\t%.2E\n' % p_thresh)
-            log.write('Ward Height Lim:\t%d\n' % height_lim)
-            log.write('Min Cluster Size:\t%d\n' % min_size)
-            log.close()
+            tsize = len(idx)
+            if p_val < p_thresh or het < hom_thresh or tsize > max_size:
+                sel = np.ix_(idx, idx)
+                tsqdm = sqdm[sel]
+                tdm = squareform(tsqdm)
+                link = fc.ward(tdm)
+                root = to_tree(link)
+                tlbls = lbls[idx]
+                nlbls = dist_cut_tree(root, tlbls, tlbl, tsqdm, p_thresh, mk[idx], min_size=min_size, height_lim=height_lim, hom_thresh=hom_thresh, max_size=max_size)
+                lbls[idx] = nlbls
+        n_clusters = len(np.unique(lbls))
+        print('Final number of clusters: %d' % n_clusters)
+        if max_clust:
+            if n_clusters > max_clust:
+                f.close()
+                return
+        if save:
+            if not os.path.exists(path + 'composite/%d_clusters' % n_clusters):
+                os.makedirs(path + 'composite/%d_clusters' % n_clusters)
+                n_clusters = len(np.unique(lbls))
+                arr2csv(path + 'composite/%d_clusters/clusters.txt' % n_clusters, lbls, ids, fmt='%s')
+                get_cstats(f, path + 'composite/%d_clusters/' % n_clusters, meta_grp=meta_grp)
+                log = open(path + 'composite/%d_clusters/cluster_settings.txt' % n_clusters, 'w')
+                log.write('DBSCAN Epsilon:\t\t%.4f\n' % eps)
+                log.write('NormalTest p-thresh:\t%.2E\n' % p_thresh)
+                log.write('Ward Height Lim:\t%d\n' % height_lim)
+                log.write('Min Cluster Size:\t%d\n' % min_size)
+                log.write('Homogeneity threshold:\t%.2f\n' % hom_thresh)
+                log.write('Maximum cluster size (as fractional %% of total size):\t%.2f\n' % max_size_pct)
+                log.close()
 
-        else:
-            ref = load_csv(path + 'composite/%d_clusters/clusters.txt' % n_clusters, ids, str)
-            if np.all(ref == lbls):
-                cont = False
             else:
-                cont = True
-                tag = 'a'
-            while cont:
-                if os.path.exists(path + 'composite/%d_clusters_%s' % (n_clusters, tag)):
-                    ref = load_csv(path + 'composite/%d_clusters_%s/clusters.txt'
-                                   % (n_clusters, tag), ids, str)
-                    if np.all(ref == lbls):
-                        cont = False
-                    else:
-                        cont = True
-                        tag = chr(ord(tag) + 1)
-                else:
-                    os.makedirs(path + 'composite/%d_clusters_%s' % (n_clusters, tag))
+                ref = load_csv(path + 'composite/%d_clusters/clusters.txt' % n_clusters, ids, str)
+                if np.all(ref == lbls):
                     cont = False
-                    n_clusters = len(np.unique(lbls))
-                    arr2csv(path + 'composite/%d_clusters_%s/clusters.txt' % (n_clusters, tag), lbls, ids,
-                            fmt='%s')
-                    get_cstats(f, path + 'composite/%d_clusters_%s/' % (n_clusters, tag), meta_grp=meta_grp)
-                    log = open(path + 'composite/%d_clusters_%s/cluster_settings.txt' % (n_clusters, tag), 'w')
-                    log.write('DBSCAN Epsilon:\t\t%.4f\n' % eps)
-                    log.write('NormalTest p-thresh:\t%.2E\n' % p_thresh)
-                    log.write('Ward Height Lim:\t%d\n' % height_lim)
-                    log.write('Min Cluster Size:\t%d\n' % min_size)
-                    log.close()
+                else:
+                    cont = True
+                    tag = 'a'
+                while cont:
+                    if os.path.exists(path + 'composite/%d_clusters_%s' % (n_clusters, tag)):
+                        ref = load_csv(path + 'composite/%d_clusters_%s/clusters.txt'
+                                       % (n_clusters, tag), ids, str)
+                        if np.all(ref == lbls):
+                            cont = False
+                        else:
+                            cont = True
+                            tag = chr(ord(tag) + 1)
+                    else:
+                        os.makedirs(path + 'composite/%d_clusters_%s' % (n_clusters, tag))
+                        cont = False
+                        n_clusters = len(np.unique(lbls))
+                        arr2csv(path + 'composite/%d_clusters_%s/clusters.txt' % (n_clusters, tag), lbls, ids,
+                                fmt='%s')
+                        get_cstats(f, path + 'composite/%d_clusters_%s/' % (n_clusters, tag), meta_grp=meta_grp)
+                        log = open(path + 'composite/%d_clusters_%s/cluster_settings.txt' % (n_clusters, tag), 'w')
+                        log.write('DBSCAN Epsilon:\t\t%.4f\n' % eps)
+                        log.write('NormalTest p-thresh:\t%.2E\n' % p_thresh)
+                        log.write('Ward Height Lim:\t%d\n' % height_lim)
+                        log.write('Min Cluster Size:\t%d\n' % min_size)
+                        log.write('Homogeneity threshold:\t%.2f\n' % hom_thresh)
+                        log.write('Maximum cluster size (as fractional %% of total size):\t%.2f\n' % max_size_pct)
+                        log.close()
+        if interactive:
+            t = raw_input('Try a different configuration? (y/n)')
+            if 'y' in t:
+                cont = True
+            else:
+                cont = False
+        else:
+            cont = False
     f.close()
     return lbls, eps
 
 
-def dist_cut_tree(node, lbls, base_name, sqdm, p_thresh, min_size=20, height_lim=5):
+def dist_cut_tree(node, lbls, base_name, sqdm, p_thresh, max_kdigo, min_size=20, height_lim=5, hom_thresh=0.9, max_size=0.2):
     height = len(base_name.split('-'))
     if height > height_lim:
         print('Height limit reached for node: %s' % base_name)
         return lbls
+    if type(max_size) == float:
+        max_size = max_size * len(lbls)
     left = node.get_left()
     right = node.get_right()
     left_name = base_name + '-l'
@@ -215,7 +261,7 @@ def dist_cut_tree(node, lbls, base_name, sqdm, p_thresh, min_size=20, height_lim
     left_idx = left.pre_order()
     left_sel = np.ix_(left_idx, left_idx)
     left_intra = np.mean(sqdm[left_sel], axis=0)
-    
+
     right_idx = right.pre_order()
     right_sel = np.ix_(right_idx, right_idx)
     right_intra = np.mean(sqdm[right_sel], axis=0)
@@ -227,18 +273,28 @@ def dist_cut_tree(node, lbls, base_name, sqdm, p_thresh, min_size=20, height_lim
     lbls[right_idx] = base_name + '-r'
 
     _, left_p = normaltest(left_intra)
-    if left_p < p_thresh:
-        print('Splitting node %s: p-value=%.2E' % (left_name, left_p))
-        lbls = dist_cut_tree(left, lbls, left_name, sqdm, p_thresh, min_size=min_size, height_lim=height_lim)
+    left_mks = max_kdigo[left_idx]
+    left_tk, left_nm = mode(left_mks)
+    left_hom = float(left_nm) / len(left_mks)
+    if left_p < p_thresh or left_hom < hom_thresh or len(left_idx) > max_size:
+        print('Splitting node %s: p-value=%.2E\tsize=%d\thomogeneity=%.2f%%' % (
+              left_name, left_p, len(left_idx), left_hom))
+        lbls = dist_cut_tree(left, lbls, left_name, sqdm, p_thresh, max_kdigo, min_size=min_size, height_lim=height_lim, hom_thresh=hom_thresh, max_size=max_size)
     else:
-            print('Node %s final: p-value=%.2E' % (left_name, left_p))
+            print('Node %s final: p-value=%.2E\tsize=%d\thomogeneity=%.2f%%' % (
+                  left_name, left_p, len(left_idx), left_hom))
 
     _, right_p = normaltest(right_intra)
-    if right_p < p_thresh:
-        print('Splitting node %s: p-value=%.2E' % (right_name, right_p))
-        lbls = dist_cut_tree(right, lbls, right_name, sqdm, p_thresh, min_size=min_size, height_lim=height_lim)
+    right_mks = max_kdigo[right_idx]
+    right_tk, right_nm = mode(right_mks)
+    right_hom = float(right_nm) / len(right_mks)
+    if right_p < p_thresh or right_hom < hom_thresh or len(right_idx) > max_size:
+        print('Splitting node %s: p-value=%.2E\tsize=%d\thomogeneity=%.2f%%' % (
+              right_name, right_p, len(right_idx), right_hom))
+        lbls = dist_cut_tree(right, lbls, right_name, sqdm, p_thresh, max_kdigo, min_size=min_size, height_lim=height_lim, hom_thresh=hom_thresh, max_size=max_size)
     else:
-        print('Node %s final: p-value=%.2E' % (right_name, right_p))
+        print('Node %s final: p-value=%.2E\tsize=%d\thomogeneity=%.2f%%' % (
+              right_name, right_p, len(right_idx), right_hom))
     return lbls
 
 
@@ -378,7 +434,7 @@ def dm_to_sim(dist_file, out_name, beta=1, eps=1e-6):
     out.close()
 
 
-def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7, cutoff=7):
+def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7, cutoff=None):
     c_lbls = np.unique(lbls)
     n_clusters = len(c_lbls)
     if np.ndim(sqdm) == 1:
@@ -445,11 +501,14 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7,
             dmax = all_daily[centers[i], :]
             tfig = plt.figure()
             tplot = tfig.add_subplot(111)
-            # Trajectory used for model
-            tplot.plot(range(len(dmax))[:cutoff + 1], dmax[:cutoff + 1], color='blue')
-            # Rest of trajectory
-            tplot.axvline(x=cutoff, linestyle='dashed')
-            tplot.plot(range(len(dmax))[cutoff:], dmax[cutoff:], color='red', label='Cluster Mortality = %.2f%%' % mort)
+            if cutoff is not None or cutoff >= max_day:
+                # Trajectory used for model
+                tplot.plot(range(len(dmax))[:cutoff + 1], dmax[:cutoff + 1], color='blue')
+                # Rest of trajectory
+                tplot.axvline(x=cutoff, linestyle='dashed')
+                tplot.plot(range(len(dmax))[cutoff:], dmax[cutoff:], color='red', label='Cluster Mortality = %.2f%%' % mort)
+            else:
+                tplot.plot(range(len(dmax)), dmax, color='blue', label='Cluster Mortality = %.2f%%' % mort)
             plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
             tplot.set_xlim(-0.05, 7.15)
             tplot.set_ylim(-0.05, 4.15)
@@ -466,12 +525,15 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7,
                 plt.plot(range(max_day + 2), all_daily[cidx[j]], lw=1, alpha=0.3)
 
             mean_daily = np.nanmean(all_daily[cidx], axis=0)
-            plt.plot(range(max_day + 2)[:cutoff + 1], mean_daily[:cutoff + 1], color='b',
-                     lw=2, alpha=.8)
-            plt.plot(range(max_day + 2)[cutoff:], mean_daily[cutoff:], color='r',
-                     label='Cluster Mortality = %.2f%%' % mort,
-                     lw=2, alpha=.8)
-            plt.axvline(x=cutoff, linestyle='dashed')
+            if cutoff is not None or cutoff >= max_day:
+                plt.plot(range(max_day + 2)[:cutoff + 1], mean_daily[:cutoff + 1], color='b',
+                         lw=2, alpha=.8)
+                plt.plot(range(max_day + 2)[cutoff:], mean_daily[cutoff:], color='r',
+                         label='Cluster Mortality = %.2f%%' % mort,
+                         lw=2, alpha=.8)
+                plt.axvline(x=cutoff, linestyle='dashed')
+            else:
+                plt.plot(range(max_day + 2), mean_daily, color='b', label='Cluster Mortality = %.2f%%' % mort, lw=2, alpha=.8)
             std_daily = np.nanstd(all_daily[cidx], axis=0)
             stds_upper = np.minimum(mean_daily + std_daily, 4)
             stds_lower = np.maximum(mean_daily - std_daily, 0)
@@ -490,13 +552,15 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7,
 
             # Mean and standard deviation
             fig = plt.figure()
-
-            plt.plot(range(max_day + 2)[:cutoff + 1], mean_daily[:cutoff + 1], color='b',
-                     lw=2, alpha=.8)
-            plt.plot(range(max_day + 2)[cutoff:], mean_daily[cutoff:], color='r', linestyle='dashed',
-                     label='Cluster Mortality = %.2f%%' % mort,
-                     lw=2, alpha=.8)
-            plt.axvline(x=cutoff, linestyle='dashed')
+            if cutoff is not None or cutoff >= max_day:
+                plt.plot(range(max_day + 2)[:cutoff + 1], mean_daily[:cutoff + 1], color='b',
+                         lw=2, alpha=.8)
+                plt.plot(range(max_day + 2)[cutoff:], mean_daily[cutoff:], color='r', linestyle='dashed',
+                         label='Cluster Mortality = %.2f%%' % mort,
+                         lw=2, alpha=.8)
+                plt.axvline(x=cutoff, linestyle='dashed')
+            else:
+                plt.plot(range(max_day + 2), mean_daily, color='b', label='Cluster Mortality = %.2f%%' % mort, lw=2, alpha=.8)
             plt.fill_between(range(max_day + 2), stds_lower, stds_upper, color='grey', alpha=.2,
                              label=r'$\pm$ 1 std. dev.')
 

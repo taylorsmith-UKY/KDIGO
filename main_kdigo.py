@@ -26,6 +26,7 @@ transition_costs = [1.00,   # [0 - 1]
 use_extension_penalty = True
 use_mismatch_penalty = True
 use_custom_braycurtis = True
+dist_flag = 'abs_pop'
 
 bc_shift = 1        # Value to add to coordinates for BC distance
 # With bc_shift=0, the distance from KDIGO 3D to all
@@ -45,11 +46,14 @@ if use_extension_penalty:
     dm_tag += '_extension_a%.0E' % alpha
 else:
     extension = lambda x: 0
-if use_custom_braycurtis:
-    bc_dist = kf.get_custom_braycurtis(*transition_costs, shift=bc_shift)
+if dist_flag == 'cust_bc':
+    dist = kf.get_custom_braycurtis(*transition_costs, shift=bc_shift)
     dm_tag += '_custBC'
-else:
-    bc_dist = distance.braycurtis
+elif dist_flag == 'norm_bc':
+    dist = distance.braycurtis
+    dm_tag += '_normBC'
+elif dist_flag == 'abs_pop':
+    dist = kf.get_pop_dist(*transition_costs)
     dm_tag += '_normBC'
 
 sort_id = 'STUDY_PATIENT_ID'
@@ -383,7 +387,7 @@ def main():
                                   resPath + 'kdigo_dtwlog' + dm_tag + '.csv', incl_0=False,
                                   mismatch=mismatch,
                                   extension=extension,
-                                  bc_dist=bc_dist,
+                                  bc_dist=dist,
                                   alpha=alpha)
         np.save(resPath + 'kdigo_dm' + dm_tag, dm)
 

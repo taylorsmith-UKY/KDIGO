@@ -11,13 +11,13 @@ xl_file = "KDIGO_full.xlsx"
 timescale = 6  # in hours
 id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
-folder_name = '/7days_071118_subset/'
+folder_name = '/7days_071118/'
 alphas = [0.25, 0.5, 1.0]
 transition_costs = [1.00,   # [0 - 1]
                     2.95,   # [1 - 2]
                     4.71,   # [2 - 3]
                     7.62]   # [3 - 4]
-t_lims = range(3, 8)[::-1]
+t_lims = range(1, 7)
 
 bc_shift = 1        # Value to add to coordinates for BC distance
 # With bc_shift=0, the distance from KDIGO 3D to all
@@ -50,14 +50,14 @@ for t_lim in t_lims:
     kdigos = kf.load_csv(outPath + 'kdigo.csv', ids, int)
     days = kf.load_csv(outPath + 'days_interp.csv', ids, int)
 
-    for use_mismatch_penalty in [True, False]:
-        for use_extension_penalty in [True, False]:
+    for use_mismatch_penalty in [False, ]:
+        for use_extension_penalty in [False, ]:
             if use_extension_penalty:
                 alpha_list = alphas
             else:
                 alpha_list = [0.0, ]
             for alpha in alphas:
-                for use_custom_braycurtis in [False, True]:
+                for use_custom_braycurtis in [False, ]:
                     if use_mismatch_penalty:
                         mismatch = kf.mismatch_penalty_func(*transition_costs)
                         dm_tag = '_custmismatch'

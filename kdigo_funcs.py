@@ -1377,11 +1377,14 @@ def load_csv(fname, ids, dt=float, skip_header=False, sel=None):
                     idx = ids[i]
                     sel = np.where(rid == idx)[0][0]
                     res.append(temp[sel])
-        if np.all([len(res[x]) == len(res[0]) for x in range(len(res))]):
-            res = np.array(res)
-            if res.ndim > 1:
-                if res.shape[1] == 1:
-                    res = np.squeeze(res)
+        try:
+            if np.all([len(res[x]) == len(res[0]) for x in range(len(res))]):
+                res = np.array(res)
+                if res.ndim > 1:
+                    if res.shape[1] == 1:
+                        res = np.squeeze(res)
+        except:
+            res = res
         if skip_header == 'keep':
             return hdr, res
         else:
@@ -2013,6 +2016,17 @@ def get_custom_braycurtis(*tcosts, **kwargs):
 
     def dist(x, y):
         return distance.braycurtis(coordinates[x], coordinates[y])
+
+    return dist
+
+
+def get_pop_dist(*tcosts, **kwargs):
+    coordinates = np.zeros(len(tcosts) + 1)
+    for i in range(len(tcosts)):
+        coordinates[i + 1] = coordinates[i] + tcosts[i]
+
+    def dist(x, y):
+        return np.sum(np.abs(coordinates[x] - coordinates[y]))
 
     return dist
 

@@ -30,7 +30,12 @@ lbl_list = ['died_inp', ]
 # tags = ['_norm_norm_a1', '_norm_norm_a2', '_norm_norm_a4',
 #         '_norm_custcost_a1', '_norm_custcost_a2']
 
-tags = ['_cDTW_normdist_a1', '_cDTW_normdist_a2', '_cDTW_cdist_a1', '_cDTW_cdist_a1']
+# tags = ['_absmismatch_extension_a5E-01_normBC', '_absmismatch_extension_a5E-01_custBC',
+#            '_absmismatch_extension_a1E+00_normBC', '_absmismatch_extension_a1E+00_custBC',
+#            '_custmismatch_normBC', '_custmismatch_custBC',
+#            '_custmismatch_extension_a2E-01_normBC', '_custmismatch_extension_a2E-01_custBC',
+#            '_custmismatch_extension_a5E-01_normBC', '_custmismatch_extension_a5E-01_custBC']  # ,
+tags = ['_custmismatch_extension_a1E+00_normBC', '_custmismatch_extension_a1E+00_custBC']
 test_size = 0.2
 
 # Note: There will be an equal number of positive and negative examples in the training set, however ALL

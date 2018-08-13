@@ -4,20 +4,20 @@ from cluster_funcs import assign_feature_vectors
 from kdigo_funcs import cluster_feature_vectors, load_csv, arr2csv
 import os
 
-h5_fname = '../RESULTS/icu/7days_071118_subset/stats.h5'
-lbl_path = '../RESULTS/icu/7days_071118_subset/clusters/'
-feature_path = '../RESULTS/icu/7days_071118_subset/features/'
+h5_fname = '../RESULTS/icu/7days_071118/stats.h5'
+lbl_path = '../RESULTS/icu/7days_071118/clusters/'
+feature_path = '../RESULTS/icu/7days_071118/features/'
 
 methods = ['composite', 'ward']
 
-tags = ['_absmismatch_custBC',
-        '_absmismatch_extension_a2E-01_normBC', '_absmismatch_extension_a2E-01_custBC',
-        '_absmismatch_extension_a5E-01_normBC', '_absmismatch_extension_a5E-01_custBC',
-        '_absmismatch_extension_a1E+00_normBC', '_absmismatch_extension_a1E+00_custBC',
-        '_custmismatch_normBC', '_custmismatch_custBC',
-        '_custmismatch_extension_a2E-01_normBC', '_custmismatch_extension_a2E-01_custBC',
-        '_custmismatch_extension_a5E-01_normBC', '_custmismatch_extension_a5E-01_custBC',
-        '_custmismatch_extension_a1E+00_normBC', '_custmismatch_extension_a1E+00_custBC']
+# tags = ['_absmismatch_extension_a5E-01_normBC', '_absmismatch_extension_a5E-01_custBC',
+#            '_absmismatch_extension_a1E+00_normBC', '_absmismatch_extension_a1E+00_custBC',
+#            '_custmismatch_normBC', '_custmismatch_custBC',
+#            '_custmismatch_extension_a2E-01_normBC', '_custmismatch_extension_a2E-01_custBC',
+#            '_custmismatch_extension_a5E-01_normBC', '_custmismatch_extension_a5E-01_custBC']  # ,
+tags = ['_custmismatch_extension_a1E+00_normBC', '_custmismatch_extension_a1E+00_custBC']
+
+t_lims = range(1,8)
 
 f = h5py.File(h5_fname, 'r')
 ids = f['meta']['ids'][:]
@@ -33,8 +33,10 @@ for tag in tags:
     for method in methods:
         for (dirpath, dirnames, filenames) in os.walk(lbl_path + tag[1:] + '/' + method + '/'):
             for dirname in dirnames:
-                lbls = np.loadtxt(dirpath + '/' + dirname + '/clusters.txt', dtype=str)
-
+                try:
+                    lbls = np.loadtxt(dirpath + '/' + dirname + '/clusters.txt', dtype=str)
+                except IOError:
+                    continue
                 desc_c, temp_c, slope_c = cluster_feature_vectors(desc, temp_norm, slope_norm, lbls)
                 all_desc_c = assign_feature_vectors(lbls, desc_c)
                 all_temp_c = assign_feature_vectors(lbls, temp_c)
