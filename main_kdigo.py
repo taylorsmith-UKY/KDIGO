@@ -54,7 +54,7 @@ elif dist_flag == 'norm_bc':
     dm_tag += '_normBC'
 elif dist_flag == 'abs_pop':
     dist = kf.get_pop_dist(*transition_costs)
-    dm_tag += '_normBC'
+    dm_tag += '_abspop'
 
 sort_id = 'STUDY_PATIENT_ID'
 sort_id_date = 'SCR_ENTERED'
@@ -387,7 +387,7 @@ def main():
                                   resPath + 'kdigo_dtwlog' + dm_tag + '.csv', incl_0=False,
                                   mismatch=mismatch,
                                   extension=extension,
-                                  bc_dist=dist,
+                                  dist=dist,
                                   alpha=alpha)
         np.save(resPath + 'kdigo_dm' + dm_tag, dm)
 

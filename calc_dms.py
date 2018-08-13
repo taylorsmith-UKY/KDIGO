@@ -17,7 +17,7 @@ transition_costs = [1.00,   # [0 - 1]
                     2.95,   # [1 - 2]
                     4.71,   # [2 - 3]
                     7.62]   # [3 - 4]
-t_lims = range(1, 7)
+t_lims = range(1, 8)[::-1]
 
 bc_shift = 1        # Value to add to coordinates for BC distance
 # With bc_shift=0, the distance from KDIGO 3D to all
@@ -50,14 +50,14 @@ for t_lim in t_lims:
     kdigos = kf.load_csv(outPath + 'kdigo.csv', ids, int)
     days = kf.load_csv(outPath + 'days_interp.csv', ids, int)
 
-    for use_mismatch_penalty in [False, ]:
-        for use_extension_penalty in [False, ]:
+    for use_mismatch_penalty in [True, ]:
+        for use_extension_penalty in [True, ]:
             if use_extension_penalty:
                 alpha_list = alphas
             else:
                 alpha_list = [0.0, ]
             for alpha in alphas:
-                for use_custom_braycurtis in [False, ]:
+                for dist_flag in ['abs_pop', ]:
                     if use_mismatch_penalty:
                         mismatch = kf.mismatch_penalty_func(*transition_costs)
                         dm_tag = '_custmismatch'
@@ -69,18 +69,21 @@ for t_lim in t_lims:
                         dm_tag += '_extension_a%.0E' % alpha
                     else:
                         extension = lambda x: 0
-                    if use_custom_braycurtis:
-                        bc_dist = kf.get_custom_braycurtis(*transition_costs, shift=bc_shift)
+                    if dist_flag == 'cust_bc':
+                        dist = kf.get_custom_braycurtis(*transition_costs, shift=bc_shift)
                         dm_tag += '_custBC'
-                    else:
-                        bc_dist = distance.braycurtis
+                    elif dist_flag == 'norm_bc':
+                        dist = distance.braycurtis
                         dm_tag += '_normBC'
+                    elif dist_flag == 'abs_pop':
+                        dist = kf.get_pop_dist(*transition_costs)
+                        dm_tag += '_abspop'
 
                     if not os.path.exists(tpath + 'kdigo_dm' + dm_tag + '.npy'):
                         dm = kf.pairwise_dtw_dist(kdigos, days, ids, tpath + 'kdigo_dm' + dm_tag + '.csv', None,
                                                   mismatch=mismatch,
                                                   extension=extension,
-                                                  bc_dist=bc_dist,
+                                                  dist=dist,
                                                   alpha=alpha,
                                                   desc=dm_tag[1:], t_lim=t_lim)
                         np.save(tpath + 'kdigo_dm' + dm_tag, dm)

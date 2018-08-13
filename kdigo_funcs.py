@@ -1101,7 +1101,7 @@ def scr2kdigo(scr, base, masks, days, valid):
 def pairwise_dtw_dist(patients, days, ids, dm_fname, dtw_name, v=True,
                       mismatch=lambda y, yy: abs(y-yy),
                       extension=lambda y: 0,
-                      bc_dist=distance.braycurtis,
+                      dist=distance.braycurtis,
                       alpha=1.0, t_lim=7,
                       desc='DTW and Distance Calculation'):
     df = open(dm_fname, 'w')
@@ -1122,7 +1122,7 @@ def pairwise_dtw_dist(patients, days, ids, dm_fname, dtw_name, v=True,
                 dis.append(tlist[start + ct])
         else:
             dlist = []
-            for j in tqdm(range(i + 1, len(patients)), desc='Patient %d' % ids[i]):
+            for j in range(i + 1, len(patients)):
                 df.write('%d,%d,' % (ids[i], ids[j]))
                 sel = np.where(days[j] < t_lim)[0]
                 patient2 = np.array(patients[j])[sel]
@@ -1148,7 +1148,7 @@ def pairwise_dtw_dist(patients, days, ids, dm_fname, dtw_name, v=True,
                         dis.append(0)
                         dlist.append(0)
                     else:
-                        d = bc_dist(p1, p2)
+                        d = dist(p1, p2)
                         df.write('%f\n' % d)
                         dis.append(d)
                         dlist.append(d)
