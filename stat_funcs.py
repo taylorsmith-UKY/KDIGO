@@ -6,100 +6,131 @@ Created on Wed Nov 29 13:15:39 2017
 @author: taylorsmith
 """
 from __future__ import division
-from kdigo_funcs import load_csv, get_mat, calc_gfr
+from kdigo_funcs import load_csv, get_mat, calc_gfr, get_date
 import datetime
 import numpy as np
 import re
-import matplotlib.pyplot as plt
+from scipy.stats import ttest_ind
 import h5py
 import pandas as pd
+import os
 
 
-def summarize_stats(ids, kdigos,
+def summarize_stats(ids, kdigos, days, scrs,
                     dem_m, sex_loc, eth_loc,
-                    dob_m, dob_loc,
-                    diag_m, diag_loc, diag_nb_loc,
+                    dob_m, birth_loc,
+                    diag_m, diag_loc,
                     charl_m, charl_loc, elix_m, elix_loc,
-                    mech_m, mech_loc,
+                    organ_sup_mv, mech_vent_dates,
+                    organ_sup_ecmo, ecmo_dates,
+                    organ_sup_iabp, iabp_dates,
+                    organ_sup_vad, vad_dates,
                     date_m, hosp_locs, icu_locs,
                     sofa, apache, io_m,
-                    mort_m, mort_date,
-                    out_name, data_path, grp_name='meta'):
+                    mort_m, mdate_loc,
+                    clinical_oth, height, weight,
+                    dia_m, crrt_locs, hd_locs,
+                    out_name, data_path, grp_name='meta', tlim=7):
 
-    f = open(data_path + 'disch_disp.csv', 'r')
-    dd = []
-    ddids = []
-    for line in f:
-        l = line.rstrip().split(',')
-        ddids.append(int(l[0]))
-        dd.append(l[1])
-    f.close()
-    dd = np.array(dd)
-
-    sofa = np.sum(sofa, axis=0)
-    apache = np.sum(apache, axis=0)
+    # f = open(data_path + 'disch_disp.csv', 'r')
+    # dd = []
+    # ddids = []
+    # for line in f:
+    #     l = line.rstrip().split(',')
+    #     ddids.append(int(l[0]))
+    #     dd.append(l[1])
+    # f.close()
+    dd = np.array(load_csv(data_path + 'disch_disp.csv', ids, str, sel=1))
 
     n_eps = []
     for i in range(len(kdigos)):
         n_eps.append(count_eps(kdigos[i]))
+
+    bsln_scrs = load_csv(data_path + 'baselines.csv', ids, float)
+    bsln_gfrs = load_csv(data_path + 'baseline_gfr.csv', ids, float)
 
     ages = []
     genders = []
     mks = []
     dieds = []
     nepss = []
+    hosp_days = []
     hosp_frees = []
+    icu_days = []
     icu_frees = []
     sepsiss = []
     net_fluids = []
     gross_fluids = []
     c_scores = []
     e_scores = []
+    mv_flags = []
+    mv_days = []
     mv_frees = []
     eths = []
     dtds = []
+
+    bmis = []
+    diabetics = []
+    hypertensives = []
+    ecmos = []
+    iabps = []
+    vads = []
+    sofas = []
+    apaches = []
+
+    admit_scrs = []
+    peak_scrs = []
+    hd_dayss = []
+    crrt_dayss = []
+    record_lens = []
+
     for i in range(len(ids)):
         idx = ids[i]
-        mk = np.max(kdigos[i])
+        td = days[i]
+        mask = np.where(td <= tlim)[0]
+        mk = np.max(kdigos[i][mask])
         died = 0
         if 'EXPIRED' in dd[i]:
             died += 1
             if 'LESS' in dd[i]:
                 died += 1
-        hlos, ilos = get_los(idx, date_m, hosp_locs, icu_locs)
-        hfree = 28 - hlos
-        ifree = 28 - ilos
-        if hfree < 0:
-            hfree = 0
-        if ifree < 0:
-            ifree = 0
-
-        mech_idx = np.where(mech_m[:, 0] == idx)[0]
-        if mech_idx.size > 0:
-            mech = 28 - int(mech_m[mech_idx, mech_loc])
-        else:
-            mech = 28
-        if mech < 0:
-            mech = 0
-
-        if died:
-            if mech < 28:
-                mech = 0
-            if hfree < 28:
-                hfree = 0
-            if ifree < 28:
-                ifree = 0
 
         eps = n_eps[i]
 
         sepsis = 0
+        diabetic = 0
+        hypertensive = 0
         diag_ids = np.where(diag_m[:, 0] == idx)[0]
         for j in range(len(diag_ids)):
             tid = diag_ids[j]
             if 'sep' in str(diag_m[tid, diag_loc]).lower():
-                if int(diag_m[tid, diag_nb_loc]) == 1:
-                    sepsis = 1
-                    break
+                # if int(diag_m[tid, diag_nb_loc]) == 1:
+                sepsis = 1
+            if 'diabe' in str(diag_m[tid, diag_loc]).lower():
+                diabetic = 1
+            if 'hypert' in str(diag_m[tid, diag_loc]).lower():
+                hypertensive = 1
+
+        admit_scr = scrs[i][0]
+        peak_scr = np.max(scrs[i])
+
+        hd_days = 0
+        crrt_days = 0
+        dia_ids = np.where(dia_m[:, 0] == idx)[0]
+        if np.size(dia_ids) > 0:
+            for row in dia_ids:
+                if str(dia_m[row, crrt_locs[0]]).lower() != 'nat' and str(dia_m[row, crrt_locs[0]]).lower() != 'nan':
+                    start_str = str(dia_m[row, crrt_locs[0]]).split('.')[0]
+                    stop_str = str(dia_m[row, crrt_locs[1]]).split('.')[0]
+                    start, _ = get_date(start_str)
+                    stop, _ = get_date(stop_str)
+                    crrt_days += (stop - start).days
+                if str(dia_m[row, hd_locs[0]]).lower() != 'nat' and str(dia_m[row, hd_locs[0]]).lower() != 'nan':
+                    start_str = str(dia_m[row, hd_locs[0]]).split('.')[0]
+                    stop_str = str(dia_m[row, hd_locs[1]]).split('.')[0]
+                    start, _ = get_date(start_str)
+                    stop, _ = get_date(stop_str)
+                    hd_days += (stop - start).days
 
         male = 0
         dem_idx = np.where(dem_m[:, 0] == idx)[0][0]
@@ -107,9 +138,11 @@ def summarize_stats(ids, kdigos,
             male = 1
 
         dob_idx = np.where(dob_m[:, 0] == idx)[0][0]
-        dob = datetime.datetime.strptime(str(dob_m[dob_idx, dob_loc]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+        dob_str = str(dob_m[dob_idx, birth_loc]).split('.')[0]
+        dob, _ = get_date(dob_str)
         date_idx = np.where(date_m[:, 0] == idx)[0][0]
-        admit = datetime.datetime.strptime(str(date_m[date_idx, hosp_locs[0]]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+        admit_str = str(date_m[date_idx, hosp_locs[0]]).split('.')[0]
+        admit, _ = get_date(admit_str)
         tage = admit - dob
         age = tage.total_seconds() / (60 * 60 * 24 * 365)
 
@@ -118,6 +151,115 @@ def summarize_stats(ids, kdigos,
             eth = 1
         else:
             eth = 0
+
+        bmi = np.nan
+        co_rows = np.where(clinical_oth[:, 0] == idx)[0]
+        if co_rows.size > 0:
+            row = co_rows[0]
+            h = clinical_oth[row, height]
+            w = clinical_oth[row, weight]
+            try:
+                bmi = w / (h * h)
+            except ZeroDivisionError:
+                pass
+
+        hlos, ilos = get_los(idx, date_m, hosp_locs, icu_locs)
+        hfree = 28 - hlos
+        ifree = 28 - ilos
+        if hfree < 0:
+            hfree = 0
+        if ifree < 0:
+            ifree = 0
+
+        mech_flag = 0
+        mech_day = 0
+        mech = 28
+        mech_idx = np.where(organ_sup_mv[:, 0] == idx)[0]
+        if mech_idx.size > 0:
+            mech_idx = mech_idx[0]
+            try:
+                start_str = organ_sup_mv[mech_idx, mech_vent_dates[0]]
+                mech_start, _ = get_date(start_str)
+                stop_str = str(organ_sup_mv[mech_idx, mech_vent_dates[1]])
+                mech_stop, _ = get_date(stop_str)
+                if mech_stop < admit:
+                    pass
+                elif (mech_start - admit).days > 28:
+                    pass
+                else:
+                    if mech_start < admit:
+                        mech_day = (mech_stop - admit).days
+                    else:
+                        mech_day = (mech_stop - mech_start).days
+
+                    mech = 28 - mech_day
+                    mech_flag = 1
+            except ValueError:
+                pass
+        if mech < 0:
+            mech = 0
+
+        ecmo = 0
+        ecmo_idx = np.where(organ_sup_ecmo[:, 0] == idx)[0]
+        if ecmo_idx.size > 0:
+            ecmo_idx = ecmo_idx[0]
+            try:
+                start_str = str(organ_sup_ecmo[ecmo_idx, ecmo_dates[0]])
+                ecmo_start, _ = get_date(start_str)
+                stop_str = str(organ_sup_ecmo[ecmo_idx, ecmo_dates[1]])
+                ecmo_stop, _ = get_date(stop_str)
+                if ecmo_stop < admit:
+                    pass
+                elif (ecmo_start - admit).days > 28:
+                    pass
+                else:
+                    ecmo = 1
+            except ValueError:
+                pass
+
+        iabp = 0
+        iabp_idx = np.where(organ_sup_iabp[:, 0] == idx)[0]
+        if iabp_idx.size > 0:
+            iabp_idx = iabp_idx[0]
+            try:
+                start_str = str(organ_sup_iabp[iabp_idx, iabp_dates[0]])
+                iabp_start, _ = get_date(start_str)
+                stop_str = str(organ_sup_iabp[iabp_idx, iabp_dates[1]])
+                iabp_stop, _ = get_date(stop_str)
+                if iabp_stop < admit:
+                    pass
+                elif (iabp_start - admit).days > 28:
+                    pass
+                else:
+                    iabp = 1
+            except ValueError:
+                pass
+
+        vad = 0
+        vad_idx = np.where(organ_sup_vad[:, 0] == idx)[0]
+        if vad_idx.size > 0:
+            vad_idx = vad_idx[0]
+            try:
+                start_str = str(organ_sup_vad[vad_idx, vad_dates[0]])
+                vad_start, _ = get_date(start_str)
+                stop_str = str(organ_sup_vad[vad_idx, vad_dates[1]])
+                vad_stop, _ = get_date(stop_str)
+                if vad_stop < admit:
+                    pass
+                elif (vad_start - admit).days > 28:
+                    pass
+                else:
+                    vad = 1
+            except ValueError:
+                pass
+
+        if died:
+            if mech < 28:
+                mech = 0
+            if hfree < 28:
+                hfree = 0
+            if ifree < 28:
+                ifree = 0
 
         io_idx = np.where(io_m[:, 0] == idx)[0]
         if io_idx.size > 0:
@@ -154,44 +296,78 @@ def summarize_stats(ids, kdigos,
         mort_idx = np.where(mort_m[:, 0] == idx)[0]
         dtd = np.nan
         if mort_idx.size > 0:
-            tstr = str(mort_m[mort_idx[0], mort_date]).split('.')[0]
-            if tstr != 'nan':
-                try:
-                    mdate = datetime.datetime.strptime(tstr, '%m/%d/%Y')
-                except:
-                    mdate = datetime.datetime.strptime(tstr, '%Y-%m-%d %H:%M:%S')
-            dtd = (mdate - admit).total_seconds() / (60 * 60 * 24)
+            tstr = str(mort_m[mort_idx[0], mdate_loc]).split('.')[0]
+            mdate, _ = get_date(tstr)
+            if mdate != 'nan':
+                dtd = (mdate - admit).total_seconds() / (60 * 60 * 24)
 
         ages.append(age)
         genders.append(male)
         mks.append(mk)
         dieds.append(died)
         nepss.append(eps)
+        hosp_days.append(hlos)
         hosp_frees.append(hfree)
+        icu_days.append(ilos)
         icu_frees.append(ifree)
         sepsiss.append(sepsis)
+        diabetics.append(diabetic)
+        hypertensives.append(hypertensive)
+        admit_scrs.append(admit_scr)
+        peak_scrs.append(peak_scr)
+
+        bmis.append(bmi)
         net_fluids.append(net)
         gross_fluids.append(tot)
         c_scores.append(charl)
         e_scores.append(elix)
+        mv_flags.append(mech_flag)
+        mv_days.append(mech_day)
         mv_frees.append(mech)
+        ecmos.append(ecmo)
+        iabps.append(iabp)
+        vads.append(vad)
         eths.append(eth)
         dtds.append(dtd)
+        hd_dayss.append(hd_days)
+        crrt_dayss.append(crrt_days)
+        sofas.append(np.sum(sofa[i]))
+        apaches.append(np.sum(apache[i]))
     ages = np.array(ages, dtype=float)
     genders = np.array(genders, dtype=bool)
-    mks = np.array(mks, dtype=int)
-    dieds = np.array(dieds, dtype=int)
-    nepss = np.array(nepss, dtype=int)
-    hosp_frees = np.array(hosp_frees, dtype=float)
-    icu_frees = np.array(icu_frees, dtype=float)
-    sepsiss = np.array(sepsiss, dtype=bool)
-    net_fluids = np.array(net_fluids, dtype=float)
-    gross_fluids = np.array(gross_fluids, dtype=float)
+    eths = np.array(eths, dtype=bool)
+    bmis = np.array(bmis, dtype=float)
     c_scores = np.array(c_scores, dtype=float)  # Float bc possible NaNs
     e_scores = np.array(e_scores, dtype=float)  # Float bc possible NaNs
+    diabetics = np.array(diabetics, dtype=bool)
+    hypertensives = np.array(hypertensives, bool)
+    sofas = np.array(sofas, dtype=int)
+    apaches = np.array(apaches, dtype=int)
+    hosp_days = np.array(hosp_days, dtype=float)
+    hosp_frees = np.array(hosp_frees, dtype=float)
+    icu_days = np.array(icu_days, dtype=float)
+    icu_frees = np.array(icu_frees, dtype=float)
+    mv_flags = np.array(mv_flags, dtype=bool)
+    mv_days = np.array(mv_days, dtype=float)
     mv_frees = np.array(mv_frees, dtype=float)
-    eths = np.array(eths, dtype=bool)
-    dtds = np.array(dtds, dtype=foat)
+    ecmos = np.array(ecmos, dtype=int)
+    iabps = np.array(iabps, dtype=int)
+    vads = np.array(vads, dtype=int)
+    sepsiss = np.array(sepsiss, dtype=bool)
+    dieds = np.array(dieds, dtype=int)
+
+    bsln_scrs = np.array(bsln_scrs, dtype=float)
+    bsln_gfrs = np.array(bsln_gfrs, dtype=float)
+    admit_scrs = np.array(admit_scrs, dtype=float)
+    peak_scrs = np.array(peak_scrs, dtype=float)
+    mks = np.array(mks, dtype=int)
+    net_fluids = np.array(net_fluids, dtype=float)
+    gross_fluids = np.array(gross_fluids, dtype=float)
+    nepss = np.array(nepss, dtype=int)
+    hd_dayss = np.array(hd_dayss, dtype=int)
+    crrt_dayss = np.array(crrt_dayss, dtype=int)
+    dtds = np.array(dtds, dtype=float)
+
     try:
         f = h5py.File(out_name, 'r+')
     except:
@@ -204,28 +380,54 @@ def summarize_stats(ids, kdigos,
 
     meta.create_dataset('ids', data=ids, dtype=int)
     meta.create_dataset('age', data=ages, dtype=float)
-    meta.create_dataset('race', data=eths, dtype=bool)
-    meta.create_dataset('gender', data=genders, dtype=bool)
-    meta.create_dataset('max_kdigo', data=mks, dtype=int)
-    meta.create_dataset('died_inp', data=dieds, dtype=int)
-    meta.create_dataset('n_episodes', data=nepss, dtype=int)
-    meta.create_dataset('hosp_free_days', data=hosp_frees, dtype=float)
-    meta.create_dataset('icu_free_days', data=icu_frees, dtype=float)
-    meta.create_dataset('sepsis', data=sepsiss, dtype=bool)
-    meta.create_dataset('net_fluid', data=net_fluids, dtype=int)
-    meta.create_dataset('gross_fluid', data=gross_fluids, dtype=int)
+    meta.create_dataset('gender', data=genders, dtype=int)
+    meta.create_dataset('race', data=eths, dtype=int)
+    meta.create_dataset('bmi', data=bmis, dtype=float)
     meta.create_dataset('charlson', data=c_scores, dtype=int)
     meta.create_dataset('elixhauser', data=e_scores, dtype=int)
-    meta.create_dataset('mv_free_days', data=mv_frees, dtype=int)
+    meta.create_dataset('diabetic', data=diabetics, dtype=int)
+    meta.create_dataset('hypertensive', data=hypertensives, dtype=int)
     meta.create_dataset('sofa', data=sofa, dtype=int)
     meta.create_dataset('apache', data=apache, dtype=int)
+    meta.create_dataset('hosp_los', data=hosp_days, dtype=float)
+    meta.create_dataset('hosp_free_days', data=hosp_frees, dtype=float)
+    meta.create_dataset('icu_los', data=icu_days, dtype=float)
+    meta.create_dataset('icu_free_days', data=icu_frees, dtype=float)
+    meta.create_dataset('mv_flag', data=mv_flags, dtype=int)
+    meta.create_dataset('mv_days', data=mv_days, dtype=float)
+    meta.create_dataset('mv_free_days', data=mv_frees, dtype=float)
+    meta.create_dataset('ecmo', data=ecmos, dtype=int)
+    meta.create_dataset('iabp', data=iabps, dtype=int)
+    meta.create_dataset('vad', data=vads, dtype=int)
+    meta.create_dataset('sepsis', data=sepsiss, dtype=int)
+    meta.create_dataset('died_inp', data=dieds, dtype=int)
+    meta.create_dataset('baseline_scr', data=bsln_scrs, dtype=float)
+    meta.create_dataset('baseline_gfr', data=bsln_gfrs, dtype=float)
+    meta.create_dataset('admit_scr', data=admit_scrs, dtype=float)
+    meta.create_dataset('peak_scr', data=peak_scrs, dtype=float)
+    meta.create_dataset('net_fluid', data=net_fluids, dtype=int)
+    meta.create_dataset('gross_fluid', data=gross_fluids, dtype=int)
+    meta.create_dataset('hd_days', data=hd_dayss, dtype=int)
+    meta.create_dataset('crrt_days', data=crrt_dayss, dtype=int)
+
+
+    meta.create_dataset('max_kdigo', data=mks, dtype=int)
+    meta.create_dataset('n_episodes', data=nepss, dtype=int)
     meta.create_dataset('days_to_death', data=dtds, dtype=float)
 
     return meta
 
 
+def iqr(d, axis=None):
+    m = np.nanmean(d, axis=axis)
+    q25 = np.nanpercentile(d, 25, axis=axis)
+    q75 = np.nanpercentile(d, 75, axis=axis)
+    return m, q25, q75
+
+
+
 # %%
-def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta'):
+def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta', ids=None):
     # get IDs and Clusters in order from cluster file
     # ids = np.loadtfxt(id_file, dtype=int, delimiter=',')
     if type(in_file) == str:
@@ -235,121 +437,249 @@ def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta'):
         got_str = False
         f = in_file
     meta = f[meta_grp]
-    ids = meta['ids'][:]
+    all_ids = meta['ids'][:]
+    if ids is None:
+        sel = np.arange(len(all_ids))
+        ids = all_ids
+    else:
+        sel = np.array([x in ids for x in all_ids])
+    
     lbls = load_csv(label_path + 'clusters.txt', ids, dt=str)
 
-    ages = meta['age'][:]
-    genders = meta['gender'][:]
-    m_kdigos = meta['max_kdigo'][:]
-    died_inp = meta['died_inp'][:]
-    n_eps = meta['n_episodes'][:]
-    hosp_los = meta['hosp_free_days'][:]
-    icu_los = meta['icu_free_days'][:]
-    sofa = meta['sofa'][:]
-    apache = meta['apache'][:]
-    # sepsis = meta['sepsis'][:]
-    net_fluid = meta['net_fluid'][:]
-    gross_fluid = meta['gross_fluid'][:]
-    charlson = meta['charlson'][:]
-    elixhauser = meta['elixhauser'][:]
-    mech_vent = meta['mv_free_days'][:]
+    ages = meta['age'][:][sel]
+    genders = meta['gender'][:][sel]
+    races = meta['race'][:][sel]
+    bmis = meta['bmi'][:][sel]
+    charls = meta['charlson'][:][sel]
+    elixs = meta['elixhauser'][:][sel]
+    diabetics = meta['diabetic'][:][sel]
+    hypertensives = meta['hypertensive'][:][sel]
+
+    sofa = meta['sofa'][:][sel]
+    apache = meta['apache'][:][sel]
+    hosp_days = meta['hosp_los'][:][sel]
+    hosp_free = meta['hosp_free_days'][:][sel]
+    icu_days = meta['icu_los'][:][sel]
+    icu_free = meta['icu_free_days'][:][sel]
+    mv_days = meta['mv_days'][:][sel]
+    mv_free = meta['mv_free_days'][:][sel]
+    mv_flag = meta['mv_flag'][:][sel]
+    ecmo_flag = meta['ecmo'][:][sel]
+    iabp_flag = meta['iabp'][:][sel]
+    vad_flag = meta['vad'][:][sel]
+
+    sepsis = meta['sepsis'][:][sel]
+    died_inp = meta['died_inp'][:][sel]
+
+    bsln_scr = meta['baseline_scr'][:][sel]
+    bsln_gfr = meta['baseline_gfr'][:][sel]
+    admit_scr = meta['admit_scr'][:][sel]
+    peak_scr = meta['peak_scr'][:][sel]
+    net_fluid = meta['net_fluid'][:][sel]
+    gross_fluid = meta['gross_fluid'][:][sel]
+
+
+    m_kdigos = meta['max_kdigo'][:][sel]
+    n_eps = meta['n_episodes'][:][sel]
+    # rec_lens = meta['record_len'][:][sel]
+    #
+    hd_days = meta['hd_days'][:][sel]
+    crrt_days = meta['crrt_days'][:][sel]
 
     lbl_names = np.unique(lbls)
 
-    c_header = 'cluster_id,count,mort_pct,n_kdigo_0,n_kdigo_1,n_kdigo_2,n_kdigo_3,n_kdigo_3D,' + \
-               'n_eps_mean,n_eps_std,hosp_free_median,hosp_free_25,hosp_free_75,icu_free_median,' + \
-               'icu_free_25,icu_free_75,sofa_mean,sofa_std,apache_mean,apache_std,age_mean,age_std,' + \
-               'percent_male,fluid_overload_mean,fluid_overload_std,gross_fluid_mean,gross_fluid_std,' + \
-               'charlson_mean,charlson_std,elixhauser_mean,elixhauser_std,mech_vent_free_med,mech_vent_25,mech_vent_75\n'
+    cluster_data = {'age': {},
+                    'bmi': {},
+                    'charlson': {},
+                    'elixhauser': {},
+                    'sofa': {},
+                    'apache': {},
+                    'hosp_free': {},
+                    'icu_free': {},
+                    'mv_free': {},
+                    'bsln_scr': {},
+                    'bsln_gfr': {},
+                    'admit_scr': {},
+                    'peak_scr': {},
+                    'net_fluid': {},
+                    'gross_fluid': {},
+                    'crrt_days': {},
+                    'hd_days': {}}
+    
+    c_header = ','.join(['cluster_id', 'count', 'kdigo_0', 'kdigo_1', 'kdigo_2', 'kdigo_3', 'kdigo_3D',  'age_mean', 'age_std',
+                         'bmi_mean', 'bmi_std', 'pct_male', 'pct_white', 'charlson_mean', 'charlson_std',
+                         'elixhauser_mean', 'elixhauser_std', 'pct_diabetic', 'pct_hypertensive',
+                         'sofa_med', 'sofa_25', 'sofa_75', 'apache_med', 'apache_25', 'apache_75',
+                         'hosp_los_med', 'hosp_los_25', 'hosp_los_75', 'hosp_free_med', 'hosp_free_25', 'hosp_free_75',
+                         'icu_los_med', 'icu_los_25', 'icu_los_75', 'icu_free_med', 'icu_free_25', 'icu_free_75',
+                         'pct_ecmo', 'pct_iabp', 'pct_vad', 'pct_mech_vent',
+                         'mech_vent_days_med', 'mech_vent_days_25', 'mech_vent_days_75',
+                         'mech_vent_free_med', 'mech_vent_free_25', 'mech_vent_free_75',
+                         'pct_septic', 'pct_inp_mort',
+                         'bsln_scr_med', 'bsln_scr_25', 'bsln_scr_75', 
+                         'bsln_gfr_med', 'bsln_gfr_25', 'bsln_gfr_75', 
+                         'admit_scr_med', 'admit_scr_25', 'admit_scr_75',
+                         'peak_scr_med', 'peak_scr_25', 'peak_scr_75',
+                         'net_fluid_med', 'net_fluid_25', 'net_fluid_75',
+                         'gross_fluid_med', 'gross_fluid_25', 'gross_fluid_75', 
+                         'crrt_days_med', 'crrt_days_25', 'crrt_days_75',
+                         'hd_days_med', 'hd_days_25', 'hd_days_75', '\n'])
+                         # 'record_len_med', 'record_len_25', 'record_len_75', '\n'])
 
     sf = open(label_path + 'cluster_stats.csv', 'w')
     sf.write(c_header)
     for i in range(len(lbl_names)):
-        tlbl = lbl_names[i]
-        rows = np.where(lbls == tlbl)[0]
+        cluster_id = lbl_names[i]
+        rows = np.where(lbls == cluster_id)[0]
         count = len(rows)
-        mort = float(len(np.where(died_inp[rows])[0]))
-        if mort > 0:
-            mort /= count
         k_counts = np.zeros(5)
         for j in range(5):
             k_counts[j] = len(np.where(m_kdigos[rows] == j)[0])
-        n_eps_avg = np.mean(n_eps[rows])
-        n_eps_std = np.std(n_eps[rows])
-        hosp_los_med = np.median(hosp_los[rows])
-        hosp_los_25 = np.percentile(hosp_los[rows], 25)
-        hosp_los_75 = np.percentile(hosp_los[rows], 75)
-        icu_los_med = np.median(icu_los[rows])
-        icu_los_25 = np.percentile(icu_los[rows], 25)
-        icu_los_75 = np.percentile(icu_los[rows], 75)
-        sofa_avg = np.mean(sofa[rows])
-        sofa_std = np.std(sofa[rows])
-        apache_avg = np.mean(apache[rows])
-        apache_std = np.std(apache[rows])
         age_mean = np.mean(ages[rows])
         age_std = np.std(ages[rows])
+        cluster_data['age'][cluster_id] = ages[rows]
+        
+        bmi_mean = np.nanmean(bmis[rows])
+        bmi_std = np.nanstd(bmis[rows])
+        cluster_data['bmi'][cluster_id] = bmis[rows]
+        
         pct_male = float(len(np.where(genders[rows])[0]))
-        if pct_male < 0:
+        if pct_male > 0:
             pct_male /= count
-        # pct_septic = float(len(np.where(sepsis[rows])[0]))/count
-        net_mean = np.nanmean(net_fluid[rows])
-        net_std = np.nanstd(net_fluid[rows])
-        gross_mean = np.nanmean(gross_fluid[rows])
-        gross_std = np.nanstd(gross_fluid[rows])
-        charl_mean = np.nanmean(charlson[rows])
-        charl_std = np.nanstd(charlson[rows])
-        elix_mean = np.nanmean(elixhauser[rows])
-        elix_std = np.nanstd(elixhauser[rows])
-        mech_med = np.nanmedian(mech_vent[rows])
-        mech_25 = np.nanpercentile(mech_vent[rows], 25)
-        mech_75 = np.nanpercentile(mech_vent[rows], 75)
-        if plot_hist:
-            plt.figure()
-            plt.subplot(3, 2, 1)
-            plt.hist(m_kdigos[rows])
-            plt.ylabel('# of Patients')
-            plt.xlabel('KDIGO Score')
-            plt.title('Max KDIGO')
+        pct_male *= 100
 
-            plt.subplot(3, 2, 2)
-            plt.hist(hosp_los[rows])
-            plt.ylabel('# of Patients')
-            plt.xlabel('Days')
-            plt.title('Hospital LOS')
+        pct_nonwhite = float(len(np.where(races[rows])[0]))
+        if pct_nonwhite > 0:
+            pct_white = 1 - (pct_nonwhite / count)
+        else:
+            pct_white = 1
+        pct_white *= 100
 
-            plt.subplot(3, 2, 3)
-            plt.hist(icu_los[rows])
-            plt.ylabel('# of Patients')
-            plt.xlabel('Days')
-            plt.title('ICU LOS')
+        charl_sel = np.where(charls[rows] >= 0)[0]
+        charl_mean = np.nanmean(charls[rows[charl_sel]])
+        charl_std = np.nanstd(charls[rows[charl_sel]])
+        cluster_data['charlson'][cluster_id] = charls[rows]
 
-            plt.subplot(3, 2, 4)
-            plt.hist(sofa[rows])
-            plt.ylabel('# of Patients')
-            plt.xlabel('SOFA Score')
-            plt.title('SOFA')
+        elix_sel = np.where(elixs[rows] >= 0)[0]
+        elix_mean = np.nanmean(elixs[rows[elix_sel]])
+        elix_std = np.nanstd(elixs[rows[elix_sel]])
+        cluster_data['elixhauser'][cluster_id] = elixs[rows]
 
-            plt.subplot(3, 2, 5)
-            plt.hist(apache[rows])
-            plt.ylabel('# of Patients')
-            plt.xlabel('APACHE Score')
-            plt.title('APACHE II')
+        pct_diabetic = float(len(np.where(diabetics[rows])[0]))
+        if pct_diabetic > 0:
+            pct_diabetic /= count
+        pct_diabetic *= 100
+        pct_hypertensive = float(len(np.where(hypertensives[rows])[0]))
+        if pct_hypertensive > 0:
+            pct_hypertensive /= count
+        pct_hypertensive *= 100
 
-            plt.subplot(3, 2, 6)
-            plt.hist(net_fluid[rows])
-            plt.ylabel('# of Patients')
-            plt.xlabel('Mililiters')
-            plt.title('Fluid Overload')
-            plt.suptitle('Cluster ' + str(tlbl) + ' Distributions')
-            plt.tight_layout()
-            plt.savefig('cluster' + str(tlbl) + 'dist.png')
+        (sofa_med, sofa_25, sofa_75) = iqr(sofa[rows])
+        (apache_med, apache_25, apache_75) = iqr(apache[rows])
+        (hosp_los_med, hosp_los_25, hosp_los_75) = iqr(hosp_days[rows])
+        (hosp_free_med, hosp_free_25, hosp_free_75) = iqr(hosp_free[rows])
+        (icu_los_med, icu_los_25, icu_los_75) = iqr(icu_days[rows])
+        (icu_free_med, icu_free_25, icu_free_75) = iqr(icu_free[rows])
+
+        cluster_data['sofa'][cluster_id] = sofa[rows]
+        cluster_data['apache'][cluster_id] = apache[rows]
+        cluster_data['hosp_free'][cluster_id] = hosp_free[rows]
+        cluster_data['icu_free'][cluster_id] = icu_free[rows]
+
+        pct_ecmo = float(len(np.where(ecmo_flag[rows])[0]))
+        if pct_ecmo > 0:
+            pct_ecmo /= count
+        pct_ecmo *= 100
+        pct_iabp = float(len(np.where(iabp_flag[rows])[0]))
+        if pct_iabp > 0:
+            pct_iabp /= count
+        pct_iabp *= 100
+        pct_vad = float(len(np.where(vad_flag[rows])[0]))
+        if pct_vad > 0:
+            pct_vad /= count
+        pct_vad *= 100
+        pct_mv = float(len(np.where(mv_flag[rows])[0]))
+        if pct_mv > 0:
+            pct_mv /= count
+        pct_mv *= 100
+
+        (mv_days_med, mv_days_25, mv_days_75) = iqr(mv_days[rows])
+        (mv_free_med, mv_free_25, mv_free_75) = iqr(mv_free[rows])
+        cluster_data['mv_free'][cluster_id] = mv_free[rows]
+        
+        pct_mort = float(len(np.where(died_inp[rows])[0]))
+        if pct_mort > 0:
+            pct_mort /= count
+        pct_mort *= 100
+        pct_septic = float(len(np.where(sepsis[rows])[0]))
+        if pct_septic > 0:
+            pct_septic /= count
+        pct_septic *= 100
+
+        (bsln_scr_med, bsln_scr_25, bsln_scr_75) = iqr(bsln_scr[rows])
+        (bsln_gfr_med, bsln_gfr_25, bsln_gfr_75) = iqr(bsln_gfr[rows])
+        (admit_scr_med, admit_scr_25, admit_scr_75) = iqr(admit_scr[rows])
+        (peak_scr_med, peak_scr_25, peak_scr_75) = iqr(peak_scr[rows])
+
+        cluster_data['bsln_scr'][cluster_id] = bsln_scr[rows]
+        cluster_data['bsln_gfr'][cluster_id] = bsln_gfr[rows]
+        cluster_data['admit_scr'][cluster_id] = admit_scr[rows]
+        cluster_data['peak_scr'][cluster_id] = peak_scr[rows]
+
+        fluid_sel = np.where(gross_fluid[rows] >= 0)[0]
+        (net_fluid_med, net_fluid_25, net_fluid_75) = iqr(net_fluid[rows[fluid_sel]])
+        (gross_fluid_med, gross_fluid_25, gross_fluid_75) = iqr(gross_fluid[rows[fluid_sel]])
+
+        cluster_data['net_fluid'][cluster_id] = net_fluid[rows[fluid_sel]]
+        cluster_data['gross_fluid'][cluster_id] = gross_fluid[rows[fluid_sel]]
+
+        (hd_days_med, hd_days_25, hd_days_75) = iqr(hd_days[rows[fluid_sel]])
+        (crrt_days_med, crrt_days_25, crrt_days_75) = iqr(crrt_days[rows[fluid_sel]])
+        # (record_len_med, record_len_25, record_len_75) = iqr(rec_lens[rows])
+
+        cluster_data['hd_days'][cluster_id] = hd_days[rows[fluid_sel]]
+        cluster_data['crrt_days'][cluster_id] = crrt_days[rows[fluid_sel]]
+
         sf.write(
-            '%s,%d,%.3f,%.3f,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n' %
-            (tlbl, count, mort, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4],
-             n_eps_avg, n_eps_std, hosp_los_med, hosp_los_25, hosp_los_75, icu_los_med, icu_los_25, icu_los_75,
-             sofa_avg, sofa_std, apache_avg, apache_std, age_mean, age_std, pct_male, net_mean, net_std,
-             gross_mean, gross_std, charl_mean, charl_std, elix_mean, elix_std, mech_med, mech_25, mech_75))
+            '%s,%d,%d,%d,%d,%d,%d,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n' %  # ,%.5f,%.5f,%.5f\n' %
+            (cluster_id, count, k_counts[0], k_counts[1], k_counts[2], k_counts[3], k_counts[4], age_mean, age_std,
+             bmi_mean, bmi_std, pct_male, pct_white, charl_mean, charl_std,
+             elix_mean, elix_std, pct_diabetic, pct_hypertensive,
+             sofa_med, sofa_25, sofa_75, apache_med, apache_25, apache_75,
+             hosp_los_med, hosp_los_25, hosp_los_75, hosp_free_med, hosp_free_25, hosp_free_75,
+             icu_los_med, icu_los_25, icu_los_75, icu_free_med, icu_free_25, icu_free_75,
+             pct_ecmo, pct_iabp, pct_vad, pct_mv,
+             mv_days_med, mv_days_25, mv_days_75,
+             mv_free_med, mv_free_25, mv_free_75,
+             pct_septic, pct_mort,
+             bsln_scr_med, bsln_scr_25, bsln_scr_75,
+             bsln_gfr_med, bsln_gfr_25, bsln_gfr_75,
+             admit_scr_med, admit_scr_25, admit_scr_75,
+             peak_scr_med, peak_scr_25, peak_scr_75,
+             net_fluid_med, net_fluid_25, net_fluid_75,
+             gross_fluid_med, gross_fluid_25, gross_fluid_75,
+             crrt_days_med, crrt_days_25, crrt_days_75,
+             hd_days_med, hd_days_25, hd_days_75)) # ,
+             #record_len_med, record_len_25, record_len_75))
     sf.close()
+    if not os.path.exists(os.path.join(label_path, 'formal_stats')):
+        os.mkdir(os.path.join(label_path, 'formal_stats'))
+    for k in list(cluster_data):
+        l = []
+        print(k)
+        for i in range(len(lbl_names)):
+            lbl1 = lbl_names[i]
+            ds1 = cluster_data[k][lbl1]
+            ds1 = ds1[np.logical_not(np.isnan(ds1))]
+            for j in range(i + 1, len(lbl_names)):
+                lbl2 = lbl_names[j]
+                ds2 = cluster_data[k][lbl2]
+                ds2 = ds2[np.logical_not(np.isnan(ds2))]
+                _, p_val = ttest_ind(ds1, ds2)
+                # print('%s vs %s\t%f' % (lbl1, lbl2, p_val))
+                l.append(p_val)
+        np.save(os.path.join(label_path, 'formal_stats', k + '.npy'), np.array(l))
+        l = []
     if got_str:
         f.close()
 
@@ -443,14 +773,18 @@ def get_los(pid, date_m, hosp_locs, icu_locs):
 
     h_dur = datetime.timedelta(0)
     for i in range(len(hosp)):
-        start = datetime.datetime.strptime(str(hosp[i][0]).split('.')[0], '%Y-%m-%d %H:%M:%S')
-        stop = datetime.datetime.strptime(str(hosp[i][1]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+        start_str = str(hosp[i][0]).split('.')[0]
+        stop_str = str(hosp[i][1]).split('.')[0]
+        start, _ = get_date(start_str)
+        stop, _ = get_date(stop_str)
         h_dur += stop - start
 
     icu_dur = datetime.timedelta(0)
     for i in range(len(icu)):
-        start = datetime.datetime.strptime(str(icu[i][0]).split('.')[0], '%Y-%m-%d %H:%M:%S')
-        stop = datetime.datetime.strptime(str(icu[i][1]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+        start_str = str(icu[i][0]).split('.')[0]
+        stop_str = str(icu[i][1]).split('.')[0]
+        start, _ = get_date(start_str)
+        stop, _ = get_date(stop_str)
         icu_dur += stop - start
 
     h_dur = h_dur.total_seconds() / (60 * 60 * 24)
@@ -524,7 +858,7 @@ def get_sofa(ids,
              medications, med_name, med_date, med_dur,
              organ_sup, mech_vent,
              scr_agg, s_c_r,
-             out_name):
+             out_name, v=False):
 
     pa_o2 = pa_o2[1]
     fi_o2 = fi_o2[1]
@@ -547,7 +881,8 @@ def get_sofa(ids,
 
         admit = datetime.datetime.now()
         for did in admit_rows:
-            tadmit = datetime.datetime.strptime(str(admit_info[did, date]).split('.')[0], '%Y-%m-%d %H:%M:%S')
+            tstr = str(admit_info[did, date]).split('.')[0]
+            tadmit, _ = get_date(tstr)
             if tadmit < admit:
                 admit = tadmit
 
@@ -600,14 +935,11 @@ def get_sofa(ids,
         if len(mv_rows) > 0:
             for row in range(len(mv_rows)):
                 tmv = organ_sup[row, mech_vent]
-                dstr = '%Y-%m-%d %H:%M:%S'
-                try:
-                    tmv[0] = datetime.datetime.strptime(str(tmv[0]).split('.')[0], '%Y-%m-%d %H:%M:%S')
-                    tmv[1] = datetime.datetime.strptime(str(tmv[1]).split('.')[0], '%Y-%m-%d %H:%M:%S')
-                except:
-                    tmv[0] = datetime.datetime.strptime(str(tmv[0]).split('.')[0], '%m/%d/%Y')
-                    tmv[1] = datetime.datetime.strptime(str(tmv[1]).split('.')[0], '%m/%d/%Y')
-                if tmv[0] <= admit <= tmv[1]:
+                mech_start_str = str(tmv[0]).split('.')[0]
+                mech_stop_str = str(tmv[1]).split('.')[0]
+                mech_start, _ = get_date(mech_start_str)
+                mech_stop, _ = get_date(mech_stop_str)
+                if mech_start <= admit <= mech_stop:
                     vent = 1
         if vent:
             if s1_ratio < 100:

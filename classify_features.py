@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKF
 from sklearn.metrics import classification_report
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LinearRegression
 import h5py
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, precision_recall_curve, \
@@ -14,9 +15,9 @@ import os
 from scipy import interp
 
 # --------------------------------------------------- PARAMETERS ----------------------------------------------------- #
-base_path = '../RESULTS/icu/7days_071118/'
+base_path = '../RESULTS/icu/7days_090818/'
 # features = ['max_kdigo']
-features = ['everything_clusters', 'all_trajectory_clusters']
+features = ['everything_clusters', ]
 h5_name = 'stats.h5'
 
 lbl_list = ['died_inp', ]
@@ -35,18 +36,18 @@ lbl_list = ['died_inp', ]
 #            '_custmismatch_normBC', '_custmismatch_custBC',
 #            '_custmismatch_extension_a2E-01_normBC', '_custmismatch_extension_a2E-01_custBC',
 #            '_custmismatch_extension_a5E-01_normBC', '_custmismatch_extension_a5E-01_custBC']  # ,
-tags = ['_custmismatch_extension_a1E+00_normBC', '_custmismatch_extension_a1E+00_custBC']
+tags = ['_custmismatch_extension_a1E+00_normBC_n', ] # '_custmismatch_extension_a1E+00_custBC']
 test_size = 0.2
 
 # Note: There will be an equal number of positive and negative examples in the training set, however ALL
 #       remaining examples will be used for testing
 cv_num = 10
 
-models = ['svm', 'rf']
+# models = ['svm', 'rf', 'mvr']   # mvr = multi-variate regression
+models = ['mvr', ]
+cluster_methods = ['composite', ]
 
-cluster_methods = ['composite', 'ward']
-
-params = [['exc_7days', (0, 7)]]
+params = [['exc_7days', 7]]
 
 # tuple indicating when patients should be removed based on their mortality date
 # In days, e.g. (0, 2) will exclude patients who die in the first 48 hrs
@@ -59,6 +60,8 @@ rf_tuned_parameters = [{'n_estimators': [5, 500],
                         'criterion': ['gini', ],
                         'max_features': ['sqrt', ]}]
 
+mvr_tuned_parameters = []
+
 gridsearch = False
 
 svm_params = {'kernel': 'linear',
@@ -68,6 +71,8 @@ svm_params = {'kernel': 'linear',
 rf_params = {'n_estimators': 500,
              'criterion': 'gini',
              'max_features': 'sqrt'}
+
+mvr_params = {}
 
 max_clust = 18
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -96,19 +101,20 @@ f = h5py.File(base_path + h5_name, 'r')
 if not os.path.exists(base_path + 'classification'):
     os.mkdir(base_path + 'classification')
 
-all_ids = f['meta']['ids'][:]
-for (sel_str, mort_exc) in params:
-    dtd = f['meta']['days_to_death'][:]
-    nan_sel = np.where(np.isnan(dtd))[0]
-    non_nan = np.setdiff1d(np.arange(len(dtd)), nan_sel)
-    dtd_nonan = dtd[non_nan]
-    pt_sel = np.union1d(np.union1d(non_nan[np.where(dtd_nonan < mort_exc[0])], nan_sel),
-                        np.union1d(non_nan[np.where(dtd_nonan >= mort_exc[1])], nan_sel))
+all_ids = f['meta_091218']['ids'][:]
+for (sel_str, t_lim) in params:
+    dtd = f['meta_091218']['days_to_death'][:]
+    # nan_sel = np.where(np.isnan(dtd))[0]
+    # non_nan = np.setdiff1d(np.arange(len(dtd)), nan_sel)
+    # dtd_nonan = dtd[non_nan]
+    pt_sel = np.union1d(np.where(np.isnan(dtd)), np.where(dtd > t_lim))
+    # pt_sel = np.union1d(np.union1d(non_nan[np.where(dtd_nonan < t_lim[0])], nan_sel),
+    #                     np.union1d(non_nan[np.where(dtd_nonan >= t_lim[1])], nan_sel))
     ids = all_ids[pt_sel]
     if not os.path.exists(base_path + 'classification/%s/' % sel_str):
         os.mkdir(base_path + 'classification/%s/' % sel_str)
     for lbls in lbl_list:
-        y = f['meta'][lbls][:][pt_sel]
+        y = f['meta_091218'][lbls][:][pt_sel]
         n_samples = len(y)
 
         ptpath = base_path + 'classification/%s/%s/' % (sel_str, lbls)
@@ -138,6 +144,8 @@ for (sel_str, mort_exc) in params:
                             tuned_parameters = svm_tuned_parameters
                         elif model == 'rf':
                             tuned_parameters = rf_tuned_parameters
+                        elif model == 'mvr':
+                            tuned_parameters = mvr_tuned_parameters
 
                     for feature in features:
                         fpath = mpath + feature + '/'
@@ -148,7 +156,10 @@ for (sel_str, mort_exc) in params:
                                     base_path + 'features/%s/%s/' % (dm_tag[1:], method)):
                                 fdpath = base_path + 'features/%s/%s/' % (dm_tag[1:], method)
                                 for dirname in dirnames:
-                                    n_clust = int(dirname.split('_')[0])
+                                    try:
+                                        n_clust = int(dirname.split('_')[0])
+                                    except ValueError:
+                                        continue
                                     if n_clust > max_clust:
                                         continue
                                     try:
@@ -156,166 +167,181 @@ for (sel_str, mort_exc) in params:
                                             X = load_csv(fdpath + dirname + '/everything.csv', ids)
                                         elif 'all_trajectory' in feature:
                                             X = load_csv(fdpath + dirname + '/all_trajectory.csv', ids)
+                                    except:
+                                        print('Feature %s not found in directory %s%s' % (feature, fdpath, dirname))
+                                        continue
 
-                                        cpath = fpath + dirname + '/'
-                                        if not os.path.exists(cpath):
-                                            os.mkdir(cpath)
-                                        tstr = feature
+                                    cpath = fpath + dirname + '/'
+                                    if not os.path.exists(cpath):
+                                        os.mkdir(cpath)
+                                    tstr = feature
 
-                                        if X.ndim == 1:
-                                            X = X.reshape(-1, 1)
+                                    if X.ndim == 1:
+                                        X = X.reshape(-1, 1)
 
-                                        print('Evaluating classification performance using: %s\t%s' % (tstr, dirname))
-                                        # Load features and labels
-                                        if os.path.exists(cpath + 'evaluation_summary.png'):
-                                            continue
-                                        # If even distribution of pos/neg for training
-                                        pos_idx = np.where(y == 1)[0]
-                                        neg_idx = np.where(y == 0)[0]
-                                        n_pos = len(pos_idx)
-                                        n_neg = len(neg_idx)
-                                        if n_pos < n_neg:
-                                            n_train = int(n_pos * (1 - test_size))
-                                        else:
-                                            n_train = int(n_neg * (1 - test_size))
-                                        # Total number of negative examples is determined to be equal to the total number of positive examples.
-                                        # Appropriate percentage of the positive examples and negative examples chosen at random.
-                                        # train_idx = np.sort(np.concatenate((np.random.permutation(pos_idx)[:n_train],
-                                        #                                     np.random.permutation(neg_idx)[:n_train])))
-                                        # test_idx = np.setdiff1d(np.arange(n_samples), train_idx)
+                                    print('Evaluating classification performance using: %s\t%s' % (tstr, dirname))
+                                    # Load features and labels
+                                    if os.path.exists(cpath + 'evaluation_summary.png'):
+                                        continue
+                                    # If even distribution of pos/neg for training
+                                    pos_idx = np.where(y == 1)[0]
+                                    neg_idx = np.where(y == 0)[0]
+                                    n_pos = len(pos_idx)
+                                    n_neg = len(neg_idx)
+                                    if n_pos < n_neg:
+                                        n_train = int(n_pos * (1 - test_size))
+                                    else:
+                                        n_train = int(n_neg * (1 - test_size))
+                                    # Total number of negative examples is determined to be equal to the total number of positive examples.
+                                    # Appropriate percentage of the positive examples and negative examples chosen at random.
+                                    # train_idx = np.sort(np.concatenate((np.random.permutation(pos_idx)[:n_train],
+                                    #                                     np.random.permutation(neg_idx)[:n_train])))
+                                    # test_idx = np.setdiff1d(np.arange(n_samples), train_idx)
 
-                                        pos_train = np.random.permutation(pos_idx)[:n_train]
-                                        neg_train = np.random.permutation(neg_idx)[:n_train]
+                                    pos_train = np.random.permutation(pos_idx)[:n_train]
+                                    neg_train = np.random.permutation(neg_idx)[:n_train]
 
-                                        if n_pos < n_neg:
-                                            pos_test = np.random.permutation(np.setdiff1d(pos_idx, pos_train))
-                                            neg_test = np.random.permutation(np.setdiff1d(neg_idx, neg_train))[
-                                                       :len(pos_test)]
-                                        else:
-                                            neg_test = np.random.permutation(np.setdiff1d(neg_idx, neg_train))
-                                            pos_test = np.random.permutation(np.setdiff1d(pos_idx, pos_train))[
-                                                       :len(neg_test)]
+                                    if n_pos < n_neg:
+                                        pos_test = np.random.permutation(np.setdiff1d(pos_idx, pos_train))
+                                        neg_test = np.random.permutation(np.setdiff1d(neg_idx, neg_train))[
+                                                   :len(pos_test)]
+                                    else:
+                                        neg_test = np.random.permutation(np.setdiff1d(neg_idx, neg_train))
+                                        pos_test = np.random.permutation(np.setdiff1d(pos_idx, pos_train))[
+                                                   :len(neg_test)]
 
-                                        train_idx = np.sort(np.concatenate((pos_train, neg_train)))
-                                        test_idx = np.sort(np.concatenate((pos_test, neg_test)))
+                                    train_idx = np.sort(np.concatenate((pos_train, neg_train)))
+                                    test_idx = np.sort(np.concatenate((pos_test, neg_test)))
 
-                                        X_test = X[test_idx]
-                                        X_train = X[train_idx]
-                                        y_test = y[test_idx]
-                                        y_train = y[train_idx]
+                                    X_test = X[test_idx]
+                                    X_train = X[train_idx]
+                                    y_test = y[test_idx]
+                                    y_train = y[train_idx]
 
-                                        print("Number Positive Training Examples: " + str(len(pos_train)))
-                                        print("Number Negative Training Examples: " + str(len(neg_train)))
-                                        print("Number Positive Testing Examples: " + str(len(pos_test)))
-                                        print("Number Negative Testing Examples: " + str(len(neg_test)))
+                                    print("Number Positive Training Examples: " + str(len(pos_train)))
+                                    print("Number Negative Training Examples: " + str(len(neg_train)))
+                                    print("Number Positive Testing Examples: " + str(len(pos_test)))
+                                    print("Number Negative Testing Examples: " + str(len(neg_test)))
+                                    print()
+
+                                    log_file = open(cpath + 'training_log.txt', 'w')
+                                    log = True
+                                    log_file.write(
+                                        "Number Positive Training Examples: " + str(len(pos_train)) + "\n")
+                                    log_file.write(
+                                        "Number Negative Training Examples: " + str(len(neg_train)) + "\n")
+                                    log_file.write("Number Positive Testing Examples: " + str(len(pos_test)) + "\n")
+                                    log_file.write(
+                                        "Number Negative Testing Examples: " + str(len(neg_test)) + "\n\n")
+
+                                    if model == 'rf':
+                                        m = RandomForestClassifier()
+                                    elif model == 'svm':
+                                        m = SVC()
+                                    elif model == 'mvr':
+                                        m = LinearRegression()
+                                        coef = []
+                                    if gridsearch:
+                                        print("# Tuning hyper-parameters for f1")
+                                        print()
+                                        if log:
+                                            log_file.write("# Tuning hyper-parameters for f1\n\n")
+
+                                        clf = GridSearchCV(m, tuned_parameters, cv=StratifiedKFold(cv_num),
+                                                           scoring='f1_macro')
+                                        clf.fit(X_train, y_train)
+
+                                        print("Best score found on development set:")
+                                        print()
+                                        print(clf.best_score_)
+                                        print()
+                                        print("Best parameters set found on development set:")
+                                        print()
+                                        print(clf.best_params_)
+                                        print()
+                                        print("Grid scores on development set:")
+                                        print()
+                                        if log:
+                                            log_file.write("Best parameters set found on development set:\n\n")
+                                            log_file.write(str(clf.best_params_))
+                                            log_file.write('\n\n')
+                                            log_file.write("Grid scores on development set:\n\n")
+                                        means = clf.cv_results_['mean_test_score']
+                                        stds = clf.cv_results_['std_test_score']
+                                        for mean, std, params in zip(means, stds, clf.cv_results_['params']):
+                                            print("%0.3f (+/-%0.03f) for %r"
+                                                  % (mean, std * 2, params))
+                                            if log:
+                                                log_file.write("%0.3f (+/-%0.03f) for %r\n"
+                                                               % (mean, std * 2, params))
                                         print()
 
-                                        log_file = open(cpath + 'training_log.txt', 'w')
-                                        log = True
-                                        log_file.write(
-                                            "Number Positive Training Examples: " + str(len(pos_train)) + "\n")
-                                        log_file.write(
-                                            "Number Negative Training Examples: " + str(len(neg_train)) + "\n")
-                                        log_file.write("Number Positive Testing Examples: " + str(len(pos_test)) + "\n")
-                                        log_file.write(
-                                            "Number Negative Testing Examples: " + str(len(neg_test)) + "\n\n")
+                                        print("Detailed classification report:")
+                                        print()
+                                        print("The model is trained on the full development set.")
+                                        print("The scores are computed on the full evaluation set.")
+                                        print()
+                                        y_true, probas = y_test, clf.predict(X_test)
+                                        print(classification_report(y_true, probas))
+                                        if log:
+                                            log_file.write('\n')
+                                            log_file.write("Detailed classification report:\n\n")
+                                            log_file.write("The model is trained on the full development set.\n")
+                                            log_file.write("The scores are computed on the full evaluation set.\n")
+                                            log_file.write(classification_report(y_true, probas))
 
+                                        bp = clf.best_params_
+
+                                    else:
+                                        if model == 'svm':
+                                            bp = svm_params
+                                        elif model == 'rf':
+                                            bp = rf_params
+                                        elif model == 'mvr':
+                                            bp = mvr_params
+
+                                    log_file.write('\n\nCross Validation - Even Pos/Neg for Eval\n')
+                                    skf = StratifiedKFold(n_splits=cv_num, shuffle=True, random_state=1)
+
+                                    if n_pos < n_neg:
+                                        neg_sel = np.random.permutation(neg_idx)[:n_pos]
+                                        sel = np.sort(np.concatenate((pos_idx, neg_sel)))
+                                    else:
+                                        pos_sel = np.random.permutation(pos_idx)[:n_neg]
+                                        sel = np.sort(np.concatenate((neg_idx, pos_sel)))
+                                    vX = X[sel]
+                                    vy = y[sel]
+                                    log_file.write('Fold_#,Accuracy,Precision,Recall,F1-Score,TP,FP,TN,FN,ROC_AUC\n')
+
+                                    tprs = []
+                                    aucs = []
+                                    mean_fpr = np.linspace(0, 1, 100)
+                                    for i, (train_idx, val_idx) in enumerate(skf.split(vX, vy)):
+                                        print('Evaluating on Fold ' + str(i + 1) + ' of ' + str(cv_num) + '.')
+                                        if not os.path.exists(base_path + tstr):
+                                            os.mkdir(base_path + tstr)
+                                        # Get the training and test sets
+                                        X_train = vX[train_idx]
+                                        y_train = vy[train_idx]
+                                        X_val = vX[val_idx]
+                                        y_val = vy[val_idx]
+
+                                        # Load and fit the model
                                         if model == 'rf':
-                                            m = RandomForestClassifier()
+                                            clf = RandomForestClassifier()
+                                            clf.set_params(**bp)
                                         elif model == 'svm':
-                                            m = SVC()
-                                        if gridsearch:
-                                            print("# Tuning hyper-parameters for f1")
-                                            print()
-                                            if log:
-                                                log_file.write("# Tuning hyper-parameters for f1\n\n")
+                                            clf = SVC(probability=True)
+                                            clf.set_params(**bp)
+                                        elif model == 'mvr':
+                                            clf = LinearRegression()
+                                            clf.set_params(**bp)
+                                        clf.fit(X_train, y_train)
 
-                                            clf = GridSearchCV(m, tuned_parameters, cv=StratifiedKFold(cv_num),
-                                                               scoring='f1_macro')
-                                            clf.fit(X_train, y_train)
-
-                                            print("Best score found on development set:")
-                                            print()
-                                            print(clf.best_score_)
-                                            print()
-                                            print("Best parameters set found on development set:")
-                                            print()
-                                            print(clf.best_params_)
-                                            print()
-                                            print("Grid scores on development set:")
-                                            print()
-                                            if log:
-                                                log_file.write("Best parameters set found on development set:\n\n")
-                                                log_file.write(str(clf.best_params_))
-                                                log_file.write('\n\n')
-                                                log_file.write("Grid scores on development set:\n\n")
-                                            means = clf.cv_results_['mean_test_score']
-                                            stds = clf.cv_results_['std_test_score']
-                                            for mean, std, params in zip(means, stds, clf.cv_results_['params']):
-                                                print("%0.3f (+/-%0.03f) for %r"
-                                                      % (mean, std * 2, params))
-                                                if log:
-                                                    log_file.write("%0.3f (+/-%0.03f) for %r\n"
-                                                                   % (mean, std * 2, params))
-                                            print()
-
-                                            print("Detailed classification report:")
-                                            print()
-                                            print("The model is trained on the full development set.")
-                                            print("The scores are computed on the full evaluation set.")
-                                            print()
-                                            y_true, probas = y_test, clf.predict(X_test)
-                                            print(classification_report(y_true, probas))
-                                            if log:
-                                                log_file.write('\n')
-                                                log_file.write("Detailed classification report:\n\n")
-                                                log_file.write("The model is trained on the full development set.\n")
-                                                log_file.write("The scores are computed on the full evaluation set.\n")
-                                                log_file.write(classification_report(y_true, probas))
-
-                                            bp = clf.best_params_
-
+                                        if model == 'mvr':
+                                            pred = clf.predict(X_val)
+                                            coef.append(clf.coef_)
                                         else:
-                                            if model == 'svm':
-                                                bp = svm_params
-                                            elif model == 'rf':
-                                                bp = rf_params
-
-                                        log_file.write('\n\nCross Validation - Even Pos/Neg for Eval\n')
-                                        skf = StratifiedKFold(n_splits=cv_num, shuffle=True, random_state=1)
-
-                                        if n_pos < n_neg:
-                                            neg_sel = np.random.permutation(neg_idx)[:n_pos]
-                                            sel = np.sort(np.concatenate((pos_idx, neg_sel)))
-                                        else:
-                                            pos_sel = np.random.permutation(pos_idx)[:n_neg]
-                                            sel = np.sort(np.concatenate((neg_idx, pos_sel)))
-                                        vX = X[sel]
-                                        vy = y[sel]
-                                        log_file.write('Fold_#,Accuracy,Precision,Recall,F1-Score,TP,FP,TN,FN,ROC_AUC\n')
-
-                                        tprs = []
-                                        aucs = []
-                                        mean_fpr = np.linspace(0, 1, 100)
-                                        for i, (train_idx, val_idx) in enumerate(skf.split(vX, vy)):
-                                            print('Evaluating on Fold ' + str(i + 1) + ' of ' + str(cv_num) + '.')
-                                            if not os.path.exists(base_path + tstr):
-                                                os.mkdir(base_path + tstr)
-                                            # Get the training and test sets
-                                            X_train = vX[train_idx]
-                                            y_train = vy[train_idx]
-                                            X_val = vX[val_idx]
-                                            y_val = vy[val_idx]
-
-                                            # Load and fit the model
-                                            if model == 'rf':
-                                                clf = RandomForestClassifier()
-                                                clf.set_params(**bp)
-                                            elif model == 'svm':
-                                                clf = SVC(probability=True)
-                                                clf.set_params(**bp)
-                                            clf.fit(X_train, y_train)
-
                                             # Plot the precision vs. recall curve
                                             probas = clf.predict_proba(X_val)[:, 1]
                                             pred = clf.predict(X_val)
@@ -352,16 +378,17 @@ for (sel_str, mort_exc) in params:
                                             tprs[-1][0] = 0.0
                                             aucs.append(roc_auc)
 
-                                            acc = accuracy_score(y_val, pred)
-                                            prec = precision_score(y_val, pred)
-                                            rec = recall_score(y_val, pred)
-                                            f1 = f1_score(y_val, pred)
-
-                                            tp, fp, tn, fn = perf_measure(y_val, pred)
-
-                                            log_file.write('%d,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d,%.4f\n' % (
-                                            i + 1, acc, prec, rec, f1, tp, fp, tn, fn, roc_auc))
-                                        log_file.close()
+                                        # acc = accuracy_score(y_val, pred)
+                                        # prec = precision_score(y_val, pred)
+                                        # rec = recall_score(y_val, pred)
+                                        # f1 = f1_score(y_val, pred)
+                                        #
+                                        # tp, fp, tn, fn = perf_measure(y_val, pred)
+                                        #
+                                        # log_file.write('%d,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d,%.4f\n' % (
+                                        # i + 1, acc, prec, rec, f1, tp, fp, tn, fn, roc_auc))
+                                    log_file.close()
+                                    if model != 'mvr':
                                         fig = plt.figure()
                                         for i in range(cv_num):
                                             plt.plot(mean_fpr, tprs[i], lw=1, alpha=0.3)
@@ -388,10 +415,10 @@ for (sel_str, mort_exc) in params:
                                         plt.title(model.upper() + ' Classification Performance\n' + feature)
                                         plt.savefig(cpath + 'evaluation_summary.png')
                                         plt.close('all')
-                                    except:
-                                        print('Feature %s not found in directory %s%s' % (feature, fdpath, dirname))
+                                    else:
+                                        np.savetxt(cpath + 'mvr_coefficients.csv', coef, delimiter=',')
                         else:
-                            fdpath = base_path + 'features/%s/' % dm_tag
+                            fdpath = base_path + 'features/clinical/'
                             X = load_csv(fdpath + '%s.csv' % feature, ids)
                             tstr = feature
 
@@ -457,6 +484,9 @@ for (sel_str, mort_exc) in params:
                                 m = RandomForestClassifier()
                             elif model == 'svm':
                                 m = SVC()
+                            elif model == 'mvr':
+                                m = LinearRegression()
+                                coef = []
                             if gridsearch:
                                 print("# Tuning hyper-parameters for f1")
                                 print()
@@ -513,6 +543,8 @@ for (sel_str, mort_exc) in params:
                                     bp = svm_params
                                 elif model == 'rf':
                                     bp = rf_params
+                                elif model == 'mvr':
+                                    bp = mvr_params
 
                             log_file.write('\n\nCross Validation - Even Pos/Neg for Eval\n')
                             skf = StratifiedKFold(n_splits=cv_num, shuffle=True, random_state=1)
@@ -547,43 +579,50 @@ for (sel_str, mort_exc) in params:
                                 elif model == 'svm':
                                     clf = SVC(probability=True)
                                     clf.set_params(**bp)
+                                elif model == 'mvr':
+                                    clf = LinearRegression()
+                                    clf.set_params(**bp)
                                 clf.fit(X_train, y_train)
 
-                                # Plot the precision vs. recall curve
-                                probas = clf.predict_proba(X_val)[:, 1]
-                                pred = clf.predict(X_val)
-                                pcurve, rcurve, _ = precision_recall_curve(y_val, probas)
-                                fig = plt.figure(figsize=(8, 4))
-                                plt.subplot(121)
-                                plt.step(rcurve, pcurve, color='b', alpha=0.2,
-                                         where='post')
-                                plt.fill_between(rcurve, pcurve, where=None, alpha=0.2,
-                                                 color='b')
-                                plt.xlabel('Recall')
-                                plt.ylabel('Precision')
-                                plt.ylim([0.0, 1.05])
-                                plt.xlim([0.0, 1.0])
-                                plt.title(
-                                    'Precision-Recall Curve: AP=%0.2f' % average_precision_score(y_val,
-                                                                                                 probas))
+                                if model == 'mvr':
+                                    pred = clf.predict(X_val)
+                                    coef.append(clf.coef_)
+                                else:
+                                    # Plot the precision vs. recall curve
+                                    probas = clf.predict_proba(X_val)[:, 1]
+                                    pred = clf.predict(X_val)
+                                    pcurve, rcurve, _ = precision_recall_curve(y_val, probas)
+                                    fig = plt.figure(figsize=(8, 4))
+                                    plt.subplot(121)
+                                    plt.step(rcurve, pcurve, color='b', alpha=0.2,
+                                             where='post')
+                                    plt.fill_between(rcurve, pcurve, where=None, alpha=0.2,
+                                                     color='b')
+                                    plt.xlabel('Recall')
+                                    plt.ylabel('Precision')
+                                    plt.ylim([0.0, 1.05])
+                                    plt.xlim([0.0, 1.0])
+                                    plt.title(
+                                        'Precision-Recall Curve: AP=%0.2f' % average_precision_score(y_val,
+                                                                                                     probas))
 
-                                # Plot ROC curve
-                                fpr, tpr, thresholds = roc_curve(y_val, probas)
-                                roc_auc = auc(fpr, tpr)
-                                plt.subplot(122)
-                                plt.plot(fpr, tpr)
-                                plt.xlim([0.0, 1.0])
-                                plt.ylim([0.0, 1.05])
-                                plt.xlabel('False Positive Rate')
-                                plt.ylabel('True Positive Rate')
-                                plt.title('ROC Curve (area = %0.2f)' % roc_auc)
-                                plt.legend(loc="lower right")
-                                plt.tight_layout()
-                                plt.savefig(fpath + 'fold' + str(i + 1) + '_evaluation.png')
-                                plt.close(fig)
-                                tprs.append(interp(mean_fpr, fpr, tpr))
-                                tprs[-1][0] = 0.0
-                                aucs.append(roc_auc)
+                                    # Plot ROC curve
+                                    fpr, tpr, thresholds = roc_curve(y_val, probas)
+                                    roc_auc = auc(fpr, tpr)
+                                    plt.subplot(122)
+                                    plt.plot(fpr, tpr)
+                                    plt.xlim([0.0, 1.0])
+                                    plt.ylim([0.0, 1.05])
+                                    plt.xlabel('False Positive Rate')
+                                    plt.ylabel('True Positive Rate')
+                                    plt.title('ROC Curve (area = %0.2f)' % roc_auc)
+                                    plt.legend(loc="lower right")
+                                    plt.tight_layout()
+                                    plt.savefig(fpath + 'fold' + str(i + 1) + '_evaluation.png')
+                                    plt.close(fig)
+                                    tprs.append(interp(mean_fpr, fpr, tpr))
+                                    tprs[-1][0] = 0.0
+                                    aucs.append(roc_auc)
 
                                 acc = accuracy_score(y_val, pred)
                                 prec = precision_score(y_val, pred)
@@ -621,3 +660,5 @@ for (sel_str, mort_exc) in params:
                             plt.title(model.upper() + ' Classification Performance\n' + feature)
                             plt.savefig(fpath + 'evaluation_summary.png')
                             plt.close('all')
+                        if model == 'mvr':
+                            np.savetxt(fpath + 'mv_coeff.csv', coef, delimiter=',', fmt='%.4f')

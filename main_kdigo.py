@@ -11,12 +11,13 @@ from scipy.spatial import distance
 # ------------------------------- PARAMETERS ----------------------------------#
 basePath = "../"
 t_analyze = 'ICU'
-t_lim = None    # in days
+ext_lim = None
+t_lim = 7    # in days
 timescale = 6  # in hours
 id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
 h5_name = 'stats.h5'
-folder_name = '/7days_073118/'
+folder_name = '/7days_092218/'
 alpha = 1.0
 transition_costs = [1.00,   # [0 - 1]
                     2.95,   # [1 - 2]
@@ -25,8 +26,8 @@ transition_costs = [1.00,   # [0 - 1]
 
 use_extension_penalty = True
 use_mismatch_penalty = True
-use_custom_braycurtis = True
-dist_flag = 'abs_pop'
+use_custom_braycurtis = False
+dist_flag = 'norm_bc'
 
 bc_shift = 1        # Value to add to coordinates for BC distance
 # With bc_shift=0, the distance from KDIGO 3D to all
@@ -80,41 +81,42 @@ def main():
         print('Loaded previous ids.')
         # try to load final KDIGO values
         try:
-            kdigos = kf.load_csv(outPath + 'kdigo.csv', ids)
+            ids = np.loadtxt(outPath + 'post_interp_ids.csv', dtype=int)
+            kdigos = kf.load_csv(outPath + 'kdigo.csv', ids, int)
+            scrs = kf.load_csv(outPath + 'scr_raw.csv', ids)
+            days_interp = kf.load_csv(outPath + 'days_interp.csv', ids)
             print('Loaded previously extracted KDIGO vectors')
         # try to load extracted raw data
-        except:
-            scr = kf.load_csv(outPath + 'scr_raw.csv', ids)
+        except IOError:
+            scrs = kf.load_csv(outPath + 'scr_raw.csv', ids)
             dates = kf.load_csv(outPath + 'dates.csv', ids, dt=str)
-            masks = kf.load_csv(outPath + 'masks.csv', ids, dt=int)
             dmasks = kf.load_csv(outPath + 'dialysis.csv', ids, dt=int)
             baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
             print('Loaded previously extracted raw data')
 
             try:
+                ids = np.loadtxt(outPath + 'post_interp_ids.csv', dtype=int)
                 post_interpo = kf.load_csv(outPath + 'scr_interp.csv', ids)
                 dmasks_interp = kf.load_csv(outPath + 'dmasks_interp.csv', ids, dt=int)
                 interp_masks = kf.load_csv(outPath + 'interp_masks.csv', ids, dt=int)
                 days_interp = kf.load_csv(outPath + 'days_interp.csv', ids, dt=int)
                 print('Loaded previously interpolated values')
-            except:
+            except IOError:
                 # Interpolate missing values
                 print('Interpolating missing values')
-                interpo_log = open(outPath + 'interpo_log.txt', 'w')
-                post_interpo, dmasks_interp, days_interp, interp_masks = kf.linear_interpo(scr, ids, dates, masks,
-                                                                                           dmasks, timescale,
-                                                                                           interpo_log)
+                post_interpo, dmasks_interp, days_interp, interp_masks, ids = kf.linear_interpo(scrs, ids, dates,
+                                                                                                dmasks, timescale)
                 kf.arr2csv(outPath + 'scr_interp.csv', post_interpo, ids)
                 kf.arr2csv(outPath + 'dmasks_interp.csv', dmasks_interp, ids, fmt='%d')
                 kf.arr2csv(outPath + 'days_interp.csv', days_interp, ids, fmt='%d')
                 kf.arr2csv(outPath + 'interp_masks.csv', interp_masks, ids, fmt='%d')
-                interpo_log.close()
+                np.savetxt(outPath + 'post_interp_ids.csv', ids, fmt='%d')
             print('Converting to KDIGO')
             # Convert SCr to KDIGO
             kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
             kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids, fmt='%d')
     # If data loading unsuccesful start from scratch
-    except:
+    except IOError:
         # Load raw data from individual CSV files
         ((date_m, hosp_locs, icu_locs, adisp_loc,
           surg_m, surg_des_loc,
@@ -127,43 +129,26 @@ def main():
           mort_m, mdate_loc,
           io_m, charl_m, charl_loc, elix_m, elix_loc,
           blood_gas, pa_o2, pa_co2, p_h,
-          clinical_oth, resp, fi_o2, g_c_s,
+          clinical_oth, resp, fi_o2, g_c_s, weight, height,
           clinical_vit, temp, m_a_p, cuff, h_r,
           labs, bili, pltlts, na, p_k, hemat, w_b_c,
           medications, med_name, med_date, med_dur,
-          organ_sup, mech_vent_dates, mech_vent_days,
+          organ_sup_mv, mech_vent_dates, mech_vent_days,
+          organ_sup_ecmo, ecmo_dates, ecmo_days,
+          organ_sup_iabp, iabp_dates, iabp_days,
+          organ_sup_vad, vad_dates, vad_days,
           scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
-
-        # Determine relative admits
-        if t_analyze == 'ICU':
-            admit_info = kf.get_admits(date_m, icu_locs[0])
-        elif t_analyze == 'HOSP':
-            admit_info = kf.get_admits(date_m, hosp_locs[0])
 
         # Get mask inidicating which points are during dialysis
         dia_mask = kf.get_dialysis_mask(scr_all_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs)
 
         # Get mask indicating whether each point was in hospital or ICU
-        t_mask = kf.get_t_mask(scr_all_m, scr_date_loc, scr_val_loc, date_m, hosp_locs, icu_locs, admit_info, t_lim=t_lim)
-
-        # Get mask for the desired data
-        mask = np.zeros(len(scr_all_m))
-        for i in range(len(scr_all_m)):
-            if t_analyze == 'ICU':
-                if t_mask[i] == 2:
-                    if dia_mask[i]:
-                        mask[i] = -1
-                    else:
-                        mask[i] = 1
-            elif t_analyze == 'HOSP':
-                if t_mask[i] >= 1:
-                    if dia_mask[i]:
-                        mask[i] = -1
-                    else:
-                        mask[i] = 1
+        if t_analyze == 'ICU':
+            t_mask, windows = kf.get_t_mask(scr_all_m, scr_date_loc, date_m, icu_locs)
+        elif t_analyze == 'HOSP':
+            t_mask, windows = kf.get_t_mask(scr_all_m, scr_date_loc, date_m, hosp_locs)
 
         # Baselines
-
         print('Loading baselines...')
         try:
             bsln_m = pd.read_csv(baseline_file)
@@ -171,7 +156,7 @@ def main():
             admit_loc = bsln_m.columns.get_loc('admit_date')
             bsln_m = bsln_m.values
 
-        except:
+        except IOError:
             kf.get_baselines(date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc,
                              dem_m, sex_loc, eth_loc, dob_m, birth_loc, baseline_file)
 
@@ -183,9 +168,9 @@ def main():
         count_log = open(outPath + 'patient_summary.csv', 'w')
         exc_log = open(outPath + 'excluded_patients.csv', 'w')
         # Extract patients into separate list elements
-        (ids, scr, dates, days, masks, dmasks,
+        (ids, scrs, dates, masks, dmasks,
          baselines, bsln_gfr, d_disp, t_range, ages) = kf.get_patients(scr_all_m, scr_val_loc, scr_date_loc, adisp_loc,
-                                                                       mask, dia_mask,
+                                                                       t_mask, dia_mask, windows,
                                                                        diag_m, diag_loc,
                                                                        esrd_m, esrd_locs,
                                                                        bsln_m, bsln_scr_loc, admit_loc,
@@ -197,10 +182,8 @@ def main():
                                                                        count_log, exc_log)
         count_log.close()
         exc_log.close()
-        kf.arr2csv(outPath + 'scr_raw.csv', scr, ids, fmt='%.3f')
+        kf.arr2csv(outPath + 'scr_raw.csv', scrs, ids, fmt='%.3f')
         kf.arr2csv(outPath + 'dates.csv', dates, ids, fmt='%s')
-        kf.arr2csv(outPath + 'days.csv', days, ids, fmt='%d')
-        kf.arr2csv(outPath + 'masks.csv', masks, ids, fmt='%d')
         kf.arr2csv(outPath + 'dialysis.csv', dmasks, ids, fmt='%d')
         kf.arr2csv(outPath + 'baselines.csv', baselines, ids, fmt='%.3f')
         kf.arr2csv(outPath + 'baseline_gfr.csv', bsln_gfr, ids, fmt='%.3f')
@@ -211,20 +194,19 @@ def main():
 
         # Interpolate missing values
         print('Interpolating missing values')
-        interpo_log = open(outPath + 'interpo_log.txt', 'w')
-        post_interpo, dmasks_interp, days_interp, interp_masks = kf.linear_interpo(scr, ids, dates, masks, dmasks,
-                                                                                   timescale, interpo_log)
+        post_interpo, dmasks_interp, days_interp, interp_masks, ids = kf.linear_interpo(scrs, ids, dates,
+                                                                                        dmasks, timescale)
         kf.arr2csv(outPath + 'scr_interp.csv', post_interpo, ids)
         kf.arr2csv(outPath + 'days_interp.csv', days_interp, ids, fmt='%d')
         kf.arr2csv(outPath + 'interp_masks.csv', interp_masks, ids, fmt='%d')
         kf.arr2csv(outPath + 'dmasks_interp.csv', dmasks_interp, ids, fmt='%d')
-        interpo_log.close()
+        np.savetxt(outPath + 'post_interp_ids.csv', ids, fmt='%d')
 
         # Convert SCr to KDIGO
         print('Converting to KDIGO')
         kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
         kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids, fmt='%d')
-
+        return
     # Calculate clinical mortality prediction scores
     sofa = None
     if not os.path.exists(outPath + 'sofa.csv'):
@@ -240,11 +222,14 @@ def main():
               mort_m, mdate_loc,
               io_m, charl_m, charl_loc, elix_m, elix_loc,
               blood_gas, pa_o2, pa_co2, p_h,
-              clinical_oth, resp, fi_o2, g_c_s,
+              clinical_oth, resp, fi_o2, g_c_s, weight, height,
               clinical_vit, temp, m_a_p, cuff, h_r,
               labs, bili, pltlts, na, p_k, hemat, w_b_c,
               medications, med_name, med_date, med_dur,
-              organ_sup, mech_vent_dates, mech_vent_days,
+              organ_sup_mv, mech_vent_dates, mech_vent_days,
+              organ_sup_ecmo, ecmo_dates, ecmo_days,
+              organ_sup_iabp, iabp_dates, iabp_days,
+              organ_sup_vad, vad_dates, vad_days,
               scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
         print('Getting SOFA scores')
         sofa = sf.get_sofa(ids,
@@ -254,7 +239,7 @@ def main():
                            clinical_vit, m_a_p, cuff,
                            labs, bili, pltlts,
                            medications, med_name, med_date, med_dur,
-                           organ_sup, mech_vent_dates,
+                           organ_sup_mv, mech_vent_dates,
                            scr_agg, s_c_r,
                            out_name=outPath + 'sofa.csv')
     else:
@@ -275,11 +260,14 @@ def main():
               mort_m, mdate_loc,
               io_m, charl_m, charl_loc, elix_m, elix_loc,
               blood_gas, pa_o2, pa_co2, p_h,
-              clinical_oth, resp, fi_o2, g_c_s,
+              clinical_oth, resp, fi_o2, g_c_s, weight, height,
               clinical_vit, temp, m_a_p, cuff, h_r,
               labs, bili, pltlts, na, p_k, hemat, w_b_c,
               medications, med_name, med_date, med_dur,
-              organ_sup, mech_vent_dates, mech_vent_days,
+              organ_sup_mv, mech_vent_dates, mech_vent_days,
+              organ_sup_ecmo, ecmo_dates, ecmo_days,
+              organ_sup_iabp, iabp_dates, iabp_days,
+              organ_sup_vad, vad_dates, vad_days,
               scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
         print('Getting APACHE-II Scores')
         apache = sf.get_apache(ids, outPath,
@@ -304,6 +292,9 @@ def main():
         all_stats = f['meta_all']
         max_kdigo = all_stats['max_kdigo'][:]
         aki_idx = np.where(max_kdigo > 0)[0]
+        aki_dtd = all_stats['days_to_death'][aki_idx]
+        dtd_sel = np.logical_not(aki_dtd < t_lim)
+        pt_sel = aki_idx[dtd_sel]
     except:
         if dem_m is None:
             # Load raw data from individual CSV files
@@ -318,39 +309,53 @@ def main():
               mort_m, mdate_loc,
               io_m, charl_m, charl_loc, elix_m, elix_loc,
               blood_gas, pa_o2, pa_co2, p_h,
-              clinical_oth, resp, fi_o2, g_c_s,
+              clinical_oth, resp, fi_o2, g_c_s, weight, height,
               clinical_vit, temp, m_a_p, cuff, h_r,
               labs, bili, pltlts, na, p_k, hemat, w_b_c,
               medications, med_name, med_date, med_dur,
-              organ_sup, mech_vent_dates, mech_vent_days,
+              organ_sup_mv, mech_vent_dates, mech_vent_days,
+              organ_sup_ecmo, ecmo_dates, ecmo_days,
+              organ_sup_iabp, iabp_dates, iabp_days,
+              organ_sup_vad, vad_dates, vad_days,
               scr_agg, s_c_r)) = kf.load_all_csv(dataPath, sort_id)
         print('Summarizing stats')
-        all_stats = sf.summarize_stats(ids, kdigos,
+        all_stats = sf.summarize_stats(ids, kdigos, days_interp, scrs,
                                        dem_m, sex_loc, eth_loc,
                                        dob_m, birth_loc,
-                                       diag_m, diag_loc, diag_nb_loc,
+                                       diag_m, diag_loc,
                                        charl_m, charl_loc, elix_m, elix_loc,
-                                       organ_sup, mech_vent_days,
+                                       organ_sup_mv, mech_vent_dates,
+                                       organ_sup_ecmo, ecmo_dates,
+                                       organ_sup_iabp, iabp_dates,
+                                       organ_sup_vad, vad_dates,
                                        date_m, hosp_locs, icu_locs,
                                        sofa, apache, io_m,
-                                       h5_name, outPath, grp_name='meta_all')
+                                       mort_m, mdate_loc,
+                                       clinical_oth, height, weight,
+                                       dia_m, crrt_locs, hd_locs,
+                                       h5_name, outPath, grp_name='meta_all', tlim=t_lim)
         max_kdigo = all_stats['max_kdigo'][:]
         aki_idx = np.where(max_kdigo > 0)[0]
+        aki_dtd = all_stats['days_to_death'][aki_idx]
+        dtd_sel = np.logical_not(aki_dtd < t_lim)
+        pt_sel = aki_idx[dtd_sel]
         stats = f.create_group('meta')
         print('Copying to KDIGO > 0')
         for i in range(len(list(all_stats))):
             name = list(all_stats)[i]
             try:
-                stats.create_dataset(name, data=all_stats[name][:][aki_idx], dtype=all_stats[name].dtype)
+                stats.create_dataset(name, data=all_stats[name][:][pt_sel], dtype=all_stats[name].dtype)
             except:
                 print(name + ' was not copied from meta_all to meta')
     f.close()
 
-    aki_ids = np.array(ids)[aki_idx]
+    aki_ids = np.array(ids)[pt_sel]
     aki_kdigos = []
+    aki_days = []
     for i in range(len(kdigos)):
         if np.max(kdigos[i]) > 0:
             aki_kdigos.append(kdigos[i])
+            aki_days.append(days_interp[i])
 
     # Calculate individual trajectory based features if not already done
     if not os.path.exists(resPath + 'features'):
@@ -358,15 +363,15 @@ def main():
 
     if not os.path.exists(resPath + 'features/trajectory_individual/'):
         os.mkdir(resPath + 'features/trajectory_individual/')
-        desc = kf.descriptive_trajectory_features(aki_kdigos, aki_ids,
+        desc = kf.descriptive_trajectory_features(aki_kdigos, aki_ids, days=days_interp, t_lim=t_lim,
                                                   filename=resPath + 'features/trajectory_individual/descriptive_features.csv')
 
-        slope = kf.slope_trajectory_features(aki_kdigos, aki_ids,
+        slope = kf.slope_trajectory_features(aki_kdigos, aki_ids, days=days_interp, t_lim=t_lim,
                                              filename=resPath + 'features/trajectory_individual/slope_features.csv')
         slope_norm = kf.normalize_features(slope)
         kf.arr2csv(resPath + 'features/trajectory_individual/slope_norm.csv', slope_norm, aki_ids)
 
-        temp = kf.template_trajectory_features(aki_kdigos, aki_ids,
+        temp = kf.template_trajectory_features(aki_kdigos, aki_ids, days=days_interp, t_lim=t_lim,
                                                filename=resPath + 'features/trajectory_individual/template_features.csv')
         temp_norm = kf.normalize_features(temp)
         kf.arr2csv(resPath + 'features/trajectory_individual/template_norm.csv', temp_norm, aki_ids)
@@ -383,8 +388,8 @@ def main():
     # Calculate distance matrix
     dm = None
     if not os.path.exists(resPath + 'kdigo_dm' + dm_tag + '.csv'):
-        dm = kf.pairwise_dtw_dist(aki_kdigos, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv',
-                                  resPath + 'kdigo_dtwlog' + dm_tag + '.csv', incl_0=False,
+        dm = kf.pairwise_dtw_dist(aki_kdigos, aki_days, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv',
+                                  resPath + 'kdigo_dtwlog' + dm_tag + '.csv',
                                   mismatch=mismatch,
                                   extension=extension,
                                   dist=dist,
@@ -437,7 +442,7 @@ def main():
         sofa = kf.load_csv(outPath + 'sofa.csv', aki_ids, dt=int)
     else:
         if sofa.shape[0] == len(ids):
-            sofa = sofa[aki_idx, :]
+            sofa = sofa[pt_sel, :]
     sofa_norm = kf.normalize_features(sofa)
 
     if apache is None:
@@ -445,7 +450,7 @@ def main():
         apache = np.array(apache)
     else:
         if apache.shape[0] == len(ids):
-            apache = np.array(apache[aki_idx, :])
+            apache = np.array(apache[pt_sel, :])
     apache_norm = kf.normalize_features(apache)
 
     if not os.path.exists(resPath + 'features/clinical/'):

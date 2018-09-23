@@ -4,24 +4,29 @@ from cluster_funcs import assign_feature_vectors
 from kdigo_funcs import cluster_feature_vectors, load_csv, arr2csv
 import os
 
-h5_fname = '../RESULTS/icu/7days_071118/stats.h5'
-lbl_path = '../RESULTS/icu/7days_071118/clusters/'
-feature_path = '../RESULTS/icu/7days_071118/features/'
+h5_fname = '../RESULTS/icu/7days_090818/stats.h5'
+lbl_path = '../RESULTS/icu/7days_090818/clusters/7days/'
+feature_path = '../RESULTS/icu/7days_090818/features/'
 
-methods = ['composite', 'ward']
+methods = ['composite',]
 
 # tags = ['_absmismatch_extension_a5E-01_normBC', '_absmismatch_extension_a5E-01_custBC',
 #            '_absmismatch_extension_a1E+00_normBC', '_absmismatch_extension_a1E+00_custBC',
 #            '_custmismatch_normBC', '_custmismatch_custBC',
 #            '_custmismatch_extension_a2E-01_normBC', '_custmismatch_extension_a2E-01_custBC',
 #            '_custmismatch_extension_a5E-01_normBC', '_custmismatch_extension_a5E-01_custBC']  # ,
-tags = ['_custmismatch_extension_a1E+00_normBC', '_custmismatch_extension_a1E+00_custBC']
+tags = ['_custmismatch_extension_a1E+00_normBC_n', ]#  '_custmismatch_extension_a1E+00_custBC']
 
-t_lims = range(1,8)
+t_lim = 7
+
 
 f = h5py.File(h5_fname, 'r')
-ids = f['meta']['ids'][:]
+all_ids = f['meta_091218']['ids'][:]
+dtd = f['meta_091218']['days_to_death'][:]
 f.close()
+
+sel = np.union1d(np.where(np.isnan(dtd)), np.where(dtd > t_lim))
+ids = all_ids[sel]
 
 desc = load_csv(feature_path + 'trajectory_individual/descriptive_features.csv', ids, int, skip_header=True)
 temp_norm = load_csv(feature_path + 'trajectory_individual/template_norm.csv', ids)
@@ -34,7 +39,7 @@ for tag in tags:
         for (dirpath, dirnames, filenames) in os.walk(lbl_path + tag[1:] + '/' + method + '/'):
             for dirname in dirnames:
                 try:
-                    lbls = np.loadtxt(dirpath + '/' + dirname + '/clusters.txt', dtype=str)
+                    lbls = load_csv(dirpath + '/' + dirname + '/clusters.txt', ids, str)
                 except IOError:
                     continue
                 desc_c, temp_c, slope_c = cluster_feature_vectors(desc, temp_norm, slope_norm, lbls)

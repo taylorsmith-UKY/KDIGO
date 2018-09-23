@@ -11,12 +11,14 @@ xl_file = "KDIGO_full.xlsx"
 timescale = 6  # in hours
 id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
-folder_name = '/7days_071118/'
-alphas = [0.25, 0.5, 1.0]
+folder_name = '/7days_071118_subset/'
+alphas = [1.0, ]
 transition_costs = [1.00,   # [0 - 1]
                     2.95,   # [1 - 2]
                     4.71,   # [2 - 3]
                     7.62]   # [3 - 4]
+
+bc_coords = np.array([1,2,3,4,5])
 t_lims = range(1, 8)[::-1]
 
 bc_shift = 1        # Value to add to coordinates for BC distance
@@ -40,7 +42,7 @@ all_ids = f['meta']['ids'][:]
 dtd = f['meta']['days_to_death'][:]
 f.close()
 
-for t_lim in t_lims:
+for t_lim in [7, ]:
     tpath = resPath + '%ddays/' % t_lim
     if not os.path.exists(tpath):
         os.mkdir(tpath)
@@ -57,7 +59,7 @@ for t_lim in t_lims:
             else:
                 alpha_list = [0.0, ]
             for alpha in alphas:
-                for dist_flag in ['abs_pop', ]:
+                for dist_flag in ['lap_bc', ]:
                     if use_mismatch_penalty:
                         mismatch = kf.mismatch_penalty_func(*transition_costs)
                         dm_tag = '_custmismatch'
@@ -70,22 +72,25 @@ for t_lim in t_lims:
                     else:
                         extension = lambda x: 0
                     if dist_flag == 'cust_bc':
-                        dist = kf.get_custom_braycurtis(*transition_costs, shift=bc_shift)
+                        # dist = kf.get_custom_braycurtis(*transition_costs, shift=bc_shift)
+                        dist = kf.get_custom_braycurtis(bc_coords)
                         dm_tag += '_custBC'
                     elif dist_flag == 'norm_bc':
                         dist = distance.braycurtis
                         dm_tag += '_normBC'
-                    elif dist_flag == 'abs_pop':
-                        dist = kf.get_pop_dist(*transition_costs)
-                        dm_tag += '_abspop'
+                    elif dist_flag == 'lap_bc':
+                        temp = dm_tag
+                        for lf in [1, 0.5, 0.2, 0.1, 0.05, 0.01]:
+                            dist = kf.get_laplacian_braycurtis(lf=lf)
+                            dm_tag = temp + '_lapBC_%.0E' % lf
 
-                    if not os.path.exists(tpath + 'kdigo_dm' + dm_tag + '.npy'):
-                        dm = kf.pairwise_dtw_dist(kdigos, days, ids, tpath + 'kdigo_dm' + dm_tag + '.csv', None,
-                                                  mismatch=mismatch,
-                                                  extension=extension,
-                                                  dist=dist,
-                                                  alpha=alpha,
-                                                  desc=dm_tag[1:], t_lim=t_lim)
-                        np.save(tpath + 'kdigo_dm' + dm_tag, dm)
-                    else:
-                        print(dm_tag + ' already completed.')
+                            if not os.path.exists(tpath + 'kdigo_dm' + dm_tag + '.npy'):
+                                dm = kf.pairwise_dtw_dist(kdigos, days, ids, tpath + 'kdigo_dm' + dm_tag + '.csv', None,
+                                                          mismatch=mismatch,
+                                                          extension=extension,
+                                                          dist=dist,
+                                                          alpha=alpha,
+                                                          desc=dm_tag[1:], t_lim=t_lim)
+                                np.save(tpath + 'kdigo_dm' + dm_tag, dm)
+                            else:
+                                print(dm_tag + ' already completed.')
