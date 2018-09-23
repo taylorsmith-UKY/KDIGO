@@ -78,7 +78,7 @@ def get_admits(date_m, admit_loc):
         admit = datetime.datetime.now()
         for row in rows:
             date_str = str(date_m[row, admit_loc]).split('.')[0]
-            tdate, format_str = get_date(date_str, format_str)
+            tdate = get_date(date_str)
             if tdate < admit:
                 admit = tdate
         admit_info[i, 1] = admit
@@ -111,8 +111,8 @@ def get_t_mask(scr_m, scr_date_loc, date_m, date_locs, v=True):
                 idx = date_idx[j]
                 start_str = str(date_m[idx, date_locs[0]]).lower().split('.')[0]
                 end_str = str(date_m[idx, date_locs[1]]).lower().split('.')[0]
-                current_start, date_m_date_fmt = get_date(start_str, date_m_date_fmt)
-                current_end, date_m_date_fmt = get_date(end_str, date_m_date_fmt)
+                current_start = get_date(start_str)
+                current_end = get_date(end_str)
 
                 if current_window is None:
                     current_window = [current_start, current_end]
@@ -136,7 +136,7 @@ def get_t_mask(scr_m, scr_date_loc, date_m, date_locs, v=True):
         date_str = str(scr_m[i, scr_date_loc]).lower().split('.')[0]
         if date_str == 'nan' or date_str == 'nat':
             continue
-        this_date, scr_m_date_fmt = get_date(date_str, scr_m_date_fmt)
+        this_date = get_date(date_str)
         if current_window is not None:
             if current_window[0] <= this_date <= current_window[1]:
                 mask[i] = 1
@@ -152,8 +152,9 @@ def get_t_mask(scr_m, scr_date_loc, date_m, date_locs, v=True):
     return mask, windows
 
 
-def get_date(date_str, format_str='%Y-%m-%d %H:%M:%S', v=False):
-    temp = format_str
+def get_date(date_str, format_str='%Y-%m-%d %H:%M:%S'):
+    if type(date_str) == datetime.datetime:
+        return date_str
     try:
         date = datetime.datetime.strptime(date_str, format_str)
     except ValueError:
@@ -169,9 +170,8 @@ def get_date(date_str, format_str='%Y-%m-%d %H:%M:%S', v=False):
                 try:
                     date = datetime.datetime.strptime(date_str, format_str)
                 except ValueError:
-                    format_str = temp
-                    return 'nan', format_str
-    return date, format_str
+                    return 'nan'
+    return date
 
 
 # %%
@@ -265,7 +265,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             for i in range(len(mort_idx)):
                 tid = mort_idx[i]
                 mdate = str(mort_m[tid, mdate_loc]).split('.')[0]
-                mort_date, format_str = get_date(mdate, format_str)
+                mort_date = get_date(mdate)
         if mort_date != 'nan':
             death_dur = (mort_date - admit).total_seconds() / (60 * 60 * 24)
         else:
@@ -280,7 +280,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             continue
         birth_idx = np.where(dob_m[:, 0] == idx)[0][0]
         dob = str(dob_m[birth_idx, birth_loc]).split('.')[0]
-        dob, format_str = get_date(dob, format_str)
+        dob = get_date(dob)
         if dob == 'nan':
             dob_count += 1
             if v:
@@ -392,7 +392,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         tdates = []
         for i in range(len(tdate_strs)):
             date_str = tdate_strs[i].split('.')[0]
-            tdate, format_str = get_date(date_str, format_str)
+            tdate = get_date(date_str)
             tdates.append(tdate)
         duration = [tdates[x] - admit for x in range(len(tdates))]
         duration = np.array(duration)
@@ -778,10 +778,10 @@ def fill_grid(scrs, dates, dmasks, scale):
     bins_per_day = int(np.floor(24 / scale))
 
     # Determine the final length of the interpolated records
-    start_date, fmt_str = get_date(dates[0])
+    start_date = get_date(dates[0])
     start_bin = int(np.floor(start_date.hour / scale))
 
-    end_date, fmt_str = get_date(dates[-1], fmt_str)
+    end_date = get_date(dates[-1])
     end_bin = int(np.floor(end_date.hour / scale))
 
     # If final hour is later than first hour, subract 1
@@ -805,7 +805,7 @@ def fill_grid(scrs, dates, dmasks, scale):
 
     # Assign each individual record to the appropriate bin
     for i in range(len(scrs)):
-        current_date, fmt_str = get_date(dates[i], fmt_str)
+        current_date = get_date(dates[i])
         current_bin = int(np.floor(current_date.hour / scale))
         ndays = int((current_date - start_date).days)
         if start_date.time() <= current_date.time():

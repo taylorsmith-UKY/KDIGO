@@ -17,7 +17,7 @@ timescale = 6  # in hours
 id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
 h5_name = 'stats.h5'
-folder_name = '/7days_092218/'
+folder_name = '/7days_092318/'
 alpha = 1.0
 transition_costs = [1.00,   # [0 - 1]
                     2.95,   # [1 - 2]
@@ -336,7 +336,7 @@ def main():
                                        h5_name, outPath, grp_name='meta_all', tlim=t_lim)
         max_kdigo = all_stats['max_kdigo'][:]
         aki_idx = np.where(max_kdigo > 0)[0]
-        aki_dtd = all_stats['days_to_death'][aki_idx]
+        aki_dtd = all_stats['days_to_death'][:][aki_idx]
         dtd_sel = np.logical_not(aki_dtd < t_lim)
         pt_sel = aki_idx[dtd_sel]
         stats = f.create_group('meta')

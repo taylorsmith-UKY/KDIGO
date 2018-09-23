@@ -122,14 +122,14 @@ def summarize_stats(ids, kdigos, days, scrs,
                 if str(dia_m[row, crrt_locs[0]]).lower() != 'nat' and str(dia_m[row, crrt_locs[0]]).lower() != 'nan':
                     start_str = str(dia_m[row, crrt_locs[0]]).split('.')[0]
                     stop_str = str(dia_m[row, crrt_locs[1]]).split('.')[0]
-                    start, _ = get_date(start_str)
-                    stop, _ = get_date(stop_str)
+                    start = get_date(start_str)
+                    stop= get_date(stop_str)
                     crrt_days += (stop - start).days
                 if str(dia_m[row, hd_locs[0]]).lower() != 'nat' and str(dia_m[row, hd_locs[0]]).lower() != 'nan':
                     start_str = str(dia_m[row, hd_locs[0]]).split('.')[0]
                     stop_str = str(dia_m[row, hd_locs[1]]).split('.')[0]
-                    start, _ = get_date(start_str)
-                    stop, _ = get_date(stop_str)
+                    start = get_date(start_str)
+                    stop = get_date(stop_str)
                     hd_days += (stop - start).days
 
         male = 0
@@ -139,10 +139,10 @@ def summarize_stats(ids, kdigos, days, scrs,
 
         dob_idx = np.where(dob_m[:, 0] == idx)[0][0]
         dob_str = str(dob_m[dob_idx, birth_loc]).split('.')[0]
-        dob, _ = get_date(dob_str)
+        dob = get_date(dob_str)
         date_idx = np.where(date_m[:, 0] == idx)[0][0]
         admit_str = str(date_m[date_idx, hosp_locs[0]]).split('.')[0]
-        admit, _ = get_date(admit_str)
+        admit = get_date(admit_str)
         tage = admit - dob
         age = tage.total_seconds() / (60 * 60 * 24 * 365)
 
@@ -179,9 +179,9 @@ def summarize_stats(ids, kdigos, days, scrs,
             mech_idx = mech_idx[0]
             try:
                 start_str = organ_sup_mv[mech_idx, mech_vent_dates[0]]
-                mech_start, _ = get_date(start_str)
+                mech_start = get_date(start_str)
                 stop_str = str(organ_sup_mv[mech_idx, mech_vent_dates[1]])
-                mech_stop, _ = get_date(stop_str)
+                mech_stop = get_date(stop_str)
                 if mech_stop < admit:
                     pass
                 elif (mech_start - admit).days > 28:
@@ -205,9 +205,9 @@ def summarize_stats(ids, kdigos, days, scrs,
             ecmo_idx = ecmo_idx[0]
             try:
                 start_str = str(organ_sup_ecmo[ecmo_idx, ecmo_dates[0]])
-                ecmo_start, _ = get_date(start_str)
+                ecmo_start = get_date(start_str)
                 stop_str = str(organ_sup_ecmo[ecmo_idx, ecmo_dates[1]])
-                ecmo_stop, _ = get_date(stop_str)
+                ecmo_stop = get_date(stop_str)
                 if ecmo_stop < admit:
                     pass
                 elif (ecmo_start - admit).days > 28:
@@ -223,9 +223,9 @@ def summarize_stats(ids, kdigos, days, scrs,
             iabp_idx = iabp_idx[0]
             try:
                 start_str = str(organ_sup_iabp[iabp_idx, iabp_dates[0]])
-                iabp_start, _ = get_date(start_str)
+                iabp_start = get_date(start_str)
                 stop_str = str(organ_sup_iabp[iabp_idx, iabp_dates[1]])
-                iabp_stop, _ = get_date(stop_str)
+                iabp_stop = get_date(stop_str)
                 if iabp_stop < admit:
                     pass
                 elif (iabp_start - admit).days > 28:
@@ -241,9 +241,9 @@ def summarize_stats(ids, kdigos, days, scrs,
             vad_idx = vad_idx[0]
             try:
                 start_str = str(organ_sup_vad[vad_idx, vad_dates[0]])
-                vad_start, _ = get_date(start_str)
+                vad_start = get_date(start_str)
                 stop_str = str(organ_sup_vad[vad_idx, vad_dates[1]])
-                vad_stop, _ = get_date(stop_str)
+                vad_stop = get_date(stop_str)
                 if vad_stop < admit:
                     pass
                 elif (vad_start - admit).days > 28:
@@ -297,7 +297,7 @@ def summarize_stats(ids, kdigos, days, scrs,
         dtd = np.nan
         if mort_idx.size > 0:
             tstr = str(mort_m[mort_idx[0], mdate_loc]).split('.')[0]
-            mdate, _ = get_date(tstr)
+            mdate = get_date(tstr)
             if mdate != 'nan':
                 dtd = (mdate - admit).total_seconds() / (60 * 60 * 24)
 
@@ -775,16 +775,16 @@ def get_los(pid, date_m, hosp_locs, icu_locs):
     for i in range(len(hosp)):
         start_str = str(hosp[i][0]).split('.')[0]
         stop_str = str(hosp[i][1]).split('.')[0]
-        start, _ = get_date(start_str)
-        stop, _ = get_date(stop_str)
+        start = get_date(start_str)
+        stop = get_date(stop_str)
         h_dur += stop - start
 
     icu_dur = datetime.timedelta(0)
     for i in range(len(icu)):
         start_str = str(icu[i][0]).split('.')[0]
         stop_str = str(icu[i][1]).split('.')[0]
-        start, _ = get_date(start_str)
-        stop, _ = get_date(stop_str)
+        start = get_date(start_str)
+        stop = get_date(stop_str)
         icu_dur += stop - start
 
     h_dur = h_dur.total_seconds() / (60 * 60 * 24)
@@ -882,7 +882,7 @@ def get_sofa(ids,
         admit = datetime.datetime.now()
         for did in admit_rows:
             tstr = str(admit_info[did, date]).split('.')[0]
-            tadmit, _ = get_date(tstr)
+            tadmit = get_date(tstr)
             if tadmit < admit:
                 admit = tadmit
 
@@ -937,8 +937,8 @@ def get_sofa(ids,
                 tmv = organ_sup[row, mech_vent]
                 mech_start_str = str(tmv[0]).split('.')[0]
                 mech_stop_str = str(tmv[1]).split('.')[0]
-                mech_start, _ = get_date(mech_start_str)
-                mech_stop, _ = get_date(mech_stop_str)
+                mech_start = get_date(mech_start_str)
+                mech_stop = get_date(mech_stop_str)
                 if mech_start <= admit <= mech_stop:
                     vent = 1
         if vent:
