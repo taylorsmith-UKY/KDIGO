@@ -13,6 +13,7 @@ from sklearn.feature_selection import SelectFromModel, SelectKBest, chi2, Varian
 from sklearn.model_selection import StratifiedKFold
 import h5py
 from tqdm import tqdm
+import os
 
 
 # %%
@@ -1362,60 +1363,65 @@ def pairwise_dtw_dist(patients, days, ids, dm_fname, dtw_name, v=True,
                       mismatch=lambda y, yy: abs(y-yy),
                       extension=lambda y: 0,
                       dist=distance.braycurtis,
-                      alpha=1.0, t_lim=7,
-                      desc='DTW and Distance Calculation'):
+                      alpha=1.0, t_lim=7):
+    '''
+    For each pair of arrays in patients, this function first applies dynamic time warping to
+    align the arrays to the same length and then computes the distance between the aligned arrays.
+
+    :param patients: List containing N individual arrays of variable length to be aligned
+    :param days: List containing N arrays, each indicating the day of each individual point
+    :param ids: List of N patient IDs
+    :param dm_fname: Filename to save distances
+    :param dtw_name: Filename to save DTW alignment
+    :param v: verbose... if True prints extra information
+    :param mismatch: function handle... determines cost of mismatched values
+    :param extension: function handle... if present, introduces extension penalty coresponding to value
+    :param dist: function handle... calculates the total distance between the aligned curves
+    :param alpha: float value... specifies weight of extension penalty vs. mismatch penalty
+    :param t_lim: float/integer... only include data where day <= t_lim
+    :return: condensed pair-wise distance matrix
+    '''
     df = open(dm_fname, 'w')
     dis = []
-    pdic = {}
     if v and dtw_name is not None:
         log = open(dtw_name, 'w')
-    for i in tqdm(range(len(patients)), desc=desc):
-        # if v:
-            # print('#' + str(i + 1) + ' vs #' + str(i + 2) + ' to ' + str(len(patients)))
+    for i in tqdm(range(len(patients)), desc='DTW and Distance Calculation'):
         sel = np.where(days[i] <= t_lim)[0]
         patient1 = np.array(patients[i])[sel]
-        if tuple(patient1) in list(pdic):
-            tlist = pdic[tuple(patient1)]
-            start = len(tlist) - (len(patients) - i + 1)
-            ct = 0
-            for j in tqdm(range(i + 1, len(patients)), desc='Patient %d' % ids[i]):
-                dis.append(tlist[start + ct])
-        else:
-            dlist = []
-            for j in range(i + 1, len(patients)):
-                df.write('%d,%d,' % (ids[i], ids[j]))
-                sel = np.where(days[j] < t_lim)[0]
-                patient2 = np.array(patients[j])[sel]
-                if np.all(patients[i] == patients[j]):
+        dlist = []
+        for j in range(i + 1, len(patients)):
+            df.write('%d,%d,' % (ids[i], ids[j]))
+            sel = np.where(days[j] < t_lim)[0]
+            patient2 = np.array(patients[j])[sel]
+            if np.all(patients[i] == patients[j]):
+                df.write('%f\n' % 0)
+                dis.append(0)
+                dlist.append(0)
+            else:
+                if len(patients[i]) > 1 and len(patients[j]) > 1:
+                    d, _, _, path = dtw_p(patient1, patient2, mismatch=mismatch, extension=extension, alpha=alpha)
+                    p1_path = path[0]
+                    p2_path = path[1]
+                    p1 = np.array([patient1[p1_path[x]] for x in range(len(p1_path))])
+                    p2 = np.array([patient2[p2_path[x]] for x in range(len(p2_path))])
+                elif len(patients[i]) == 1:
+                    p1 = np.repeat(patient1[0], len(patient2))
+                    p2 = patient2
+                elif len(patients[j]) == 1:
+                    p1 = patient1
+                    p2 = np.repeat(patient2[0], len(patient1))
+                if np.all(p1 == p2):
                     df.write('%f\n' % 0)
                     dis.append(0)
                     dlist.append(0)
                 else:
-                    if len(patients[i]) > 1 and len(patients[j]) > 1:
-                        d, _, _, path = dtw_p(patient1, patient2, mismatch, extension, alpha)
-                        p1_path = path[0]
-                        p2_path = path[1]
-                        p1 = np.array([patient1[p1_path[x]] for x in range(len(p1_path))])
-                        p2 = np.array([patient2[p2_path[x]] for x in range(len(p2_path))])
-                    elif len(patients[i]) == 1:
-                        p1 = np.repeat(patient1[0], len(patient2))
-                        p2 = patient2
-                    elif len(patients[j]) == 1:
-                        p1 = patient1
-                        p2 = np.repeat(patient2[0], len(patient1))
-                    if np.all(p1 == p2):
-                        df.write('%f\n' % 0)
-                        dis.append(0)
-                        dlist.append(0)
-                    else:
-                        d = dist(p1, p2)
-                        df.write('%f\n' % d)
-                        dis.append(d)
-                        dlist.append(d)
-                if v and dtw_name is not None:
-                    log.write(arr2str(p1, fmt='%d') + '\n')
-                    log.write(arr2str(p2, fmt='%d') + '\n\n')
-            pdic[tuple(patient1)] = dlist
+                    d = dist(p1, p2)
+                    df.write('%f\n' % d)
+                    dis.append(d)
+                    dlist.append(d)
+            if v and dtw_name is not None:
+                log.write(arr2str(p1, fmt='%d') + '\n')
+                log.write(arr2str(p2, fmt='%d') + '\n\n')
     if v and dtw_name is not None:
         log.close()
     return dis
@@ -1430,12 +1436,16 @@ def dtw_p(x, y, mismatch=lambda y, yy: abs(y-yy),
 
     :param array x: N1*M array
     :param array y: N2*M array
-    :param func dist: distance used as cost measure
+    :param func mismatch: distance used as cost measure
+    :param func extension: extension penalty applied when repeating index
+    :param alpha: float value indicating relative weight of extension penalty
 
     Returns the minimum distance, the cost matrix, the accumulated cost matrix, and the warp path.
     """
     assert len(x)
     assert len(y)
+    x_ext = 0
+    y_ext = 0
     r, c = len(x), len(y)
     D0 = np.zeros((r + 1, c + 1))  # distance matrix
     D0[0, 1:] = np.inf
@@ -1445,39 +1455,55 @@ def dtw_p(x, y, mismatch=lambda y, yy: abs(y-yy),
         for j in range(c):
             D1[i, j] = mismatch(x[i], y[j])
     C = D1.copy()
+    # Dx = np.zeros((r + 1, c + 1))   # tracking x extension
+    # Dy = np.zeros((r + 1, c + 1))   # tracking y extension
+    ext_y = np.zeros(c)
+    ext_x = np.zeros(r)
     for i in range(r):
         for j in range(c):
-            D1[i, j] += np.min((D0[i, j], D0[i, j + 1], D0[i + 1, j]))
+            diag = D0[i, j]
+            #rep_y = D0[i, j+1] + alpha * (Dy[i, j+1] + extension(y[j]))
+            #rep_y = D0[i, j + 1] + alpha * (Dy[i, j + 1])
+            #rep_y = D0[i, j + 1] + alpha * (ext_y[j])
+            #rep_x = D0[i+1, j] + alpha * (Dx[i+1, j] + extension(x[i]))
+            #rep_x = D0[i + 1, j] + alpha * (Dx[i + 1, j])
+            #rep_x = D0[i + 1, j] + alpha * (ext_x[i])
+            sel = np.argmin((D0[i, j], D0[i, j + 1], D0[i + 1, j]))
+            if sel == 1:
+                #Dy[i+1, j+1] = Dy[i, j+1] + extension(y[j])
+
+                ext_y[j] += alpha * extension(y[j])
+                D1[i, j] += D0[i, j + 1] + ext_y[j]
+            elif sel == 2:
+                #Dx[i+1, j+1] = Dx[i+1, j] + extension(x[i])
+
+                ext_x[i] += alpha * extension(x[i])
+                D1[i, j] += D0[i + 1, j] + ext_x[i]
+            else:
+                D1[i, j] += diag
     if len(x) == 1:
         path = np.zeros(len(y))
     elif len(y) == 1:
         path = np.zeros(len(x))
     else:
-        path = _traceback(D0, x, y, extension, alpha)
+        path = _traceback(D0, x, y)
     return D1[-1, -1] / sum(D1.shape), C, D1, path
 
 
-def _traceback(D, x, y, extension=lambda y: 0,
-                        alpha=1.0):
+def _traceback(D, x, y):
     i, j = np.array(D.shape) - 2
     p, q = [i], [j]
-    px = extension(x[i])
-    py = extension(y[j])
     while i > 0 or j > 0:
-        tb = np.argmin((D[i, j], D[i, j + 1] + (alpha * px), D[i + 1, j] + (alpha * py)))
+        tb = np.argmin((D[i, j], D[i, j + 1], D[i + 1, j]))
         if tb == 0:
             i -= 1
             j -= 1
-            px = extension(x[i])
-            py = extension(y[j])
         elif tb == 1:
             i -= 1
-            px = extension(x[i])
-            py += extension(y[j])
+
         else:  # (tb == 2):
             j -= 1
-            px += extension(x[i])
-            py = extension(y[j])
+
         p.insert(0, i)
         q.insert(0, j)
     return np.array(p), np.array(q)
@@ -2238,6 +2264,36 @@ def daily_max_kdigo_interp(kdigos, days, tlim=7):
 #                 tmax = 3
 #     mk.append(tmax)
 #     return mk
+
+
+def get_subset(sel_ids, old_data_path, new_data_path, old_result_path, new_result_path):
+    for (dirpath, dirnames, fnames) in os.walk(old_data_path):
+        for fname in fnames:
+            if 'csv' in fname:
+                if 'patient_summary' in fname or 'excluded' in fname:
+                    continue
+                of = open(os.path.join(old_data_path, fname), 'r')
+                nf = open(os.path.join(new_data_path, fname), 'w')
+                for line in of:
+                    tid = int(line.split(',')[0])
+                    if tid in sel_ids:
+                        nf.write(line)
+                of.close()
+                nf.close()
+    oh5 = h5py.File(old_result_path + 'stats.h5', 'r')
+    nh5 = h5py.File(new_result_path + 'stats.h5', 'w')
+    om = oh5['meta']
+    nm = nh5.create_group('meta')
+    oids = om['ids'][:]
+    sel = np.zeros(len(sel_ids), dtype=int)
+    for i in range(len(sel_ids)):
+        sel[i] = np.where(oids == sel_ids[i])[0][0]
+    for k in list(om):
+        nm.create_dataset(k, data=om[k][:][sel], dtype=om[k].dtype)
+
+    oh5.close()
+    nh5.close()
+    return
 
 
 def cluster_feature_vectors(desc, temp, slope, lbls):

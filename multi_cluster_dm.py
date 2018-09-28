@@ -11,7 +11,7 @@ import datetime
 
 # PARAMETERS
 #################################################################################
-base_path = '../RESULTS/icu/7days_091718/'
+base_path = '../RESULTS/icu/7days_092318/'
 dm_tags = ['_custmismatch_extension_a1E+00_normBC', ]#'_custmismatch_normBC',
            #'_absmismatch_extension_a1E+00_normBC', '_absmismatch_normBC']
 # dm_tags = ['_custmismatch_extension_a1E+00_custBC_new']

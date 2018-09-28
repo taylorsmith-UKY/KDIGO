@@ -20,6 +20,305 @@ import h5py
 import os
 
 
+def cluster_trajectories(stat_file, dm, meta_grp='meta', eps=0.015, p_thresh=0.05, min_size=20, hom_thresh=0.9,
+                         max_size_pct=0.2, n_clusters=2, hmethod='dynamic', data_path=None,
+                         interactive=True, save=False):
+    '''
+    Provided a pre-computed distance matrix, cluster the corresponding trajectories using the specified methods.
+    First applies DBSCAN to identify and remove any patients designated as noise. Next applies a dynamic hierarchical
+    clustering algorithm (see function dynamic_tree_cut below for more details).
+
+    :param stat_file: hdf5 file containing groups of metadata corresponding to different subsets of the full data
+    :param dm: pre-computed distance matrix (can be condensed or square_
+    :param meta_grp: name of the group in the hdf5 file corresponding to the desired subset
+    :param eps: epsilon threshold for DBSCAN clustering
+    :param p_thresh: p-value threshold for normaltest to split a cluster
+    :param min_size: minimum cluster size allowed... if any DBSCAN clusters are smaller than min_size, designate as
+                     noise, while for hierarchical clustering, do not split node if either child is smaller than
+                     min_size
+    :param hom_thresh: homogeneity threshold for hierarchical clustering (see dynamic_tree_cut for more)
+    :param max_size_pct: maximum cluster size as percentage of total subset size
+    :param hmethod: hierarchical clustering method... 'dynamic' calls dynamic algorithm, 'flat' applies flat
+                    clustering with a uniform distance threshold
+    :param interactive: T/F indicates whether the algorithm will prompt user for input
+    :param save: None or base-path for saving output
+    :return:
+    '''
+    # Open hdf5 file containing patient statistics
+    if type(stat_file) == str:
+        f = h5py.File(stat_file, 'r')
+    else:
+        f = stat_file
+
+    # Ensure that we have both the square distance matrix for DBSCAN and the condensed matrix for hierarchical
+    if dm.ndim == 1:
+        # Provided dm is condensed
+        sqdm = squareform(dm)
+    else:
+        # Provided dm is square
+        sqdm = dm
+        dm = squareform(dm)
+
+    # Load corresponding metadata required for clustering
+    # meta_grp specifies the group in the file so that multiple subsets may be defined for the same dataset
+    stats = f[meta_grp]
+    ids = stats['ids'][:]
+    mk = stats['max_kdigo'][:]
+
+    # Initialize DBSCAN model
+    db = DBSCAN(eps=eps, metric='precomputed', n_jobs=-1)
+    cont = True
+    while cont:
+        db.fit(sqdm)
+        lbls = np.array(db.labels_, dtype=int)
+        # DBSCAN labels start at 0... increment all but noise (-1)
+        lbls[np.where(lbls >= 0)] += 1
+        lbl_names = np.unique(lbls)
+        # Don't count the noise in the number of clusters
+        nclust = len(lbl_names) - 1
+
+        # If any DBSCAN clusters are smaller than min_size, designate as noise
+        for i in range(1, nclust + 1):
+            tlbl = lbl_names[i]
+            idx = np.where(lbls == tlbl)[0]
+            if len(idx) < min_size:
+                lbls[idx] = -1
+
+        lbl_names = np.unique(lbls)
+        nclust = len(lbl_names) - 1
+        print('Number of DBSCAN Clusters = %d' % nclust)
+
+        # If interactive let the user provide a new epsilon
+        if interactive:
+            for i in range(len(lbl_names)):
+                print('Cluster %d: %d members' % (lbl_names[i], len(np.where(lbls == lbl_names[i])[0])))
+            eps_str = raw_input('New epsilon (non-numeric to continue): ')
+            # If numeric, recompute, otherwise continue
+            try:
+                eps = float(eps_str)
+                db = DBSCAN(eps=eps, metric='precomputed', n_jobs=-1)
+            except ValueError:
+                cont = False
+        else:
+            cont = False
+
+    n_clust_str = '%d_clusters' % nclust
+    if save:
+        if not os.path.exists(os.path.join(save, 'dbscan')):
+            os.mkdir(os.path.join(save, 'dbscan'))
+        if not os.path.exists(os.path.join(save, 'dbscan', n_clust_str)):
+            tag = ''
+            os.mkdir(os.path.join(save, 'dbscan', n_clust_str))
+        else:
+            tag = '_a'
+            while os.path.exists(os.path.join(save, 'dbscan', n_clust_str + tag)):
+                tag = '_' + chr(ord(tag[1]) + 1)
+            os.mkdir(os.path.join(save, 'dbscan', n_clust_str + tag))
+        arr2csv(os.path.join(save, 'dbscan', n_clust_str + tag, 'clusters.csv'), lbls, ids, fmt='%d')
+
+    # Select the non-noise clusters
+    pt_sel = np.where(lbls != -1)[0]
+    sq_sel = np.ix_(pt_sel, pt_sel)
+    ids_sel = ids[pt_sel]
+    mk_sel = mk[pt_sel]
+
+    sqdm_sel = sqdm[sq_sel]
+    dm_sel = squareform(sqdm_sel)
+
+    # Get linkage matrix for remaining patients using Ward's method
+    link = fc.ward(dm_sel)
+
+    # Generate corresponding dendrogram
+    fig = plt.figure()
+    dendrogram(link, 50, truncate_mode='lastp')
+    plt.xlabel('Patients')
+    plt.ylabel('Distance')
+    plt.show()
+    if save:
+        if not os.path.exists(os.path.join(save, 'composite')):
+            os.mkdir(os.path.join(save, 'composite'))
+        if not os.path.exists(os.path.join(save, 'composite', 'dend_%d_patients.png' % len(pt_sel))):
+            fig.savefig(os.path.join(save, 'composite', 'dend_%d_patients.png' % len(pt_sel)))
+    plt.close(fig)
+
+    if save:
+        if not os.path.exists(os.path.join(save, hmethod)):
+            os.mkdir(os.path.join(save, hmethod))
+        if not os.path.exists(os.path.join(save, hmethod, 'dend_%d_patients.png' % len(pt_sel))):
+            fig.savefig(os.path.join(save, hmethod, 'dend_%d_patients.png' % len(pt_sel)))
+
+    if hmethod == 'dynamic':
+        # Convert linkage matrix to tree structure similar to that shown in dendrogram
+        tree = to_tree(link)
+        cont = True
+
+        while cont:
+            if interactive:
+                # Update all clustering parameters
+                try:
+                    p_thresh = input('Enter p-value threshold (current is %.2E):' % p_thresh)
+                except SyntaxError:
+                    pass
+                try:
+                    min_size = input('Enter minimum size (current is %d):' % min_size)
+                except SyntaxError:
+                    pass
+                try:
+                    height_lim = input('Enter height limit (current is %d):' % height_lim)
+                except SyntaxError:
+                    pass
+                try:
+                    hom_thresh = input(
+                        'Enter max KDIGO homogeneity threshold (as fractional %%... i.e. 1.0 means uniform\ncurrent is %.3f):' % hom_thresh)
+                except SyntaxError:
+                    pass
+                try:
+                    max_size_pct = input(
+                        'Enter maximum cluster size (as fractional %%, current is %.3f, <0 to quit):' % max_size_pct)
+                    if max_size_pct < 0:
+                        cont = False
+                except SyntaxError:
+                    pass
+
+            lbls_sel = dynamic_tree_cut(tree, sqdm_sel, ids_sel, mk_sel, p_thresh, min_size, hom_thresh, max_size_pct)
+            lbl_names = np.unique(lbls)
+            n_clusters = len(lbl_names)
+            print('Final number of clusters: %d' % n_clusters)
+            if save:
+                save_path = os.path.join(save, hmethod, '%d_clusters' % n_clusters)
+                tag = None
+                while os.path.exists(save_path):
+                    if tag is None:
+                        tag = '_a'
+                    else:
+                        tag = '_' + chr(ord(tag[1]) + 1)
+                    save_path = os.path.join(save, hmethod, '%d_clusters%s' % (n_clusters, tag))
+                os.mkdir(save_path)
+                arr2csv(os.path.join(save_path, 'clusters.csv'), lbls_sel, ids_sel, fmt='%s')
+                get_cstats(f, save_path, meta_grp=meta_grp, ids=ids_sel)
+                if data_path is not None:
+                    dkpath = os.path.join(save_path, 'daily_kdigo')
+                    os.mkdir(dkpath)
+                    plot_daily_kdigos(data_path, ids_sel, f, sqdm, lbls_sel, outpath=dkpath, ids=ids_sel)
+
+            if interactive:
+                t = raw_input('Try a different configuration? (y/n)')
+                if 'y' in t:
+                    cont = True
+                else:
+                    cont = False
+            else:
+                cont = False
+    else:  # flat clustering with Ward's method
+        cont = True
+        while cont:
+            if interactive:
+                try:
+                    n_clusters = input('Enter desired number of clusters (current is %d):' % n_clusters)
+                except SyntaxError:
+                    pass
+            lbls_sel = fcluster(link, n_clusters, criterion='maxclust')
+            if save:
+                save_path = os.path.join(save, hmethod, '%d_clusters' % n_clusters)
+                tag = None
+                if os.path.exists(save_path):
+                    print('%d clusters has already been saved' % n_clusters)
+                    continue
+                os.mkdir(save_path)
+                arr2csv(os.path.join(save_path, 'clusters.csv'), lbls_sel, ids_sel, fmt='%d')
+                get_cstats(f, save_path, meta_grp=meta_grp, ids=ids_sel)
+                if data_path is not None:
+                    dkpath = os.path.join(save_path, 'daily_kdigo')
+                    os.mkdir(dkpath)
+                    plot_daily_kdigos(data_path, ids_sel, f, sqdm, lbls_sel, outpath=dkpath, ids=ids_sel)
+            if interactive:
+                t = raw_input('Try a different configuration? (y/n)')
+                if 'y' in t:
+                    cont = True
+                else:
+                    cont = False
+            else:
+                cont = False
+    return
+
+
+def dynamic_tree_cut(node, sqdm, ids, mk, p_thresh=0.05, min_size=20, hom_thresh=0.9, max_size_pct=0.2, base_name='1',
+                     lbls=None, v=False):
+    '''
+    Iterative clustering algorithm that utilizes the tree structure derived from the linkage matrix using Ward's method
+    along with additional statistical and logical tests to determine where to cut the tree.
+
+    :param node: tree structure corresponding to the current node and it's children (initially root)
+    :param sqdm: square distance matrix
+    :param ids: all corresponding patient IDs in order
+    :param mk: maximum KDIGO scores in the analysis window for patients 'ids'
+    :param p_thresh: p-value threshold for splitting current node based on normaltest
+    :param min_size: minimum cluster size... will not split any nodes whose children have < min_size leaves
+    :param hom_thresh: homogeneity threshold... if < hom_thresh% of patients belonging to the node have the same max
+                       KDIGO as the mode of the patients in this node, split it
+    :param max_size_pct: if a node size is > max_size_pct of the full cohort size, split it
+    :param base_name: name of the current node (children will be base_name-l and base_name-r)
+    :param lbls: individual cluster labels for each patient. Only used by iterative calls... user should not specify
+    :param v: verbose... whether or not to print extra information
+    :return:
+    '''
+    if lbls is None:
+        lbls = np.repeat('1', len(ids)).astype('|S30')
+
+    max_size = max_size_pct * len(lbls)
+    left = node.get_left()
+    right = node.get_right()
+    left_name = base_name + '-l'
+    right_name = base_name + '-r'
+    left_idx = left.pre_order()
+    left_sel = np.ix_(left_idx, left_idx)
+    left_intra = np.mean(sqdm[left_sel], axis=0)
+
+    right_idx = right.pre_order()
+    right_sel = np.ix_(right_idx, right_idx)
+    right_intra = np.mean(sqdm[right_sel], axis=0)
+
+    if len(left_idx) < min_size or len(right_idx) < min_size:
+        if v:
+            print('Splitting current node creates children < min_size: %s' % base_name)
+        return lbls
+
+    lbls[left_idx] = left_name
+    lbls[right_idx] = right_name
+
+    _, left_p = normaltest(left_intra)
+    left_mks = mk[left_idx]
+    left_tk, left_nm = mode(left_mks)
+    left_hom = float(left_nm) / len(left_mks)
+    if left_p < p_thresh or left_hom < hom_thresh or len(left_idx) > max_size:
+        if v:
+            print('Splitting node %s: p-value=%.2E\tsize=%d\thomogeneity=%.2f%%' % (
+                  left_name, left_p, len(left_idx), left_hom))
+
+        lbls = dynamic_tree_cut(left, sqdm, ids, mk, p_thresh, min_size, hom_thresh, max_size_pct, left_name, lbls)
+    else:
+        if v:
+            print('Node %s final: p-value=%.2E\tsize=%d\thomogeneity=%.2f%%' % (
+                  left_name, left_p, len(left_idx), left_hom))
+
+    _, right_p = normaltest(right_intra)
+    right_mks = mk[right_idx]
+    right_tk, right_nm = mode(right_mks)
+    right_hom = float(right_nm) / len(right_mks)
+    if right_p < p_thresh or right_hom < hom_thresh or len(right_idx) > max_size:
+        if v:
+            print('Splitting node %s: p-value=%.2E\tsize=%d\thomogeneity=%.2f%%' % (
+                  right_name, right_p, len(right_idx), right_hom))
+        lbls = dynamic_tree_cut(right, sqdm, ids, mk, p_thresh, min_size, hom_thresh, max_size_pct, right_name, lbls)
+    else:
+        if v:
+            print('Node %s final: p-value=%.2E\tsize=%d\thomogeneity=%.2f%%' % (
+                  right_name, right_p, len(right_idx), right_hom))
+
+    return lbls
+
+
+
 # %%
 def dist_cut_cluster(h5_fname, dm, ids, mk, meta_grp='meta', path='', eps=0.015, p_thresh=0.05,
                      min_size=20, height_lim=5, interactive=True, save=True, max_noise=100,
@@ -468,7 +767,7 @@ def mean_confidence_interval(data, confidence=0.95):
     return means, means-diff, means+diff
 
 
-def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7, cutoff=None):
+def plot_daily_kdigos(datapath, ids, stat_file, sqdm, lbls, outpath='', max_day=7, cutoff=None):
     c_lbls = np.unique(lbls)
     n_clusters = len(c_lbls)
     if np.ndim(sqdm) == 1:
@@ -537,7 +836,7 @@ def plot_daily_kdigos(datapath, ids, h5_name, sqdm, lbls, outpath='', max_day=7,
             n_recs[i, j] = (float(len(idx) - len(np.where(np.isnan(all_daily[idx, j]))[0])) / len(idx)) * 100
 
     if outpath != '':
-        f = h5py.File(h5_name, 'r')
+        f = stat_file
         all_ids = f['meta']['ids'][:]
         all_inp_death = f['meta']['died_inp'][:]
         sel = np.array([x in ids for x in all_ids])

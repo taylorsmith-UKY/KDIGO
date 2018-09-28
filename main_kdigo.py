@@ -285,17 +285,17 @@ def main():
     # Summarize patient stats
     try:
         f = h5py.File(h5_name, 'r+')
-    except:
+    except IOError:
         f = h5py.File(h5_name, 'w')
     try:
         stats = f['meta']
         all_stats = f['meta_all']
         max_kdigo = all_stats['max_kdigo'][:]
         aki_idx = np.where(max_kdigo > 0)[0]
-        aki_dtd = all_stats['days_to_death'][aki_idx]
+        aki_dtd = all_stats['days_to_death'][:][aki_idx]
         dtd_sel = np.logical_not(aki_dtd < t_lim)
         pt_sel = aki_idx[dtd_sel]
-    except:
+    except KeyError:
         if dem_m is None:
             # Load raw data from individual CSV files
             ((date_m, hosp_locs, icu_locs, adisp_loc,
@@ -353,7 +353,7 @@ def main():
     aki_kdigos = []
     aki_days = []
     for i in range(len(kdigos)):
-        if np.max(kdigos[i]) > 0:
+        if i in pt_sel:
             aki_kdigos.append(kdigos[i])
             aki_days.append(days_interp[i])
 
@@ -363,15 +363,15 @@ def main():
 
     if not os.path.exists(resPath + 'features/trajectory_individual/'):
         os.mkdir(resPath + 'features/trajectory_individual/')
-        desc = kf.descriptive_trajectory_features(aki_kdigos, aki_ids, days=days_interp, t_lim=t_lim,
+        desc = kf.descriptive_trajectory_features(aki_kdigos, aki_ids, days=aki_days, t_lim=t_lim,
                                                   filename=resPath + 'features/trajectory_individual/descriptive_features.csv')
 
-        slope = kf.slope_trajectory_features(aki_kdigos, aki_ids, days=days_interp, t_lim=t_lim,
+        slope = kf.slope_trajectory_features(aki_kdigos, aki_ids, days=aki_days, t_lim=t_lim,
                                              filename=resPath + 'features/trajectory_individual/slope_features.csv')
         slope_norm = kf.normalize_features(slope)
         kf.arr2csv(resPath + 'features/trajectory_individual/slope_norm.csv', slope_norm, aki_ids)
 
-        temp = kf.template_trajectory_features(aki_kdigos, aki_ids, days=days_interp, t_lim=t_lim,
+        temp = kf.template_trajectory_features(aki_kdigos, aki_ids, days=aki_days, t_lim=t_lim,
                                                filename=resPath + 'features/trajectory_individual/template_features.csv')
         temp_norm = kf.normalize_features(temp)
         kf.arr2csv(resPath + 'features/trajectory_individual/template_norm.csv', temp_norm, aki_ids)
