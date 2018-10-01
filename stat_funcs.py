@@ -444,7 +444,7 @@ def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta', ids=None):
     else:
         sel = np.array([x in ids for x in all_ids])
     
-    lbls = load_csv(label_path + 'clusters.txt', ids, dt=str)
+    lbls = load_csv(os.path.join(label_path, 'clusters.csv'), ids, dt=str)
 
     ages = meta['age'][:][sel]
     genders = meta['gender'][:][sel]
@@ -526,7 +526,7 @@ def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta', ids=None):
                          'hd_days_med', 'hd_days_25', 'hd_days_75', '\n'])
                          # 'record_len_med', 'record_len_25', 'record_len_75', '\n'])
 
-    sf = open(label_path + 'cluster_stats.csv', 'w')
+    sf = open(os.path.join(label_path, 'cluster_stats.csv'), 'w')
     sf.write(c_header)
     for i in range(len(lbl_names)):
         cluster_id = lbl_names[i]
@@ -680,8 +680,8 @@ def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta', ids=None):
                 l.append(p_val)
         np.save(os.path.join(label_path, 'formal_stats', k + '.npy'), np.array(l))
         l = []
-    if got_str:
-        f.close()
+    # if got_str:
+    #     f.close()
 
 # %%
 def get_disch_date(idx, date_m, hosp_locs):

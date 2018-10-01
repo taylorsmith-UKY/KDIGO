@@ -18,18 +18,33 @@ import os
 
 # %%
 def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs, v=True):
+    '''
+    Returns a mask for all records in scr_m indicating whether the corresponding patient was on dialysis at the time
+    that the record was taken
+    :param scr_m: matrix containing all SCr data
+    :param scr_date_loc: index of time of record
+    :param dia_m: matrix containing all dialysis information
+    :param crrt_locs: indices of CRRT start/stop dates
+    :param hd_locs: indices of HD start/stop dates
+    :param pd_locs: indicies of PD start/stop dates
+    :param v: verbose... whether or not to print to console
+    :return mask: vector with 0 indicating no dialysis, 1 = CRRT, 2 = HD, 3 = PD
+    '''
+    # mask is same length as number of SCr records
     mask = np.zeros(len(scr_m))
     if v:
         print 'Getting mask for dialysis'
         print 'Number non-dialysis records, #CRRT, #HD, #PD'
     for i in range(len(mask)):
+        # ID of the current patient
         this_id = scr_m[i, 0]
         date_str = str(scr_m[i, scr_date_loc]).lower()
         if date_str == 'nan' or date_str == 'nat':
             continue
         else:
-            this_date = datetime.datetime.strptime(str(scr_m[i, scr_date_loc]), '%Y-%m-%d %H:%M:%S')
+            this_date = get_date(str(scr_m[i, scr_date_loc]))
         rows = np.where(dia_m[:, 0] == this_id)[0]
+        # check dialysis dates for this patient and assign mask value if current value was recorded during dialysis
         for row in rows:
             if dia_m[row, crrt_locs[0]]:
                 if str(dia_m[row, crrt_locs[0]]) != 'nan' and \
@@ -61,6 +76,14 @@ def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs, v
 
 
 def get_dia_mask_dallas(scr_m, dia_locs):
+    '''
+    Returns a mask for all records in scr_m indicating whether the corresponding patient was on dialysis at the time
+    that the record was taken
+    Dallas data provides this directly
+    :param scr_m: matrix containing all SCr data, including dialysis indicators
+    :param dia_locs: locations of dialysis info
+    :return:
+    '''
     mask = np.zeros(len(scr_m), dtype=int)
     for col in dia_locs:
         mask[np.where(scr_m[:, col])] = 1
@@ -69,10 +92,15 @@ def get_dia_mask_dallas(scr_m, dia_locs):
 
 # %%
 def get_admits(date_m, admit_loc):
+    '''
+    Given multiple admissions, return the earliest
+    :param date_m: matrix with all hospital admit info
+    :param admit_loc: index of the desired admit date
+    :return:
+    '''
     all_ids = np.unique(date_m[:, 0])
     admit_info = np.zeros((len(all_ids), 2), dtype='|S20')
     admit_info[:, 0] = all_ids
-    format_str = '%Y-%m-%d %H:%M:%S'
     for i in range(len(all_ids)):
         tid = all_ids[i]
         rows = np.where(date_m[:, 0] == tid)[0]
@@ -88,18 +116,26 @@ def get_admits(date_m, admit_loc):
 
 # %%
 def get_t_mask(scr_m, scr_date_loc, date_m, date_locs, v=True):
+    '''
+    Returns a mask indicating whether each SCr value was recorded prior to admission, in the hospital, or in the ICU
+    :param scr_m: matrix containing all SCr data
+    :param scr_date_loc: index of recorded date
+    :param date_m: matrix containing all hospital/ICU admit info
+    :param date_locs: indices for admit/discharge
+    :param v:
+    :return:
+    '''
     mask = np.zeros(len(scr_m))
     if v:
         print('Getting masks for icu and hospital admit-discharge')
     current_id = 0
     n_kept = 0
-    date_m_date_fmt = '%Y-%m-%d %H:%M:%S'
-    scr_m_date_fmt = '%Y-%m-%d %H:%M:%S'
     windows = {}
     current_window = None
     no_admit_info = []
     for i in range(len(mask)):
         this_id = scr_m[i, 0]
+        # if new ID, previous is finished.
         if this_id != current_id:
             if current_window is not None:
                 windows[current_id] = current_window
