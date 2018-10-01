@@ -10,7 +10,8 @@ import datetime
 #################################################################################
 data_path = '../DATA/icu/7days_092818/'
 base_path = '../RESULTS/icu/7days_092818/'
-dm_tags = ['_custmismatch_extension_a1E+00_normBC', ]
+dm_tags = ['_absmismatch_extension_a1E+00_normBC', '_absmismatch_normBC',
+           '_custmismatch_normBC', '_custmismatch_extension_a1E+00_normBC']
 h5_name = 'stats.h5'
 meta_grp = 'meta'
 

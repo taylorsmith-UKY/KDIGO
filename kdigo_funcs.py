@@ -1394,6 +1394,19 @@ def pairwise_feat_dist(features, ids, dm_fname, dist=lambda x, xx: np.abs(x - xx
     df.close()
     return dis
 
+
+def post_dtw_pairwise_dist(ids, dtw_fname, dfunc=lambda x, y: np.abs(x - y)):
+    f = open(dtw_fname, 'r')
+    dis = []
+    for i in range(len(ids)):
+        for j in range(i + 1, len(ids)):
+            p1 = np.array(f.readline().rstrip().split(','), dtype=int)
+            p2 = np.array(f.readline().rstrip().split(','), dtype=int)
+            _ = f.readline()
+            dis.append(dfunc(p1, p2))
+    return np.array(dis)
+
+
 # %%
 def pairwise_dtw_dist(patients, days, ids, dm_fname, dtw_name, v=True,
                       mismatch=lambda y, yy: abs(y-yy),
