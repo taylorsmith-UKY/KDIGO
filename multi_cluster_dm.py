@@ -22,7 +22,7 @@ t_lims = [7, ]
 eps = 0.05                                     # Epsilon threshold for DBSCAN
 p_thresh = 1e-200                    # NormalTest threshold to stop splitting
 hlim = 20                                           # Height limit for cutting dendrogram
-min_size = 20                                      # Minimum cluster size
+min_size = 50                                      # Minimum cluster size
 # Note: DBSCAN clusters smaller than min_size are grouped into the noise cluster,
 # whereas min_size is used as a stopping criteria when splitting ward's method clusters.
 

@@ -91,7 +91,6 @@ def main():
             scrs = kf.load_csv(outPath + 'scr_raw.csv', ids)
             dates = kf.load_csv(outPath + 'dates.csv', ids, dt=str)
             dmasks = kf.load_csv(outPath + 'dialysis.csv', ids, dt=int)
-            baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
             print('Loaded previously extracted raw data')
 
             try:
@@ -100,6 +99,7 @@ def main():
                 dmasks_interp = kf.load_csv(outPath + 'dmasks_interp.csv', ids, dt=int)
                 interp_masks = kf.load_csv(outPath + 'interp_masks.csv', ids, dt=int)
                 days_interp = kf.load_csv(outPath + 'days_interp.csv', ids, dt=int)
+                baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
                 print('Loaded previously interpolated values')
             except IOError:
                 # Interpolate missing values
@@ -111,6 +111,7 @@ def main():
                 kf.arr2csv(outPath + 'days_interp.csv', days_interp, ids, fmt='%d')
                 kf.arr2csv(outPath + 'interp_masks.csv', interp_masks, ids, fmt='%d')
                 np.savetxt(outPath + 'post_interp_ids.csv', ids, fmt='%d')
+                baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
             print('Converting to KDIGO')
             # Convert SCr to KDIGO
             kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
