@@ -202,6 +202,7 @@ def main():
         kf.arr2csv(outPath + 'interp_masks.csv', interp_masks, ids, fmt='%d')
         kf.arr2csv(outPath + 'dmasks_interp.csv', dmasks_interp, ids, fmt='%d')
         np.savetxt(outPath + 'post_interp_ids.csv', ids, fmt='%d')
+        baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
 
         # Convert SCr to KDIGO
         print('Converting to KDIGO')
