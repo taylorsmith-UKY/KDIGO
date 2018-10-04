@@ -14,11 +14,11 @@ import os
 from scipy import interp
 
 # --------------------------------------------------- PARAMETERS ----------------------------------------------------- #
-base_path = '../RESULTS/icu/7days_090818/'
+base_path = '../RESULTS/icu/7days_100218/'
 
 # features used for classification.
-# Options: sofa, apache, all_clinical, trajectory, everything
-features = ['everything', ]
+# Options: sofa, apache, all_clinical, all_trajectory, everything
+features = ['sofa', 'apache', 'all_clinical', 'all_trajectory', 'everything', ]
 
 # targets for classification.
 # Options: died_inp, MAKE_90_25_admit, MAKE_90_50_admit,
@@ -26,19 +26,18 @@ features = ['everything', ]
 lbl_list = ['died_inp', ]
 
 # Specify distance matrices
-tags = ['_absmismatch_normBC', '_absmismatch_extension_a1E+00_normBC',
-        'custmismatch_normBC', '_custmismatch_extension_a1E+00_normBC']
+tags = ['_custmismatch_extension_a1E+00_normBC', '_custmismatch_normBC']
 test_size = 0.2
 
 # Note: There will be an equal number of positive and negative examples in the training set, however ALL
 #       remaining examples will be used for testing
 cv_num = 10
 
-# models = ['svm', 'rf', 'mvr']   # mvr = multi-variate regression
-models = ['mvr', ]
+models = ['svm', 'rf', 'mvr']   # mvr = multi-variate regression
+# models = ['mvr', ]
 
-# which cluster method to use. Options: ward, dynamic
-cluster_methods = ['composite', ]
+# which cluster method to use. Options: flat, dynamic
+cluster_methods = ['dynamic', 'flat']
 
 n_days_l = [7, ]
 
@@ -68,70 +67,77 @@ rf_params = {'n_estimators': 500,
 mvr_params = {}
 # -------------------------------------------------------------------------------------------------------------------- #
 
-f = h5py.File(base_path + 'stats.h5', 'r')
-if not os.path.exists(base_path + 'classification'):
-    os.mkdir(base_path + 'classification')
 
-for n_days in n_days_l:
-    day_str = '%d_days' % n_days
-    if not os.path.exists(base_path + 'classification/%s/' % day_str):
-        os.mkdir(base_path + 'classification/%s/' % day_str)
-        
-    ids, labels = get_feats_by_dod(f, n_days=n_days, features=lbl_list)
-    n_samples = len(ids)
+def main():
+    f = h5py.File(base_path + 'stats.h5', 'r')
+    if not os.path.exists(base_path + 'classification'):
+        os.mkdir(base_path + 'classification')
 
-    # build path for input features and where to save results
-    for (label_name, y) in zip(lbl_list, labels):
-        # output path
-        lblpath = base_path + 'classification/%s/%s/' % (day_str, label_name)
-        if not os.path.exists(lblpath):
-            os.mkdir(lblpath)
+    for n_days in n_days_l:
+        day_str = '%ddays' % n_days
+        if not os.path.exists(base_path + 'classification/%s/' % day_str):
+            os.mkdir(base_path + 'classification/%s/' % day_str)
 
-        for feature in features:
-            feature_class_path = os.path.join(lblpath, feature)
-            if not os.path.exists(feature_class_path):
-                os.mkdir(feature_class_path)
+        all_ids, labels = get_feats_by_dod(f, n_days=n_days, features=lbl_list)
 
-            if feature not in ['sofa', 'apache', 'all_clinical']:
-                # output path
-                source_paths = []
-                out_paths = []
-                for dm_tag in tags:
-                    dm_class_path = os.path.join(feature_class_path, dm_tag[1:])
-                    if not os.path.exists:
-                        os.mkdir(dm_class_path)
-                    for cluster_method in cluster_methods:
-                        cm_class_path = os.path.join(dm_class_path, cluster_method)
-                        if not os.path.exists(cm_class_path):
-                            os.mkdir(cm_class_path)
-                        cluster_feature_base_path = os.path.join(base_path, 'features', dm_tag[1:], cluster_method)
-                        for (dirpath, dirnames, filenames) in os.walk(cluster_feature_base_path):
-                            for dirname in dirnames:
-                                try:
-                                    n_clust = int(dirname.split('_')[0])
-                                except ValueError:
-                                    continue
-                                source_paths.append(os.path.join(cluster_feature_base_path, dirname))
-                                cluster_class_path = os.path.join(cm_class_path, dirname)
-                                out_paths.append(cluster_class_path)
-                                if not os.path.exists(cluster_class_path):
-                                    os.mkdir(cluster_class_path)
-            else:
-                source_paths = [os.path.join(base_path, 'features', 'individual'), ]
-                out_paths = [feature_class_path, ]
+        # build path for input features and where to save results
+        for (label_name, y) in zip(lbl_list, labels):
+            if len(np.unique(y)) > 2:
+                y[np.where(y)] = 1
+            # output path
+            lblpath = base_path + 'classification/%s/%s/' % (day_str, label_name)
+            if not os.path.exists(lblpath):
+                os.mkdir(lblpath)
 
-            for (source_path, out_path) in zip(source_paths, out_paths):
-                X = load_csv(os.path.join(feature_class_path, feature + '.csv'), ids)
-                # output path
-                for classification_model in models:
-                    model_path = os.path.join(out_path, classification_model)
-                    if not os.path.exists(model_path):
-                        os.mkdir(model_path)
+            for feature in features:
+                feature_class_path = os.path.join(lblpath, feature)
+                if not os.path.exists(feature_class_path):
+                    os.mkdir(feature_class_path)
 
-                    classify(X, y, classification_model, out_path=model_path, gridsearch=gridsearch)
+                if feature not in ['sofa', 'apache', 'all_clinical']:
+                    # output path
+                    source_paths = []
+                    out_paths = []
+                    for dm_tag in tags:
+                        dm_class_path = os.path.join(feature_class_path, dm_tag[1:])
+                        if not os.path.exists(dm_class_path):
+                            os.mkdir(dm_class_path)
+                        for cluster_method in cluster_methods:
+                            cm_class_path = os.path.join(dm_class_path, cluster_method)
+                            if not os.path.exists(cm_class_path):
+                                os.mkdir(cm_class_path)
+                            cluster_feature_base_path = os.path.join(base_path, 'features', day_str, dm_tag[1:], cluster_method)
+                            for (dirpath, dirnames, filenames) in os.walk(cluster_feature_base_path):
+                                for dirname in dirnames:
+                                    try:
+                                        n_clust = int(dirname.split('_')[0])
+                                    except ValueError:
+                                        continue
+                                    source_paths.append(os.path.join(cluster_feature_base_path, dirname))
+                                    cluster_class_path = os.path.join(cm_class_path, dirname)
+                                    out_paths.append(cluster_class_path)
+                                    if not os.path.exists(cluster_class_path):
+                                        os.mkdir(cluster_class_path)
+                else:
+                    source_paths = [os.path.join(base_path, 'features', 'individual'), ]
+                    out_paths = [feature_class_path, ]
+
+                for (source_path, out_path) in zip(source_paths, out_paths):
+                    X = np.loadtxt(os.path.join(source_path, feature + '.csv'), delimiter=',')
+                    ids = np.array(X[:, 0], dtype=int)
+                    X = X[:, 1:]
+                    id_sel = np.array([x in ids for x in all_ids])
+                    ty = y[id_sel]
+                    # X = load_csv(os.path.join(source_path, feature + '.csv'), ids)
+                    # output path
+                    for classification_model in models:
+                        model_path = os.path.join(out_path, classification_model)
+                        if not os.path.exists(model_path):
+                            os.mkdir(model_path)
+                        classify(X, ty, classification_model, out_path=model_path, feature_name=feature, gridsearch=gridsearch)
 
 
-def classify(X, y, classification_model, gridsearch=gridsearch):
+def classify(X, y, classification_model, out_path, feature_name, gridsearch=gridsearch):
     if X.ndim == 1:
         X = X.reshape(-1, 1)
 
@@ -152,7 +158,7 @@ def classify(X, y, classification_model, gridsearch=gridsearch):
     vy = y[sel]
 
     if gridsearch and classification_model != 'mvr':
-        params = param_gridsearch(m, X[sel], y[sel], tuned_params, out_path)
+        params = param_gridsearch(clf, X[sel], y[sel], tuned_params, out_path)
 
     if classification_model != 'mvr':
         clf.set_params(**params)
@@ -182,7 +188,7 @@ def classify(X, y, classification_model, gridsearch=gridsearch):
             clf.set_params(**params)
         elif classification_model == 'mvr':
             clf = LinearRegression()
-            clf.set_params(**params)
+            # clf.set_params(**params)
         clf.fit(X_train, y_train)
 
         if classification_model == 'mvr':
@@ -261,7 +267,7 @@ def classify(X, y, classification_model, gridsearch=gridsearch):
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
         plt.legend(loc="lower right")
-        plt.title(classificaion_model.upper() + ' Classification Performance\n' + feature)
+        plt.title(classification_model.upper() + ' Classification Performance\n' + feature_name)
         plt.savefig(os.path.join(out_path, 'evaluation_summary.png'))
         plt.close(fig)
     else:
@@ -302,3 +308,6 @@ def param_gridsearch(m, X, y, tuned_parameters, out_path):
     bp = clf.best_params_
 
     return bp
+
+
+main()

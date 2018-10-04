@@ -1400,8 +1400,8 @@ def post_dtw_pairwise_dist(ids, dtw_fname, dfunc=lambda x, y: np.abs(x - y)):
     dis = []
     for i in range(len(ids)):
         for j in range(i + 1, len(ids)):
-            p1 = np.array(f.readline().rstrip().split(','), dtype=int)
-            p2 = np.array(f.readline().rstrip().split(','), dtype=int)
+            p1 = 4.5 - np.array(f.readline().rstrip().split(','), dtype=int)
+            p2 = 4.5 - np.array(f.readline().rstrip().split(','), dtype=int)
             _ = f.readline()
             dis.append(dfunc(p1, p2))
     return np.array(dis)

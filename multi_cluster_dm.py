@@ -8,20 +8,20 @@ import datetime
 
 # PARAMETERS
 #################################################################################
-data_path = '../DATA/icu/7days_092818/'
-base_path = '../RESULTS/icu/7days_092818/'
-dm_tags = ['_absmismatch_extension_a1E+00_normBC', '_absmismatch_normBC',
-           '_custmismatch_normBC', '_custmismatch_extension_a1E+00_normBC']
+data_path = '../DATA/icu/7days_100218/'
+base_path = '../RESULTS/icu/7days_100218/'
+dm_tags = [  # '_absmismatch_extension_a1E+00_normBC', '_absmismatch_normBC',
+           '_custmismatch_extension_a1E+00_modBC_45', '_custmismatch_modBC_45']
 h5_name = 'stats.h5'
 meta_grp = 'meta'
 
-interactive = False
+interactive = True
 
 # t_lims = range(1, 8)[::-2]
 t_lims = [7, ]
-eps = 0.05                                     # Epsilon threshold for DBSCAN
-p_thresh = 1e-200                    # NormalTest threshold to stop splitting
-hlim = 20                                           # Height limit for cutting dendrogram
+eps = 0.1                                     # Epsilon threshold for DBSCAN
+p_thresh = 1E-200                    # NormalTest threshold to stop splitting
+hlim = 6                                           # Height limit for cutting dendrogram
 min_size = 50                                      # Minimum cluster size
 # Note: DBSCAN clusters smaller than min_size are grouped into the noise cluster,
 # whereas min_size is used as a stopping criteria when splitting ward's method clusters.
@@ -78,6 +78,6 @@ for t_lim in t_lims:
             sqdm = sqdm[dm_sel]
             dm = squareform(sqdm)
         lbls = cluster_trajectories(f, ids, max_kdigo, dm, meta_grp=meta_grp, eps=eps, p_thresh=p_thresh,
-                                    min_size=min_size, hom_thresh=hom_thresh, max_size_pct=max_size_pct,
+                                    min_size=min_size, hom_thresh=hom_thresh, max_size_pct=max_size_pct, n_clusters=12,
                                     height_lim=hlim, hmethod=methods, data_path=data_path, save=save_path,
                                     interactive=interactive)

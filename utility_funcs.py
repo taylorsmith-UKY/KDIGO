@@ -86,23 +86,31 @@ def perf_measure(y_actual, y_hat):
 
 
 # %%
-def get_even_pos_neg(target):
+def get_even_pos_neg(target, method='undersample'):
     '''
     Returns even number of positive/negative examples
     :param target:
     :return:
     '''
     # If even distribution of pos/neg for training
-    pos_idx = np.where(target == 1)[0]
+    pos_idx = np.where(target)[0]
     neg_idx = np.where(target == 0)[0]
     n_pos = len(pos_idx)
     n_neg = len(neg_idx)
-    if n_pos < n_neg:
-        n_train = n_pos
-    else:
-        n_train = n_neg
-    pos_sel = np.random.permutation(pos_idx)[:n_train]
-    neg_sel = np.random.permutation(neg_idx)[:n_train]
+    if method == 'undersample':
+        n_train = min(n_pos, n_neg)
+        pos_sel = np.random.permutation(pos_idx)[:n_train]
+        neg_sel = np.random.permutation(neg_idx)[:n_train]
+    elif method == 'rand_oversample':
+        n_train = max(n_pos, n_neg)
+        if n_pos > n_neg:
+            pos_sel = pos_idx
+            neg_diff = n_pos - n_neg
+            neg_sel = np.concatenate((neg_idx, np.random.permutation(neg_idx)[:neg_diff]))
+        else:
+            neg_sel = neg_idx
+            pos_diff = n_neg - n_pos
+            pos_sel = np.concatenate((neg_idx, np.random.permutation(pos_idx)[:pos_diff]))
 
     sel_idx = np.sort(np.concatenate((pos_sel, neg_sel)))
     return sel_idx

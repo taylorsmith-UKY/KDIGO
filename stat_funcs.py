@@ -156,7 +156,7 @@ def summarize_stats(ids, kdigos, days, scrs,
         co_rows = np.where(clinical_oth[:, 0] == idx)[0]
         if co_rows.size > 0:
             row = co_rows[0]
-            h = clinical_oth[row, height]
+            h = clinical_oth[row, height] / 100
             w = clinical_oth[row, weight]
             try:
                 bmi = w / (h * h)
@@ -419,7 +419,7 @@ def summarize_stats(ids, kdigos, days, scrs,
 
 
 def iqr(d, axis=None):
-    m = np.nanmean(d, axis=axis)
+    m = np.nanmedian(d, axis=axis)
     q25 = np.nanpercentile(d, 25, axis=axis)
     q75 = np.nanpercentile(d, 75, axis=axis)
     return m, q25, q75
@@ -438,11 +438,8 @@ def get_cstats(in_file, label_path, plot_hist=False, meta_grp='meta', ids=None):
         f = in_file
     meta = f[meta_grp]
     all_ids = meta['ids'][:]
-    if ids is None:
-        sel = np.arange(len(all_ids))
-        ids = all_ids
-    else:
-        sel = np.array([x in ids for x in all_ids])
+    ids = np.loadtxt(os.path.join(label_path, 'clusters.csv'), delimiter=',', usecols=0, dtype=int)
+    sel = np.array([x in ids for x in all_ids])
     
     lbls = load_csv(os.path.join(label_path, 'clusters.csv'), ids, dt=str)
 

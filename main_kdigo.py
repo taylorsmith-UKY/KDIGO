@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import kdigo_funcs as kf
 import stat_funcs as sf
-from cluster_funcs import assign_feature_vectors, dist_cut_cluster
 import datetime
 from scipy.spatial import distance
 
@@ -17,7 +16,7 @@ timescale = 6  # in hours
 id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
 h5_name = 'stats.h5'
-folder_name = '/7days_092318/'
+folder_name = '/7days_100218/'
 alpha = 1.0
 transition_costs = [1.00,   # [0 - 1]
                     2.95,   # [1 - 2]
@@ -64,7 +63,7 @@ outPath = dataPath + t_analyze.lower() + folder_name
 resPath = basePath + 'RESULTS/' + t_analyze.lower() + folder_name
 id_ref = outPath + id_ref
 baseline_file = dataPath + 'baselines_1_7-365_mdrd.csv'
-h5_name = resPath + h5_name
+h5_name = os.path.join(resPath, h5_name)
 date_str = datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d')
 
 
@@ -208,7 +207,7 @@ def main():
         print('Converting to KDIGO')
         kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
         kf.arr2csv(outPath + 'kdigo.csv', kdigos, ids, fmt='%d')
-        return
+
     # Calculate clinical mortality prediction scores
     sofa = None
     if not os.path.exists(outPath + 'sofa.csv'):
@@ -286,7 +285,7 @@ def main():
 
     # Summarize patient stats
     try:
-        f = h5py.File(h5_name, 'r+')
+        f = h5py.File(h5_name, 'r')
     except IOError:
         f = h5py.File(h5_name, 'w')
     try:
@@ -298,6 +297,8 @@ def main():
         dtd_sel = np.logical_not(aki_dtd < t_lim)
         pt_sel = aki_idx[dtd_sel]
     except KeyError:
+        f.close()
+        f = h5py.File(h5_name, 'r+')
         if dem_m is None:
             # Load raw data from individual CSV files
             ((date_m, hosp_locs, icu_locs, adisp_loc,
@@ -360,85 +361,85 @@ def main():
             aki_days.append(days_interp[i])
 
     # Calculate individual trajectory based features if not already done
-    if not os.path.exists(resPath + 'features'):
-        os.mkdir(resPath + 'features')
+    if not os.path.exists(os.path.join(resPath, 'features')):
+        os.mkdir(os.path.join(resPath, 'features'))
 
-    if not os.path.exists(resPath + 'features/trajectory_individual/'):
-        os.mkdir(resPath + 'features/trajectory_individual/')
+    if not os.path.exists(os.path.join(resPath, 'features', 'individual')):
+        os.mkdir(os.path.join(resPath, 'features', 'individual'))
         desc = kf.descriptive_trajectory_features(aki_kdigos, aki_ids, days=aki_days, t_lim=t_lim,
-                                                  filename=resPath + 'features/trajectory_individual/descriptive_features.csv')
+                                                  filename=os.path.join(resPath, 'features', 'individual', 'descriptive_features.csv'))
 
         slope = kf.slope_trajectory_features(aki_kdigos, aki_ids, days=aki_days, t_lim=t_lim,
-                                             filename=resPath + 'features/trajectory_individual/slope_features.csv')
+                                             filename=os.path.join(resPath, 'features', 'individual', 'slope_features.csv'))
         slope_norm = kf.normalize_features(slope)
-        kf.arr2csv(resPath + 'features/trajectory_individual/slope_norm.csv', slope_norm, aki_ids)
+        kf.arr2csv(os.path.join(resPath, 'features', 'individual', 'slope_norm.csv'), slope_norm, aki_ids)
 
         temp = kf.template_trajectory_features(aki_kdigos, aki_ids, days=aki_days, t_lim=t_lim,
-                                               filename=resPath + 'features/trajectory_individual/template_features.csv')
+                                               filename=os.path.join(resPath, 'features', 'individual', 'template_features.csv'))
         temp_norm = kf.normalize_features(temp)
-        kf.arr2csv(resPath + 'features/trajectory_individual/template_norm.csv', temp_norm, aki_ids)
+        kf.arr2csv(os.path.join(resPath, 'features', 'individual', 'template_norm.csv'), temp_norm, aki_ids)
 
         all_traj_ind = np.hstack((desc, slope_norm, temp_norm))
-        kf.arr2csv(resPath + 'features/trajectory_individual/all_trajectory.csv',
+        kf.arr2csv(os.path.join(resPath, 'features', 'individual', 'all_trajectory.csv'),
                    all_traj_ind, aki_ids, fmt='%.4f')
     else:
-        desc = kf.load_csv(resPath + 'features/trajectory_individual/descriptive_features.csv', aki_ids, skip_header=True)
-        temp_norm = kf.load_csv(resPath + 'features/trajectory_individual/template_norm.csv', aki_ids, skip_header=False)
-        slope_norm = kf.load_csv(resPath + 'features/trajectory_individual/slope_norm.csv', aki_ids, skip_header=False)
+        desc = kf.load_csv(os.path.join(resPath, 'features', 'individual', 'descriptive_features.csv'), aki_ids, skip_header=True)
+        temp_norm = kf.load_csv(os.path.join(resPath, 'features', 'individual', 'template_norm.csv'), aki_ids, skip_header=False)
+        slope_norm = kf.load_csv(os.path.join(resPath, 'features', 'individual', 'slope_norm.csv'), aki_ids, skip_header=False)
         all_traj_ind = np.hstack((desc, slope_norm, temp_norm))
 
     # Calculate distance matrix
-    dm = None
-    if not os.path.exists(resPath + 'kdigo_dm' + dm_tag + '.csv'):
-        dm = kf.pairwise_dtw_dist(aki_kdigos, aki_days, aki_ids, resPath + 'kdigo_dm' + dm_tag + '.csv',
-                                  resPath + 'kdigo_dtwlog' + dm_tag + '.csv',
-                                  mismatch=mismatch,
-                                  extension=extension,
-                                  dist=dist,
-                                  alpha=alpha)
-        np.save(resPath + 'kdigo_dm' + dm_tag, dm)
+    # dm = None
+    # if not os.path.exists(os.path.join(resPath, 'kdigo_dm' + dm_tag + '.npy')):
+    #     dm = kf.pairwise_dtw_dist(aki_kdigos, aki_days, aki_ids, os.path.join(resPath, 'kdigo_dm' + dm_tag + '.csv'),
+    #                               os.path.join(resPath, 'kdigo_dtwlog' + dm_tag + '.csv'),
+    #                               mismatch=mismatch,
+    #                               extension=extension,
+    #                               dist=dist,
+    #                               alpha=alpha)
+    #     np.save(resPath + 'kdigo_dm' + dm_tag, dm)
 
-    # Load clusters or launch interactive clustering
-    lbls = None
-    if os.path.exists(resPath + 'clusters/%s/' % dm_tag[1:]):
-        for (dirpath, dirnames, filenames) in os.walk(resPath + 'clusters/%s/composite/' % dm_tag[1:]):
-            if lbls is None:
-                for filename in filenames:
-                    if filename == 'clusters.txt':
-                        lbls = np.loadtxt(dirpath + '/' + filename, dtype=str)
-    if lbls is None:
-        if dm is None:
-            dm = np.load(resPath + 'kdigo_dm' + dm_tag + '.pkl', dm)
-        if not os.path.exists(resPath + 'clusters/%s/' % dm_tag[1:]):
-            os.mkdir(resPath + 'clusters/%s/' % dm_tag[1:])
-        lbls = dist_cut_cluster(h5_name, dm, aki_ids, path=resPath + 'clusters/%s/' % dm_tag[1:], interactive=True, save=True)
-
-    n_clusters = len(np.unique(lbls))
-    clust_str = '%dclusters-%s' % (n_clusters, date_str)
-    if not os.path.exists(resPath + 'features/%s/' % dm_tag[1:]):
-        os.mkdir(resPath + 'features/%s/' % dm_tag[1:])
-    if not os.path.exists(resPath + 'features/%s/%s/' % (dm_tag[1:], clust_str)):
-        os.mkdir(resPath + 'features/%s/%s/' % (dm_tag[1:], clust_str))
-
-        desc_c, temp_c, slope_c = kf.cluster_feature_vectors(desc, temp_norm, slope_norm, lbls)
-        all_desc_c = assign_feature_vectors(lbls, desc_c)
-        all_temp_c = assign_feature_vectors(lbls, temp_c)
-        all_slope_c = assign_feature_vectors(lbls, slope_c)
-        kf.arr2csv(resPath + 'features/%s/%s/descriptive.csv' % (dm_tag[1:], clust_str),
-                   all_desc_c, aki_ids, fmt='%.4f')
-        kf.arr2csv(resPath + 'features/%s/%s/slope.csv' % (dm_tag[1:], clust_str),
-                   all_slope_c, aki_ids, fmt='%.4f')
-        kf.arr2csv(resPath + 'features/%s/%s/template.csv' % (dm_tag[1:], clust_str),
-                   all_temp_c, aki_ids, fmt='%.4f')
-
-        all_traj_c = np.hstack((all_desc_c, all_slope_c, all_temp_c))
-        kf.arr2csv(resPath + 'features/%s/%s/all_trajectory.csv' % (dm_tag[1:], clust_str),
-                   all_traj_c, aki_ids, fmt='%.4f')
-    else:
-        all_desc_c = kf.load_csv(resPath + 'features/%s/%s/descriptive.csv' % (dm_tag[1:], clust_str), aki_ids)
-        all_slope_c = kf.load_csv(resPath + 'features/%s/%s/slope.csv' % (dm_tag[1:], clust_str), aki_ids)
-        all_temp_c = kf.load_csv(resPath + 'features/%s/%s/template.csv' % (dm_tag[1:], clust_str), aki_ids)
-        all_traj_c = np.hstack((all_desc_c, all_slope_c, all_temp_c))
+    # # Load clusters or launch interactive clustering
+    # lbls = None
+    # if os.path.exists(resPath + 'clusters/%s/' % dm_tag[1:]):
+    #     for (dirpath, dirnames, filenames) in os.walk(os.path.join(resPath, 'clusters', dm_tag[1:], 'dynamic')):
+    #         if lbls is None:
+    #             for filename in filenames:
+    #                 if filename == 'clusters.txt':
+    #                     lbls = np.loadtxt(os.path.join(dirpath, filename), dtype=str)
+    # if lbls is None:
+    #     if dm is None:
+    #         dm = np.load(resPath + 'kdigo_dm' + dm_tag + '.pkl', dm)
+    #     if not os.path.exists(resPath + 'clusters/%s/' % dm_tag[1:]):
+    #         os.mkdir(resPath + 'clusters/%s/' % dm_tag[1:])
+    #     lbls = dist_cut_cluster(h5_name, dm, aki_ids, path=os.path.join(resPath, 'clusters', dm_tag[1:]), interactive=True, save=True)
+    #
+    # n_clusters = len(np.unique(lbls))
+    # clust_str = '%dclusters-%s' % (n_clusters, date_str)
+    # if not os.path.exists(os.path.join(resPath, 'features', dm_tag[1:])):
+    #     os.mkdir(os.path.join(resPath, 'features', dm_tag[1:]))
+    # if not os.path.exists(os.path.join(resPath, 'features', dm_tag[1:], clust_str)):
+    #     os.mkdir(os.path.join(resPath, 'features', dm_tag[1:], clust_str))
+    #
+    #     desc_c, temp_c, slope_c = kf.cluster_feature_vectors(desc, temp_norm, slope_norm, lbls)
+    #     all_desc_c = assign_feature_vectors(lbls, desc_c)
+    #     all_temp_c = assign_feature_vectors(lbls, temp_c)
+    #     all_slope_c = assign_feature_vectors(lbls, slope_c)
+    #     kf.arr2csv(os.path.join(resPath, 'features', dm_tag[1:], clust_str, 'descriptive.csv'),
+    #                all_desc_c, aki_ids, fmt='%.4f')
+    #     kf.arr2csv(os.path.join(resPath, 'features', dm_tag[1:], clust_str, 'slope.csv'=),
+    #                all_slope_c, aki_ids, fmt='%.4f')
+    #     kf.arr2csv(os.path.join(resPath, 'features', dm_tag[1:], clust_str, 'template.csv'),
+    #                all_temp_c, aki_ids, fmt='%.4f')
+    #
+    #     all_traj_c = np.hstack((all_desc_c, all_slope_c, all_temp_c))
+    #     kf.arr2csv(os.path.join(resPath, 'features', dm_tag[1:], clust_str, 'all_trajectory.csv'),
+    #                all_traj_c, aki_ids, fmt='%.4f')
+    # else:
+    #     all_desc_c = kf.load_csv(os.path.join(resPath, 'features', dm_tag[1:], clust_str, 'descriptive.csv'), aki_ids)
+    #     all_slope_c = kf.load_csv(os.path.join(resPath, 'features', dm_tag[1:], clust_str, 'slope.csv'), aki_ids)
+    #     all_temp_c = kf.load_csv(os.path.join(resPath, 'features', dm_tag[1:], clust_str, 'template.csv'), aki_ids)
+    #     all_traj_c = np.hstack((all_desc_c, all_slope_c, all_temp_c))
 
     if sofa is None:
         sofa = kf.load_csv(outPath + 'sofa.csv', aki_ids, dt=int)
@@ -455,31 +456,30 @@ def main():
             apache = np.array(apache[pt_sel, :])
     apache_norm = kf.normalize_features(apache)
 
-    if not os.path.exists(resPath + 'features/clinical/'):
-        os.mkdir(resPath + 'features/clinical/')
-        kf.arr2csv(resPath + 'features/clinical/sofa.csv',
+    if not os.path.isfile(os.path.join(resPath, 'features', 'individual', 'sofa.csv')):
+        kf.arr2csv(os.path.join(resPath, 'features', 'individual', 'sofa.csv'),
                    sofa, aki_ids, fmt='%d')
-        kf.arr2csv(resPath + 'features/clinical/sofa_norm.csv',
+        kf.arr2csv(os.path.join(resPath, 'features', 'individual', 'sofa_norm.csv'),
                    sofa_norm, aki_ids, fmt='%.4f')
-        kf.arr2csv(resPath + 'features/clinical/apache.csv',
+        kf.arr2csv(os.path.join(resPath, 'features', 'individual', 'apache.csv'),
                    apache, aki_ids, fmt='%d')
-        kf.arr2csv(resPath + 'features/clinical/apache_norm.csv',
+        kf.arr2csv(os.path.join(resPath, 'features', 'individual', 'apache_norm.csv'),
                    apache_norm, aki_ids, fmt='%.4f')
         all_clin = np.hstack((sofa_norm, apache_norm))
-        kf.arr2csv(resPath + 'features/clinical/all_clinical.csv',
+        kf.arr2csv(os.path.join(resPath, 'features', 'individual', 'all_clinical.csv'),
                    all_clin, aki_ids, fmt='%.4f')
     else:
-        all_clin = kf.load_csv(resPath + 'features/clinical/all_clinical.csv', aki_ids)
+        all_clin = kf.load_csv(os.path.join(resPath, 'features', 'individual', 'all_clinical.csv'), aki_ids)
 
-    if not os.path.exists(resPath + 'features/trajectory_individual/everything.csv'):
+    if not os.path.exists(os.path.join(resPath, 'features', 'individual', 'everything.csv')):
         everything_ind = np.hstack((all_clin, all_traj_ind))
-        kf.arr2csv(resPath + 'features/trajectory_individual/everything.csv',
+        kf.arr2csv(os.path.join(resPath, 'features', 'individual', 'everything.csv'),
                    everything_ind, aki_ids, fmt='%.4f')
-
-    if not os.path.exists(resPath + 'features/%s/%s/everything.csv' % (dm_tag[1:], clust_str)):
-        everything_clusters = np.hstack((all_clin, all_traj_c))
-        kf.arr2csv(resPath + 'features/%s/%s/everything.csv' % (dm_tag[1:], clust_str),
-                   everything_clusters, aki_ids, fmt='%.4f')
+    #
+    # if not os.path.exists(resPath + 'features/%s/%s/everything.csv' % (dm_tag[1:], clust_str)):
+    #     everything_clusters = np.hstack((all_clin, all_traj_c))
+    #     kf.arr2csv(os.path.join(resPath, 'features', dm_tag[1:], clust_str, 'everything.csv'),
+    #                everything_clusters, aki_ids, fmt='%.4f')
 
     print('Ready for classification. Please run script \'classify_features.py\'')
 

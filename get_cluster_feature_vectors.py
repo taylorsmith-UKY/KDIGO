@@ -6,38 +6,42 @@ from utility_funcs import get_feats_by_dod
 import os
 
 # --------------------------------------------------- PARAMETERS ----------------------------------------------------- #
-h5_fname = '../RESULTS/icu/7days_090818/stats.h5'
-lbl_path = '../RESULTS/icu/7days_090818/clusters/'
-feature_path = '../RESULTS/icu/7days_090818/features/'
+h5_fname = '../RESULTS/icu/7days_100218/stats.h5'
+lbl_path = '../RESULTS/icu/7days_100218/clusters/'
+feature_path = '../RESULTS/icu/7days_100218/features/'
 
 meta_grp = 'meta'
 
-methods = ['composite',]
+methods = ['dynamic', 'flat']
 
-tags = ['_custmismatch_extension_a1E+00_normBC_n', ]
+tags = ['_custmismatch_normBC']
 
 n_days_l = [7, ]
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
 for n_days in n_days_l:
-    ids, _ = get_feats_by_dod(h5_fname, n_days=n_days)
+    f = h5py.File(h5_fname, 'r')
 
     day_str = '%ddays' % n_days
+    if not os.path.exists(os.path.join(feature_path, day_str)):
+        os.mkdir(os.path.join(feature_path, day_str))
 
-    desc = load_csv(os.path.join(feature_path, day_str, 'individual', 'descriptive_features.csv'), ids, int,
-                    skip_header=True)
-    temp_norm = load_csv(os.path.join(feature_path, day_str, 'individual', 'template_norm.csv'), ids)
-    slope_norm = load_csv(os.path.join(feature_path, day_str, 'individual', 'slope_norm.csv'), ids)
-    all_clin = load_csv(os.path.join(feature_path, day_str, 'individual', 'all_clinical.csv'), ids)
     for tag in tags:
         for method in methods:
-            for (dirpath, dirnames, filenames) in os.walk(lbl_path + tag[1:] + '/' + method + '/'):
+            for (dirpath, dirnames, filenames) in os.walk(os.path.join(lbl_path, day_str, tag[1:], method)):
                 for dirname in dirnames:
                     try:
-                        lbls = load_csv(dirpath + '/' + dirname + '/clusters.txt', ids, str)
+                        ids = np.loadtxt(os.path.join(dirpath, dirname, 'clusters.csv'), delimiter=',', usecols=0, dtype=int)
+                        lbls = load_csv(os.path.join(dirpath, dirname, 'clusters.csv'), ids, str)
                     except IOError:
                         continue
+                    desc = load_csv(os.path.join(feature_path, 'individual', 'descriptive_features.csv'), ids, int,
+                                    skip_header=True)
+                    temp_norm = load_csv(os.path.join(feature_path, 'individual', 'template_norm.csv'), ids)
+                    slope_norm = load_csv(os.path.join(feature_path, 'individual', 'slope_norm.csv'), ids)
+                    all_clin = load_csv(os.path.join(feature_path, 'individual', 'all_clinical.csv'), ids)
+
                     desc_c, temp_c, slope_c = cluster_feature_vectors(desc, temp_norm, slope_norm, lbls)
                     all_desc_c = assign_feature_vectors(lbls, desc_c)
                     all_temp_c = assign_feature_vectors(lbls, temp_c)
@@ -56,8 +60,8 @@ for n_days in n_days_l:
                     if not os.path.exists(fpath):
                         os.mkdir(fpath)
 
-                    arr2csv(fpath + 'descriptive.csv', all_desc_c, ids, fmt='%.4f')
-                    arr2csv(fpath + 'template.csv', all_temp_c, ids, fmt='%.4f')
-                    arr2csv(fpath + 'slope.csv', all_slope_c, ids, fmt='%.4f')
-                    arr2csv(fpath + 'all_trajectory.csv', all_traj_c, ids, fmt='%.4f')
-                    arr2csv(fpath + 'everything.csv', everything_clusters, ids, fmt='%.4f')
+                    arr2csv(os.path.join(fpath, 'descriptive.csv'), all_desc_c, ids, fmt='%.4f')
+                    arr2csv(os.path.join(fpath, 'template.csv'), all_temp_c, ids, fmt='%.4f')
+                    arr2csv(os.path.join(fpath, 'slope.csv'), all_slope_c, ids, fmt='%.4f')
+                    arr2csv(os.path.join(fpath, 'all_trajectory.csv'), all_traj_c, ids, fmt='%.4f')
+                    arr2csv(os.path.join(fpath, 'everything.csv'), everything_clusters, ids, fmt='%.4f')

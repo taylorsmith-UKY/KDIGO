@@ -66,12 +66,12 @@ def cluster_trajectories(f, ids, mk, dm, meta_grp='meta', eps=0.015, p_thresh=0.
         # Don't count the noise in the number of clusters
         nclust = len(lbl_names) - 1
 
-        # # If any DBSCAN clusters are smaller than min_size, designate as noise
-        # for i in range(1, nclust + 1):
-        #     tlbl = lbl_names[i]
-        #     idx = np.where(lbls == tlbl)[0]
-        #     if len(idx) < min_size:
-        #         lbls[idx] = -1
+        # If any DBSCAN clusters are smaller than min_size, designate as noise
+        for i in range(1, nclust + 1):
+            tlbl = lbl_names[i]
+            idx = np.where(lbls == tlbl)[0]
+            if len(idx) < min_size:
+                lbls[idx] = -1
 
         lbl_names = np.unique(lbls)
         nclust = len(lbl_names) - 1
@@ -81,7 +81,7 @@ def cluster_trajectories(f, ids, mk, dm, meta_grp='meta', eps=0.015, p_thresh=0.
         if interactive:
             for i in range(len(lbl_names)):
                 print('Cluster %d: %d members' % (lbl_names[i], len(np.where(lbls == lbl_names[i])[0])))
-            eps_str = raw_input('New epsilon (non-numeric to continue): ')
+            eps_str = raw_input('New epsilon (current: %.2E...non-numeric to continue): ' % eps)
             # If numeric, recompute, otherwise continue
             try:
                 eps = float(eps_str)
