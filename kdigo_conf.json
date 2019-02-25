@@ -1,0 +1,18 @@
+{
+  "basePath" : "/Volumes/GoogleDrive/My Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/",
+  "cohortName" : "7days_022419",
+  "useMismatch" : true,
+  "useExtension": true,
+  "usePopulationCoordinates": true,
+  "coordinateShift" : 0,
+  "reverseCoordinates": false,
+  "analysisDays": 7,
+  "timeResolutionHrs": 6,
+  "transitionCosts": [1.00, 2.73, 4.36, 6.74],
+  "verbose": false,
+  "populationMismatch": [true],
+  "populationExtension": [true],
+  "populationCoordinates": [true],
+  "distanceFunction": "braycurtis",
+  "coordinateShift": 0,
+}

@@ -13,22 +13,22 @@ t_analyze = 'ICU'
 ext_lim = None
 t_lim = 7    # in days
 timescale = 6  # in hours
-id_ref = 'icu_valid_ids.csv'  # specify different file with subset of IDs if desired
+id_ref = 'aki_ids.csv'  # specify different file with subset of IDs if desired
 incl_0 = False
 h5_name = 'stats.h5'
-folder_name = '/7days_100218/'
+folder_name = '/7days_121618/'
 alpha = 1.0
 transition_costs = [1.00,   # [0 - 1]
-                    2.95,   # [1 - 2]
-                    4.71,   # [2 - 3]
-                    7.62]   # [3 - 4]
+                    2.73,   # [1 - 2]
+                    4.36,   # [2 - 3]
+                    6.74]   # [3 - 4]
 
 use_extension_penalty = True
 use_mismatch_penalty = True
 use_custom_braycurtis = False
 dist_flag = 'norm_bc'
 
-bc_shift = 1        # Value to add to coordinates for BC distance
+
 # With bc_shift=0, the distance from KDIGO 3D to all
 # other KDIGO stages is maximal (ie. 1.0). Increaseing
 # bc_shift allows discrimination between KDIGO 3D and
@@ -98,7 +98,7 @@ def main():
                 dmasks_interp = kf.load_csv(outPath + 'dmasks_interp.csv', ids, dt=int)
                 interp_masks = kf.load_csv(outPath + 'interp_masks.csv', ids, dt=int)
                 days_interp = kf.load_csv(outPath + 'days_interp.csv', ids, dt=int)
-                baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
+                baselines = kf.load_csv(outPath + 'baselines.csv', ids, idxs=1)
                 print('Loaded previously interpolated values')
             except IOError:
                 # Interpolate missing values
@@ -110,7 +110,7 @@ def main():
                 kf.arr2csv(outPath + 'days_interp.csv', days_interp, ids, fmt='%d')
                 kf.arr2csv(outPath + 'interp_masks.csv', interp_masks, ids, fmt='%d')
                 np.savetxt(outPath + 'post_interp_ids.csv', ids, fmt='%d')
-                baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
+                baselines = kf.load_csv(outPath + 'baselines.csv', ids, idxs=1)
             print('Converting to KDIGO')
             # Convert SCr to KDIGO
             kdigos = kf.scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
@@ -162,7 +162,6 @@ def main():
 
             bsln_m = pd.read_csv(baseline_file)
             bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
-            admit_loc = bsln_m.columns.get_loc('admit_date')
             bsln_m = bsln_m.values
 
         count_log = open(outPath + 'patient_summary.csv', 'w')
@@ -173,8 +172,8 @@ def main():
                                                                        t_mask, dia_mask, windows,
                                                                        diag_m, diag_loc,
                                                                        esrd_m, esrd_locs,
-                                                                       bsln_m, bsln_scr_loc, admit_loc,
-                                                                       date_m, icu_locs,
+                                                                       bsln_m, bsln_scr_loc,
+                                                                       date_m,
                                                                        surg_m, surg_des_loc,
                                                                        dem_m, sex_loc, eth_loc,
                                                                        dob_m, birth_loc,
@@ -190,6 +189,7 @@ def main():
         kf.arr2csv(outPath + 'time_ranges.csv', t_range, ids, fmt='%.3f')
         kf.arr2csv(outPath + 'ages.csv', ages, ids, fmt='%.2f')
         kf.arr2csv(outPath + 'disch_disp.csv', d_disp, ids, fmt='%s')
+        kf.arr2csv(outPath + 'admit_discharge.csv', windows, ids, fmt='%s')
         np.savetxt(id_ref, ids, fmt='%d')
 
         # Interpolate missing values
@@ -201,7 +201,7 @@ def main():
         kf.arr2csv(outPath + 'interp_masks.csv', interp_masks, ids, fmt='%d')
         kf.arr2csv(outPath + 'dmasks_interp.csv', dmasks_interp, ids, fmt='%d')
         np.savetxt(outPath + 'post_interp_ids.csv', ids, fmt='%d')
-        baselines = kf.load_csv(outPath + 'baselines.csv', ids, sel=1)
+        baselines = kf.load_csv(outPath + 'baselines.csv', ids, idxs=1)
 
         # Convert SCr to KDIGO
         print('Converting to KDIGO')
@@ -337,7 +337,7 @@ def main():
                                        clinical_oth, height, weight,
                                        dia_m, crrt_locs, hd_locs,
                                        h5_name, outPath, grp_name='meta_all', tlim=t_lim)
-        max_kdigo = all_stats['max_kdigo'][:]
+        max_kdigo = all_stats['max_kdigo_7d'][:]
         aki_idx = np.where(max_kdigo > 0)[0]
         aki_dtd = all_stats['days_to_death'][:][aki_idx]
         dtd_sel = np.logical_not(aki_dtd < t_lim)
