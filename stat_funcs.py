@@ -1288,26 +1288,30 @@ def get_uky_demographics(ids, admits, dem_m, sex_loc, eth_loc,
     ages = np.zeros(len(ids))
     for i in range(len(ids)):
         tid = ids[i]
-        male = 0
-        dem_idx = np.where(dem_m[:, 0] == tid)[0][0]
-        if str(dem_m[dem_idx, sex_loc]).upper()[0] == 'M':
-            male = 1
-        if type(admits) != dict:
-            admit = admits[i]
-        else:
-            admit = admits[tid][0]
-        if type(admit) == str:
-            admit = get_date(admit)
-        dob_idx = np.where(dob_m[:, 0] == tid)[0][0]
-        dob = get_date(dob_m[dob_idx, birth_loc])
-        tage = admit - dob
-        age = tage.total_seconds() / (60 * 60 * 24 * 365)
-
-        race = str(dem_m[dem_idx, eth_loc]).upper()
-        if "BLACK" in race:
-            black = 1
-        else:
-            black = 0
+        male = 'nan'
+        race = 'nan'
+        dem_idx = np.where(dem_m[:, 0] == tid)[0]
+        if dem_idx.size > 0:
+            male = 0
+            if str(dem_m[dem_idx, sex_loc]).upper()[0] == 'M':
+                male = 1
+            if type(admits) != dict:
+                admit = admits[i]
+            else:
+                admit = admits[tid][0]
+            if type(admit) == str:
+                admit = get_date(admit)
+            race = str(dem_m[dem_idx, eth_loc]).upper()
+            if "BLACK" in race:
+                black = 1
+            else:
+                black = 0
+        age = 'nan'
+        dob_idx = np.where(dob_m[:, 0] == tid)[0]
+        if dob_idx.size > 0:
+            dob = get_date(dob_m[dob_idx, birth_loc])
+            tage = admit - dob
+            age = tage.total_seconds() / (60 * 60 * 24 * 365)
 
         males[i] = male
         blacks[i] = black
@@ -2502,8 +2506,8 @@ def summarize_stats_dallas(ids, kdigos, days, scrs, icu_windows, hosp_windows,
         meta = f.create_group(grp_name)
 
     meta.create_dataset('ids', data=ids, dtype=int)
-    meta.create_dataset('admit', data=admits, dtype='|S20')
-    meta.create_dataset('discharge', data=discharges, dtype='|S20')
+    meta.create_dataset('admit', data=admits.astype(bytes), dtype='|S20')
+    meta.create_dataset('discharge', data=discharges.astype(bytes), dtype='|S20')
     meta.create_dataset('age', data=ages, dtype=float)
     meta.create_dataset('gender', data=genders, dtype=int)
     meta.create_dataset('race', data=eths, dtype=int)
@@ -2527,7 +2531,7 @@ def summarize_stats_dallas(ids, kdigos, days, scrs, icu_windows, hosp_windows,
     meta.create_dataset('died_inp', data=dieds, dtype=int)
     meta.create_dataset('baseline_scr', data=bsln_scrs, dtype=float)
     meta.create_dataset('baseline_gfr', data=bsln_gfrs, dtype=float)
-    meta.create_dataset('baseline_type', data=bsln_types, dtype='|S8')
+    meta.create_dataset('baseline_type', data=bsln_types.astype(bytes), dtype='|S8')
     meta.create_dataset('admit_scr', data=admit_scrs, dtype=float)
     meta.create_dataset('peak_scr', data=peak_scrs, dtype=float)
     meta.create_dataset('net_fluid', data=net_fluids, dtype=int)
@@ -3286,28 +3290,66 @@ def get_cstats(in_file, label_path, meta_grp='meta', data_path=None, dm=None):
 def build_str(all_data, lbls, summary_type='count', fmt='%.2f'):
     tot_size = len(lbls)
     lbl_names = np.unique(lbls)
+    if len(lbl_names) == 2:
+        idx = np.where(lbls == lbl_names[0])[0]
+        d1 = all_data[idx].flatten()
+        idx = np.where(lbls == lbl_names[1])[0]
+        d2 = all_data[idx].flatten()
+        d1 = d1[np.logical_not(np.isnan(d1))]
+        d2 = d2[np.logical_not(np.isnan(d2))]
+        p = 1
+        if len(d1[np.logical_not(np.isnan(d1))]) >= 8 and len(d2) >= 8:
+            _, np1 = normaltest(d1)
+            _, np2 = normaltest(d2)
+            if np1 < 0.05 or np2 < 0.05:
+                try:
+                    _, p = kruskal(d1, d2)
+                except ValueError:
+                    p = 1
+            else:
+                _, p = ttest_ind(d1, d2)
+        if p < 0.01:
+            pstr = '**'
+        elif p < 0.05:
+            pstr = '*'
+        else:
+            pstr = ''
+
     if summary_type == 'count':
         tc = len(np.where(all_data)[0])
         s = (',%d (' + fmt + ')') % (tc, float(tc) / tot_size * 100)
         for i in range(len(lbl_names)):
             idx = np.where(lbls == lbl_names[i])[0]
             tc = len(np.where(all_data[idx])[0])
-            s += (',%d (' + fmt + ')') % (tc, float(tc) / len(idx) * 100)
+            if len(lbl_names) == 2 and i == 1:
+                s += (',%d%s (' + fmt + ')') % (tc, pstr, float(tc) / len(idx) * 100)
+            else:
+                s += (',%d (' + fmt + ')') % (tc, float(tc) / len(idx) * 100)
     elif summary_type == 'countrow':
         wc = len(np.where(all_data)[0])
         s = (',%d (' + fmt + ')') % (wc, float(wc) / tot_size * 100)
         for i in range(len(lbl_names)):
             idx = np.where(lbls == lbl_names[i])[0]
             tc = len(np.where(all_data[idx])[0])
-            if wc > 0:
-                s += (',%d (' + fmt + ')') % (tc, float(tc) / wc * 100)
+            if len(lbl_names) == 2 and i == 1:
+                if wc > 0:
+                    s += (',%d%s (' + fmt + ')') % (tc, pstr, float(tc) / wc * 100)
+                else:
+                    s += (',%d%s (' + fmt + ')') % (0, pstr, 0)
             else:
-                s += (',%d (' + fmt + ')') % (0, 0)
+                if wc > 0:
+                    s += (',%d (' + fmt + ')') % (tc, float(tc) / wc * 100)
+                else:
+                    s += (',%d (' + fmt + ')') % (0, 0)
     elif summary_type == 'mean':
         s = (',' + fmt + ' (' + fmt + ')') % (np.nanmean(all_data), np.nanstd(all_data))
         for i in range(len(lbl_names)):
             idx = np.where(lbls == lbl_names[i])[0]
-            s += (',' + fmt + ' (' + fmt + ')') % (np.nanmean(all_data[idx].flatten()), np.nanstd(all_data[idx].flatten()))
+            if len(lbl_names) == 2 and i == 1:
+                s += (',' + fmt + '%s (' + fmt + ')') % (
+                      np.nanmean(all_data[idx].flatten()), pstr, np.nanstd(all_data[idx].flatten()))
+            else:
+                s += (',' + fmt + ' (' + fmt + ')') % (np.nanmean(all_data[idx].flatten()), np.nanstd(all_data[idx].flatten()))
 
     elif summary_type == 'median':
         m, iq1, iq2 = iqr(all_data)
@@ -3315,7 +3357,10 @@ def build_str(all_data, lbls, summary_type='count', fmt='%.2f'):
         for i in range(len(lbl_names)):
             idx = np.where(lbls == lbl_names[i])[0]
             m, iq1, iq2 = iqr(all_data[idx].flatten())
-            s += (',' + fmt + ' (' + fmt + '- ' + fmt + ')') % (m, iq1, iq2)
+            if len(lbl_names) == 2 and i == 1:
+                s += (',' + fmt + '%s (' + fmt + '- ' + fmt + ')') % (m, pstr, iq1, iq2)
+            else:
+                s += (',' + fmt + ' (' + fmt + '- ' + fmt + ')') % (m, iq1, iq2)
 
     if len(lbl_names) == 2:
         idx = np.where(lbls == lbl_names[0])[0]
@@ -3389,7 +3434,7 @@ def formatted_stats(meta, label_path):
     sepsis = meta['sepsis'][:][sel]
     died_inp = meta['died_inp'][:][sel]
 
-    bsln_types = meta['baseline_type'][:][sel]
+    bsln_types = meta['baseline_type'][:][sel].astype('U18')
     bsln_scr = meta['baseline_scr'][:][sel]
     bsln_gfr = meta['baseline_gfr'][:][sel]
     admit_scr = meta['admit_scr'][:][sel]
@@ -3658,32 +3703,32 @@ def formatted_stats(meta, label_path):
     row += s
     table_f.write(row + '\n')
 
-    # MAP < 70 - n( %)
-    row = 'MAP < 70 - n(%)'
+    # MAP < 70 mmHg - n( %)
+    row = 'MAP mmHg < 70 - n(%)'
     s = build_str(maps < 70, lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # MAP < 60 - n( %)
-    row = 'MAP < 60 - n(%)'
+    # MAP < 60 mmHg - n( %)
+    row = 'MAP mmHg < 60 - n(%)'
     s = build_str(maps < 60, lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # Serum Albumin - median[IQ1 - IQ3]
-    row = 'Serum Albumin - median[IQ1 - IQ3]'
+    # Serum Albumin, g/dL - median[IQ1 - IQ3]
+    row = 'Serum Albumin g/dL - median[IQ1 - IQ3]'
     s = build_str(albs, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # Serum Lactate - median[IQ1 - IQ3]
-    row = 'Serum Lactate - median[IQ1 - IQ3]'
+    # Serum Lactate, mmol/L - median[IQ1 - IQ3]
+    row = 'Serum Lactate mmol/L - median[IQ1 - IQ3]'
     s = build_str(lacs, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # Serum Bilirubin - median[IQ1 - IQ3]
-    row = 'Serum Bilirubin - median[IQ1 - IQ3]'
+    # Serum Bilirubin, mg/dL - median[IQ1 - IQ3]
+    row = 'Serum Bilirubin mg/dL - median[IQ1 - IQ3]'
     s = build_str(bilis, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
@@ -3691,58 +3736,58 @@ def formatted_stats(meta, label_path):
     # AKI Characteristics
     table_f.write('AKI characteristics\n')
 
-    # Baseline SCr - median[IQ1 - IQ3]
-    row = 'ALL Baseline SCr - median[IQ1 - IQ3]'
+    # Baseline SCr, mg/dL - median[IQ1 - IQ3]
+    row = 'ALL Baseline SCr mg/dL - median[IQ1 - IQ3]'
     s = build_str(bsln_scr, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # Baseline eGFR - median[IQ1 - IQ3]
-    row = 'ALL Baseline eGFR - median[IQ1 - IQ3]'
+    # Baseline eGFR, mL/min/1.73m2 - median[IQ1 - IQ3]
+    row = 'ALL Baseline eGFR mL/min/1.73m2 - median[IQ1 - IQ3]'
     s = build_str(bsln_gfr, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
     # Measured Baselines - n (%)
     row = 'Measured Baselines - n (%)'
-    s = build_str(bsln_types == 'measured', lbls, 'count', '%.1f')
+    s = build_str(np.array(bsln_types == 'measured'), lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # Baseline SCr - median[IQ1 - IQ3]
+    # Baseline SCr, mg/dL - median[IQ1 - IQ3]
     sel = np.where(bsln_types == 'measured')[0]
-    row = 'Measured Baseline SCr - median[IQ1 - IQ3]'
+    row = 'Measured Baseline SCr mg/dL - median[IQ1 - IQ3]'
     s = build_str(bsln_scr[sel], lbls[sel], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # Baseline eGFR - median[IQ1 - IQ3]
-    row = 'Measured Baseline eGFR - median[IQ1 - IQ3]'
+    # Baseline eGFR, mL/min/1.73m2 - median[IQ1 - IQ3]
+    row = 'Measured Baseline eGFR mL/min/1.73m2 - median[IQ1 - IQ3]'
     s = build_str(bsln_gfr[sel], lbls[sel], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # Baseline SCr - median[IQ1 - IQ3]
+    # Baseline SCr, mg/dL - median[IQ1 - IQ3]
     sel = np.where(bsln_types == 'imputed')[0]
-    row = 'Imputed Baseline SCr - median[IQ1 - IQ3]'
+    row = 'Imputed Baseline SCr mg/dL - median[IQ1 - IQ3]'
     s = build_str(bsln_scr[sel], lbls[sel], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # Baseline eGFR - median[IQ1 - IQ3]
-    row = 'Imputed Baseline eGFR - median[IQ1 - IQ3]'
+    # Baseline eGFR mL/min/1.73m2 - median[IQ1 - IQ3]
+    row = 'Imputed Baseline eGFR mL/min/1.73m2 - median[IQ1 - IQ3]'
     s = build_str(bsln_gfr[sel], lbls[sel], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # Admit SCr - median[IQ1 - IQ3]
-    row = 'Admit SCr - median[IQ1 - IQ3]'
+    # Admit SCr, mg/dL - median[IQ1 - IQ3]
+    row = 'Admit SCr mg/dL - median[IQ1 - IQ3]'
     s = build_str(admit_scr, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # Peak SCr - median[IQ1 - IQ3]
-    row = 'Peak SCr - median[IQ1 - IQ3]'
+    # Peak SCr, mg/dL - median[IQ1 - IQ3]
+    row = 'Peak SCr mg/dL - median[IQ1 - IQ3]'
     s = build_str(peak_scr, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
@@ -3792,14 +3837,14 @@ def formatted_stats(meta, label_path):
     row += s
     table_f.write(row + '\n')
 
-    # Urine output D0-D2 - median[IQ1 - IQ3]
-    row = 'Urine output D0-D2 - median[IQ1 - IQ3]'
+    # Urine output, L D0-D2 - median[IQ1 - IQ3]
+    row = 'Urine output L D0-D2 - median[IQ1 - IQ3]'
     s = build_str(urine_out[np.where(urine_out != 0)], lbls[np.where(urine_out != 0)[0]], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
-    # Urine flow D0-D2 - median[IQ1 - IQ3]
-    row = 'Urine flow D0-D2 - median[IQ1 - IQ3]'
+    # Urine flow, ml/kg/24h D0-D2 - median[IQ1 - IQ3]
+    row = 'Urine flow ml/kg/24h D0-D2 - median[IQ1 - IQ3]'
     s = build_str(urine_flow[np.where(urine_flow != 0)], lbls[np.where(urine_flow != 0)[0]], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
@@ -4876,7 +4921,8 @@ def get_sofa_dallas(stats, out_name, v=False):
 
         out.write(',%d,%d,%d,%d,%d,%d\n' % (score[0], score[1], score[2], score[3], score[4], score[5]))
         sofas[i, :] = score
-        print(np.sum(score))
+        if v:
+            print(np.sum(score))
     return sofas
 
 
@@ -5240,7 +5286,8 @@ def get_apache_dallas(stats, out_name):
             out.write(',%d' % (score[i]))
         out.write('\n')
         apaches[i, :] = score
-        print(np.sum(score))
+        if v:
+            print(np.sum(score))
     return apaches
 
 
@@ -5259,11 +5306,11 @@ def get_MAKE90(ids, stats,
     races = stats['race'][:]
     bsln_gfrs = stats['baseline_gfr'][:]
     all_ids = stats['ids'][:]
-    windows = stats['icu_dates'][:]
-    dods = stats['dod'][:]
+    windows = stats['icu_dates'][:].astype('unicode')
+    dods = stats['dod'][:].astype('unicode')
 
     # print('id,died,gfr_drop,new_dialysis')
-    out.write('id,died,esrd,new_dialysis,gfr_drop_25,gfr_drop_50,n_vals,delta\n')
+    out.write('id,died_inp,died_in_window,esrd_manual_revision,esrd_scm,esrd_usrds,new_dialysis_manual_revision,new_dialysis,gfr_drop_25,gfr_drop_50,n_vals,delta\n')
     scores = []
     out_ids = []
     for i in range(len(ids)):
@@ -5271,15 +5318,21 @@ def get_MAKE90(ids, stats,
 
         idx = np.where(all_ids == tid)[0][0]
         if stats['died_inp'][idx] > 0:
-            continue
+            died_inp = 1
+        else:
+            died_inp = 0
         sex = sexes[i]
         race = races[i]
         age = ages[i]
 
         died = 0
         esrd = 0
+        esrd_man = 0
+        esrd_scm = 0
+        esrd_usrds = 0
         gfr_drop_25 = 0
         gfr_drop_50 = 0
+        dia_dep_man = 0
         dia_dep = 0
 
         bsln_gfr = bsln_gfrs[idx]
@@ -5302,25 +5355,25 @@ def get_MAKE90(ids, stats,
         man_rev_loc = np.where(esrd_man_rev[:, 0]) == tid
         if man_rev_loc.size > 0:
             if esrd_man_rev[man_rev_loc[0], man_rev_dur] == 1:
-                esrd = 1
+                esrd_man = 1
             if esrd_man_rev[man_rev_loc[0], man_rev_rrt] == 1:
-                dia_dep = 1
+                dia_dep_man = 1
         # If patient not included in manual revision, check SCM and USRDS separately
-        else:
+        # else:
             # SCM
-            esrd_dloc = np.where(scm_esrd[:, 0] == tid)[0]
-            if esrd_dloc.size > 0:
-                if scm_esrd[esrd_dloc[0], scm_during] == 'Y':
-                    esrd = 1
-                if scm_esrd[esrd_dloc[0], scm_after] == 'Y':
-                    esrd = 1
-            # USRDS
-            esrd_dloc = np.where(usrds_esrd[:, 0] == tid)[0]
-            if esrd_dloc.size > 0:
-                tdate = get_date(scm_esrd[esrd_dloc[0], usrds_esrd_date_loc])
-                if tdate != 'nan':
-                    if datetime.timedelta(0) < tdate - tmin < datetime.timedelta(90):
-                        esrd = 1
+        esrd_dloc = np.where(scm_esrd[:, 0] == tid)[0]
+        if esrd_dloc.size > 0:
+            if scm_esrd[esrd_dloc[0], scm_during] == 'Y':
+                esrd_scm = 1
+            # if scm_esrd[esrd_dloc[0], scm_after] == 'Y':
+            #     esrd_scm = 1
+        # USRDS
+        esrd_dloc = np.where(usrds_esrd[:, 0] == tid)[0]
+        if esrd_dloc.size > 0:
+            tdate = get_date(usrds_esrd[esrd_dloc[0], usrds_esrd_date_loc])
+            if tdate != 'nan':
+                if datetime.timedelta(0) < tdate - tmin < datetime.timedelta(90):
+                    esrd_usrds = 1
 
         dia_locs = np.where(dia_m[:, 0] == tid)[0]
         for j in range(len(dia_locs)):
@@ -5358,6 +5411,137 @@ def get_MAKE90(ids, stats,
             #     if tstop != 'nan':
             #         if datetime.timedelta(-2) <= tstop - tmin < datetime.timedelta(90):
             #             dia_dep = 1
+
+        nvals = 0
+        delta_str = 'not_evaluated'
+        if not died and not dia_dep and not esrd:
+            gfr90 = 1000
+            delta = 90
+            gfrs = []
+            deltas = []
+            delta_str = 'no_valid_records'
+            scr_locs = np.where(scr_all_m[:, 0] == tid)[0]
+            for j in range(len(scr_locs)):
+                tdate = str(scr_all_m[scr_locs[j], scr_date_loc])
+                tdate = get_date(tdate)
+                if tdate != 'nan':
+                    td = tdate - tmin
+                    if datetime.timedelta(0) < td < datetime.timedelta(90) + datetime.timedelta(buffer):
+                        if td.days <= min_day:
+                            continue
+                        dif = ((tmin + datetime.timedelta(90)) - tdate).days
+                        # if ref == 'admit' and 0 < dif < min_day:
+                        #     continue
+                        tscr = scr_all_m[scr_locs[j], scr_val_loc]
+                        tgfr = calc_gfr(tscr, sex, race, age)
+                        gfrs.append(tgfr)
+                        deltas.append(dif)
+                        nvals = 1
+                        if delta_str == 'no_valid_records' or abs(dif) < abs(delta):
+                            tscr = scr_all_m[scr_locs[j], scr_val_loc]
+                            tgfr = calc_gfr(tscr, sex, race, age)
+                            gfr90 = tgfr
+                            delta = dif
+                            delta_str = str(delta)
+            if ct > 1:
+                assert len(deltas) == len(gfrs)
+                if len(deltas) > 1:
+                    tct = min(ct, len(deltas))
+                    gfrs = np.array(gfrs)
+                    deltas = np.array(deltas)
+                    o = np.argsort(np.abs(deltas))
+                    gfr90 = np.mean(gfrs[o[:tct]])
+                    delta = deltas[o[0]]
+                    delta_str = str(delta)
+                    nvals = tct
+
+            thresh = 100 - 25
+            rel_pct = (gfr90 / bsln_gfr) * 100
+            if rel_pct < thresh:
+                gfr_drop_25 = 1
+            thresh = 100 - 50
+            rel_pct = (gfr90 / bsln_gfr) * 100
+            if rel_pct < thresh:
+                gfr_drop_50 = 1
+
+        out_ids.append(tid)
+        out.write('%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s\n' % (tid, died_inp, died, esrd_man, esrd_scm, esrd_usrds, dia_dep_man, dia_dep, gfr_drop_25, gfr_drop_50, nvals, delta_str))
+        scores.append(np.array((died_inp, died, esrd_man, esrd_scm, esrd_usrds, dia_dep_man, dia_dep, gfr_drop_25, gfr_drop_50)))
+        # print('%d,%d,%d,%d' % (idx, died, gfr_drop, dia_dep))
+    scores = np.array(scores)
+    return scores, out_ids
+
+
+# %%
+def get_MAKE90_dallas(ids, stats,
+                      dia_m, dia_start_loc, dia_stop_loc,
+                      esrd_m, esrd_during_loc, esrd_after_loc,
+                      scr_all_m, scr_val_loc, scr_date_loc,
+                      out, ref='disch', min_day=7, buffer=0, ct=1):
+
+    sexes = stats['gender'][:]
+    ages = stats['age'][:]
+    races = stats['race'][:]
+    bsln_gfrs = stats['baseline_gfr'][:]
+    all_ids = stats['ids'][:]
+    windows = stats['icu_dates'][:]
+    dods = stats['dod'][:]
+
+    # print('id,died,gfr_drop,new_dialysis')
+    out.write('id,died,esrd,new_dialysis,gfr_drop_25,gfr_drop_50,n_vals,delta\n')
+    scores = []
+    out_ids = []
+    for i in range(len(ids)):
+        tid = ids[i]
+
+        idx = np.where(all_ids == tid)[0][0]
+
+        sex = sexes[i]
+        race = races[i]
+        age = ages[i]
+
+        died = 0
+        esrd = 0
+        gfr_drop_25 = 0
+        gfr_drop_50 = 0
+        dia_dep = 0
+
+        if stats['died_inp'][idx] > 0:
+            died = 1
+
+        bsln_gfr = bsln_gfrs[idx]
+
+        admit = get_date(windows[idx, 0])
+        disch = get_date(windows[idx, 1])
+
+        if ref == 'disch':
+            tmin = get_date(windows[idx, 1])
+        elif ref == 'admit':
+            tmin = get_date(windows[idx, 0])
+
+        dod = get_date(dods[idx])
+        if dod != 'nan':
+            if dod - tmin < datetime.timedelta(90):
+                died = 1
+
+        # ESRD
+        esrd_dloc = np.where(esrd_m[:, 0] == tid)[0]
+        if esrd_dloc.size > 0:
+            if esrd_m[esrd_dloc[0], esrd_during_loc] == 'DURING_INDEXED_ADT':
+                esrd = 1
+            if esrd_m[esrd_dloc[0], esrd_after_loc] == 'AFTER_INDEXED_ADT':
+                esrd = 1
+
+        dia_locs = np.where(dia_m[:, 0] == tid)[0]
+        for j in range(len(dia_locs)):
+            start = get_date(dia_m[dia_locs[j], dia_start_loc])
+            stop = get_date(dia_m[dia_locs[j], dia_stop_loc])
+            if start <= admit:
+                if stop >= disch - datetime.timedelta(2):
+                    dia_dep = 1
+            elif start <= disch:
+                if stop >= disch - datetime.timedelta(2):
+                    dia_dep = 1
 
         nvals = 0
         delta_str = 'not_evaluated'

@@ -22,7 +22,7 @@ svm_params = {'kernel': 'linear',
               'C': 0.5,
               'gamma': 0.01}
 
-rf_params = {'n_estimators': 500,
+rf_params = {'n_estimators': 250,
              'criterion': 'gini',
              'max_features': 'sqrt'}
 
@@ -161,8 +161,10 @@ def classify(X, y, classification_model, out_path, feature_name, gridsearch=Fals
         plt.title(classification_model.upper() + ' Classification Performance\n' + feature_name)
         plt.savefig(os.path.join(out_path, 'evaluation_summary.png'))
         plt.close(fig)
+        return mean_auc
     else:
         np.savetxt(os.path.join(out_path, 'mvr_coefficients.csv'), coef, delimiter=',')
+
 
 
 def param_gridsearch(m, X, y, tuned_parameters, out_path, cv_num=8):

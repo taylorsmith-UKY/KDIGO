@@ -77,18 +77,48 @@ def get_dialysis_mask(scr_m, scr_date_loc, dia_m, crrt_locs, hd_locs, pd_locs, v
     return mask
 
 
-def get_dia_mask_dallas(scr_m, dia_locs):
+# %%
+def get_dialysis_mask_dallas(scr_m, scr_date_loc, dia_m, dia_start_loc, dia_stop_loc, dia_type_loc, v=True):
     '''
     Returns a mask for all records in scr_m indicating whether the corresponding patient was on dialysis at the time
     that the record was taken
-    Dallas data provides this directly
-    :param scr_m: matrix containing all SCr data, including dialysis indicators
-    :param dia_locs: locations of dialysis info
-    :return:
+    :param scr_m: matrix containing all SCr data
+    :param scr_date_loc: index of time of record
+    :param dia_m: matrix containing all dialysis information
+    :param crrt_locs: indices of CRRT start/stop dates
+    :param hd_locs: indices of HD start/stop dates
+    :param pd_locs: indicies of PD start/stop dates
+    :param v: verbose... whether or not to print to console
+    :return mask: vector with 0 indicating no dialysis, 1 = CRRT, 2 = HD, 3 = PD
     '''
-    mask = np.zeros(len(scr_m), dtype=int)
-    for col in dia_locs:
-        mask[np.where(scr_m[:, col])] = 1
+    # mask is same length as number of SCr records
+    mask = np.zeros(len(scr_m))
+    if v:
+        print('Getting mask for dialysis')
+        print('Number non-dialysis records, #CRRT, #HD, #PD')
+    for i in range(len(mask)):
+        # ID of the current patient
+        this_id = scr_m[i, 0]
+        date_str = str(scr_m[i, scr_date_loc])
+        this_date = get_date(date_str)
+        if this_date == 'nan':
+            continue
+        rows = np.where(dia_m[:, 0] == this_id)[0]
+        # check dialysis dates for this patient and assign mask value if current value was recorded during dialysis
+        for row in rows:
+            if dia_m[row, dia_start_loc]:
+                if str(dia_m[row, dia_start_loc]) != 'nan' and \
+                        str(dia_m[row, dia_stop_loc]) != 'nan':
+                    left = get_date(dia_m[row, dia_start_loc])
+                    right = get_date(dia_m[row, dia_stop_loc])
+                    if left < this_date < right + datetime.timedelta(2):
+                        mask[i] = 1
+    if v:
+        nwo = len(np.where(mask == 0)[0])
+        ncrrt = len(np.where(mask == 1)[0])
+        nhd = len(np.where(mask == 2)[0])
+        npd = len(np.where(mask == 3)[0])
+        print('%d, %d, %d, %d\n' % (nwo, ncrrt, nhd, npd))
     return mask
 
 
@@ -201,7 +231,10 @@ def get_date(date_str, format_str='%Y-%m-%d %H:%M:%S'):
         return date_str
     elif type(date_str) == float:
         return 'nan'
-    date_str = date_str.split('.')[0]
+    try:
+        date_str = date_str.decode("utf-8").split('.')[0]
+    except AttributeError:
+        date_str = date_str.split('.')[0]
     try:
         date = datetime.datetime.strptime(date_str, format_str)
     except ValueError:
@@ -255,7 +288,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         print('Getting patient vectors')
         print('Patient_ID\tAdmit_Date\tDischarge_Date\tBaseline_SCr\tMort_Date\tDays_To_Death')
         log.write('Patient_ID,Admit_Date,Discharge_Date,Baseline_SCr,Mort_Date,Days_To_Death\n')
-        exc_log.write('Patient_ID,Not Enough Values,No Valid Baseline,SCr > 4.0,Missing DOB, Missing Demographics, Age < 18, ESRD at/before admission,GFR < 15,Kidney Transplant\n')
+        exc_log.write('Patient_ID,Not Enough Values,No Admit Info,SCr > 4.0,Missing DOB, Missing Demographics, Age < 18, ESRD at/before admission,GFR < 15,Kidney Transplant\n')
     for tid in ids:
         # if tid == 92:
         #     pass
@@ -277,6 +310,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         bsln_idx = np.where(bsln_m[:, 0] == tid)[0]
         if bsln_idx.size == 0 or bsln_m[bsln_idx, bsln_scr_loc] == 'None' or bsln_m[bsln_idx, bsln_scr_loc] is None:
             skip = True
+            exc[1] = 1
         else:
             bsln = float(bsln_m[bsln_idx, bsln_scr_loc])
             btype = bsln_m[bsln_idx, bsln_type_loc]
@@ -314,9 +348,6 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
             death_dur = (mort_date - icu_admit).total_seconds() / (60 * 60 * 24)
         else:
             death_dur = np.nan
-
-        if death_dur < 0:
-            pass
 
         # get dob, sex, and race
         if tid not in dob_m[:, 0]:
@@ -464,7 +495,7 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
 # %%
 def get_patients_dallas(scr_all_m, scr_val_loc, scr_date_loc,
                         icu_mask, dia_mask, hosp_windows,
-                        esrd_m, esrd_locs,
+                        esrd_m, esrd_bef_loc,
                         bsln_m, bsln_scr_loc,
                         date_m,
                         dem_m, sex_loc, eth_loc, dob_loc, dod_loc,
@@ -494,61 +525,72 @@ def get_patients_dallas(scr_all_m, scr_val_loc, scr_date_loc,
     esrd_count = 0
     dem_count = 0
     age_count = 0
-    ids = np.unique(scr_all_m[:, 0]).astype(int)
+    ids = np.unique(dem_m[:, 0]).astype(int)
     ids.sort()
     if v:
         print('Getting patient vectors')
         print('Patient_ID\tAdmit_Date\tDischarge_Date\tBaseline_SCr\tMort_Date\tDays_To_Death')
         log.write('Patient_ID,Admit_Date,Discharge_Date,Baseline_SCr,Mort_Date,Days_To_Death\n')
-    for idx in ids:
+        exc_log.write(
+            'Patient_ID,Not Enough Values,No Admit Info,SCr > 4.0,Missing DOB, Missing Demographics, Age < 18, ESRD at/before admission,GFR < 15,Kidney Transplant\n')
+    for tid in ids:
         skip = False  # required to skip patients where exclusion is found in interior loop
-        all_rows = np.where(scr_all_m[:, 0] == idx)[0]
+        all_rows = np.where(scr_all_m[:, 0] == tid)[0]
         sel = np.where(icu_mask[all_rows])[0]
         keep = all_rows[sel]
+        exc = np.zeros(9, dtype=int)
         # Ensure this patient has values in time period of interest
         if len(sel) < 2:
             no_recs_count += 1
+            exc[0] = 1
             if v:
-                print(str(idx) + ', removed due to not enough values in the time period of interest')
-                exc_log.write(str(idx) + ', removed due to not enough values in the time period of interest\n')
-            continue
+                print(str(tid) + ', removed due to not enough values in the time period of interest')
+                # exc_log.write(str(tid) + ', removed due to not enough values in the time period of interest\n')
+            skip = True
 
         # Get Baseline or remove if no admit dates provided
-        bsln_idx = np.where(bsln_m[:, 0] == idx)[0]
+        bsln_idx = np.where(bsln_m[:, 0] == tid)[0]
         if bsln_idx.size == 0:
             no_bsln_count += 1
             if v:
-                print(str(idx) + ', removed due to no valid baseline')
-                exc_log.write(str(idx) + ', removed due to no valid baseline\n')
-            continue
+                print(str(tid) + ', removed due to no valid baseline')
+                # exc_log.write(str(tid) + ', removed due to no valid baseline\n')
+            skip = True
         else:
             bsln_idx = bsln_idx[0]
         bsln = bsln_m[bsln_idx, bsln_scr_loc]
         if str(bsln).lower() == 'nan' or str(bsln).lower() == 'none' or str(bsln).lower() == 'nat':
             no_bsln_count += 1
             if v:
-                print(str(idx) + ', removed due to missing baseline')
-                exc_log.write(str(idx) + ', removed due to missing baseline\n')
-            continue
+                print(str(tid) + ', removed due to missing baseline')
+                # exc_log.write(str(tid) + ', removed due to missing baseline\n')
+            skip = True
         bsln = float(bsln)
         if bsln >= 4.0:
             high_bsln_count += 1
             if v:
-                print(str(idx) + ', removed due to baseline SCr > 4.0')
-                exc_log.write(str(idx) + ', removed due to baseline SCr > 4.0\n')
-            continue
+                print(str(tid) + ', removed due to baseline SCr > 4.0')
+                # exc_log.write(str(tid) + ', removed due to baseline SCr > 4.0\n')
+            skip = True
+            exc[2] = 1
 
-        admit, discharge = hosp_windows[idx]
+        try:
+            admit, discharge = hosp_windows[tid]
+        except KeyError:
+            admit = discharge = 'nan'
+            skip = True
+            exc[1] = 1
 
         # get demographics and remove if any required are missing
-        if idx not in dem_m[:, 0]:
+        if tid not in dem_m[:, 0]:
             # ids = np.delete(ids, count)
             dem_count += 1
             if v:
-                print(str(idx) + ', removed due to missing demographics')
-                exc_log.write(str(idx) + ', removed due to missing demographics\n')
-            continue
-        dem_idx = np.where(dem_m[:, 0] == idx)[0]
+                print(str(tid) + ', removed due to missing demographics')
+                # exc_log.write(str(tid) + ', removed due to missing demographics\n')
+            skip = True
+            exc[4] = 1
+        dem_idx = np.where(dem_m[:, 0] == tid)[0]
         if len(dem_idx) >= 1:
             dem_idx = dem_idx[0]
         sex = dem_m[dem_idx, sex_loc]
@@ -557,9 +599,10 @@ def get_patients_dallas(scr_all_m, scr_val_loc, scr_date_loc,
             # ids = np.delete(ids, count)
             dem_count += 1
             if v:
-                print(str(idx) + ', removed due to missing demographics')
-                exc_log.write(str(idx) + ', removed due to missing demographics\n')
-            continue
+                print(str(tid) + ', removed due to missing demographics')
+                # exc_log.write(str(tid) + ', removed due to missing demographics\n')
+            skip = True
+            exc[4] = 1
 
         # get mortality date if available
         # mort_date = 'nan'
@@ -590,7 +633,7 @@ def get_patients_dallas(scr_all_m, scr_val_loc, scr_date_loc,
         #         if tdod != 'nan':
         #             mort_date = tdod
 
-        if mort_date != 'nan':
+        if mort_date != 'nan' and admit != 'nan':
             death_dur = (mort_date - admit).total_seconds() / (60 * 60 * 24)
         else:
             death_dur = np.nan
@@ -607,29 +650,30 @@ def get_patients_dallas(scr_all_m, scr_val_loc, scr_date_loc,
             dob = get_date(dob)
 
         # get age and remove if less than 18
-        age = admit - dob
-        age = age.total_seconds() / (60 * 60 * 24 * 365)
-        if age < 18:
-            age_count += 1
-            if v:
-                print(str(idx) + ', removed due to age < 18')
-                exc_log.write(str(idx) + ', removed due to age < 18\n')
-            continue
+        if admit != 'nan':
+            age = admit - dob
+            age = age.total_seconds() / (60 * 60 * 24 * 365)
+            if age < 18:
+                age_count += 1
+                if v:
+                    print(str(tid) + ', removed due to age < 18')
+                    # exc_log.write(str(tid) + ', removed due to age < 18\n')
+                skip = True
+                exc[5] = 1
 
         # remove if ESRD status
-        esrd_idx = np.where(esrd_m[:, 0] == idx)[0]
-        if len(esrd_idx) > 0:
-            for loc in esrd_locs:
-                if np.any(str(esrd_m[esrd_idx, loc]).lower() == 'BEFORE_INDEXED_ADT'):
-                    skip = True
-                    # ids = np.delete(ids, count)
-                    esrd_count += 1
-                    if v:
-                        print(str(idx) + ', removed due to ESRD status')
-                        exc_log.write(str(idx) + ', removed due to ESRD status\n')
-                    break
-        if skip:
-            continue
+        esrd_idx = np.where(esrd_m[:, 0] == tid)[0]
+        if esrd_idx.size > 0:
+            esrd_idx = esrd_idx[0]
+            if esrd_m[esrd_idx, esrd_bef_loc] == 'BEFORE_INDEXED_ADT':
+                skip = True
+                # ids = np.delete(ids, count)
+                esrd_count += 1
+                exc[6] = 1
+                if v:
+                    print(str(tid) + ', removed due to ESRD status')
+                    # exc_log.write(str(tid) + ', removed due to ESRD status\n')
+                break
 
         # remove patients with baseline GFR < 15
         gfr = calc_gfr(bsln, sex, race, age)
@@ -637,23 +681,28 @@ def get_patients_dallas(scr_all_m, scr_val_loc, scr_date_loc,
             # ids = np.delete(ids, count)
             gfr_count += 1
             if v:
-                print(str(idx) + ', removed due to initial GFR too low')
-                exc_log.write(str(idx) + ', removed due to initial GFR too low\n')
-            continue
+                print(str(tid) + ', removed due to initial GFR too low')
+                # exc_log.write(str(tid) + ', removed due to initial GFR too low\n')
+            skip = True
+            exc[7] = 1
 
         # remove patients with kidney transplant
-        transplant_rows = np.where(dx_m[:, 0] == idx)  # rows in surgery sheet
+        transplant_rows = np.where(dx_m[:, 0] == tid)  # rows in surgery sheet
         for row in transplant_rows:
             str_des = str(dx_m[row, dx_loc]).upper()
             if 'KID' in str_des and 'TRANS' in str_des:
                 skip = True
+                exc[8] = 1
                 kid_xplt_count += 1
                 # ids = np.delete(ids, count)
                 if v:
-                    print(str(idx) + ', removed due to kidney transplant')
-                    exc_log.write(str(idx) + ', removed due to kidney transplant\n')
+                    print(str(tid) + ', removed due to kidney transplant')
+                    # exc_log.write(str(tid) + ', removed due to kidney transplant\n')
                 break
+
         if skip:
+            exc = ','.join(exc.astype(str))
+            exc_log.write('%d,%s\n' % (tid, exc))
             continue
 
         # calculate duration vector
@@ -667,8 +716,8 @@ def get_patients_dallas(scr_all_m, scr_val_loc, scr_date_loc,
         duration = np.array(duration)
 
         if v:
-            print('%d\t%s\t%s\t%.3f\t%s\t%.3f' % (idx, admit, discharge, bsln, mort_date, death_dur))
-            log.write('%d,%s,%s,%.3f,%s,%.3f\n' % (idx, admit, discharge, bsln, mort_date, death_dur))
+            print('%d\t%s\t%s\t%.3f\t%s\t%.3f' % (tid, admit, discharge, bsln, mort_date, death_dur))
+            log.write('%d,%s,%s,%.3f,%s,%.3f\n' % (tid, admit, discharge, bsln, mort_date, death_dur))
 
         disch_disp = 'alive'
         if mort_date != 'nan':
@@ -688,28 +737,19 @@ def get_patients_dallas(scr_all_m, scr_val_loc, scr_date_loc,
         ages.append(age)
         tmin = duration[0].total_seconds() / (60 * 60)
         tmax = duration[-1].total_seconds() / (60 * 60)
-        ids_out.append(idx)
+        ids_out.append(tid)
         t_range.append([tmin, tmax])
         count += 1
     bslns = np.array(bslns)
-    if v:
-        print('# Patients Kept: ' + str(count))
-        print('# Patients removed for ESRD: ' + str(esrd_count))
-        print('# Patients w/ GFR < 15: ' + str(gfr_count))
-        print('# Patients w/ no admit info: ' + str(no_bsln_count))
-        print('# Patients w/ missing demographics: ' + str(dem_count))
-        print('# Patients w/ < 2 ICU records: ' + str(no_recs_count))
-        print('# Patients w/ no valid baseline: ' + str(no_bsln_count))
-        print('# Patients w/ baseline >= 4.0: ' + str(high_bsln_count))
-        print('# Patients w/ kidney transplant: ' + str(kid_xplt_count))
-        exc_log.write('# Patients Kept: ' + str(count) + '\n')
-        exc_log.write('# Patients removed for ESRD: ' + str(esrd_count) + '\n')
-        exc_log.write('# Patients w/ GFR < 15: ' + str(gfr_count) + '\n')
-        exc_log.write('# Patients w/ no admit info: ' + str(no_bsln_count) + '\n')
-        exc_log.write('# Patients w/ missing demographics: ' + str(dem_count) + '\n')
-        exc_log.write('# Patients w/ < 2 ICU records: ' + str(no_recs_count) + '\n')
-        exc_log.write('# Patients w/ no valid baseline: ' + str(no_bsln_count) + '\n')
-        exc_log.write('# Patients w/ kidney transplant: ' + str(kid_xplt_count) + '\n')
+    # if v:
+        # exc_log.write('# Patients Kept: ' + str(count) + '\n')
+        # exc_log.write('# Patients removed for ESRD: ' + str(esrd_count) + '\n')
+        # exc_log.write('# Patients w/ GFR < 15: ' + str(gfr_count) + '\n')
+        # exc_log.write('# Patients w/ no admit info: ' + str(no_bsln_count) + '\n')
+        # exc_log.write('# Patients w/ missing demographics: ' + str(dem_count) + '\n')
+        # exc_log.write('# Patients w/ < 2 ICU records: ' + str(no_recs_count) + '\n')
+        # exc_log.write('# Patients w/ no valid baseline: ' + str(no_bsln_count) + '\n')
+        # exc_log.write('# Patients w/ kidney transplant: ' + str(kid_xplt_count) + '\n')
     del scr_all_m
     del bsln_m
     del dx_m
@@ -2557,7 +2597,7 @@ def descriptive_trajectory_features(kdigos, ids, days=None, t_lim=None, filename
 
 
 def template_trajectory_features(kdigos, ids, days=None, t_lim=None, filename='template_trajectory_features.csv',
-                                 scores=np.array([0, 1, 2, 3, 4], dtype=int), npoints=3, ratios=False, gap=0):
+                                 scores=np.array([0, 1, 2, 3, 4], dtype=int), npoints=3, ratios=False, gap=0, stride=1):
     combination = scores
     for i in range(npoints - 1):
         combination = np.vstack((combination, scores))
@@ -2569,15 +2609,17 @@ def template_trajectory_features(kdigos, ids, days=None, t_lim=None, filename='t
     features = np.zeros((npts, len(templates)))
     for i in range(npts):
         kdigo = kdigos[i]
-        if len(kdigo) == 2:
+        if len(kdigo) < npoints:
             continue
         if days is not None:
             tdays = days[i]
             sel = np.where(tdays <= t_lim)[0]
             kdigo = kdigo[sel]
-        nwin = len(kdigo) - npoints + 1
+        nwin = np.floor((len(kdigo) - npoints + 1) / stride).astype(int)
         for j in range(nwin):
-            tk = kdigo[j:j + npoints]
+            start = j * stride
+            # tk = kdigo[start:start + npoints]
+            tk = [kdigo[x] for x in range(start, start + npoints + (gap * (npoints - 1)), gap + 1)]
             sel = np.where(templates[:, 0] == tk[0])[0]
             loc = [x for x in sel if np.all(templates[x, :] == tk)]
             features[i, loc] += 1
@@ -2591,7 +2633,7 @@ def template_trajectory_features(kdigos, ids, days=None, t_lim=None, filename='t
 
 
 def slope_trajectory_features(kdigos, ids, days=None,t_lim=None, scores=np.array([0, 1, 2, 3, 4]),
-                              filename='slope_features.csv', ratios=False):
+                              filename='slope_features.csv', ratios=False, gap=0, stride=1):
     slopes = []
     header = 'ids'
     for i in range(len(scores)):
@@ -2610,24 +2652,19 @@ def slope_trajectory_features(kdigos, ids, days=None,t_lim=None, scores=np.array
             tdays = days[i]
             sel = np.where(tdays <= t_lim)[0]
             kdigo = kdigo[sel]
-        nwin = len(kdigo) - 1
+        nwin = np.floor((len(kdigo) - 1) / stride).astype(int)
         for j in range(nwin):
-            ts = kdigo[j + 1] - kdigo[j]
+            start = stride * j
+            ts = kdigo[start + gap + 1] - kdigo[start]
             loc = np.where(slopes == ts)[0][0]
             features[i, loc] += 1
         if ratios:
-            features[i, :] = features[i, :] /  np.sum(features[i, :])
+            features[i, :] = features[i, :] / np.sum(features[i, :])
     if ratios:
         arr2csv(filename, features, ids, fmt='%f', header=header)
     else:
         arr2csv(filename, features, ids, fmt='%d', header=header)
     return features, header
-
-
-def normalize_features(ds):
-    norm = mms()
-    nds = norm.fit_transform(ds)
-    return nds
 
 
 def feature_voting(ds):
@@ -3661,8 +3698,9 @@ def load_all_csv_dallas(datapath, sort_id='PATIENT_NUM'):
     # ESRD status
     esrd_m = pd.read_csv(datapath + 'csv/tESRDSummary.csv')
     esrd_m.sort_values(by=sort_id, inplace=True)
-    esrd_locs = [esrd_m.columns.get_loc("BEFORE_INDEXED_ADT"), ]
-                 # esrd_m.columns.get_loc("ESRD_DURING_INDEXED_ADT")]
+    esrd_bef_loc = esrd_m.columns.get_loc("BEFORE_INDEXED_ADT")
+    esrd_during_loc = esrd_m.columns.get_loc("DURING_INDEXED_ADT")
+    esrd_after_loc = esrd_m.columns.get_loc("AFTER_INDEXED_ADT")
     esrd_m = esrd_m.values
 
     # All SCR
@@ -3748,7 +3786,7 @@ def load_all_csv_dallas(datapath, sort_id='PATIENT_NUM'):
     hosp_m = hosp_m.values
 
     return ((date_m, hosp_locs, icu_locs,
-             esrd_m, esrd_locs,
+             esrd_m, esrd_bef_loc, esrd_during_loc, esrd_after_loc,
              scr_all_m, scr_date_loc, scr_val_loc, scr_ip_loc, dia_locs,
              dem_m, sex_loc, eth_loc, dob_loc, dod_locs,
              lab_m, lab_col, lab_day, lab_min, lab_max,

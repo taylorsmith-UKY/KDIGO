@@ -13,6 +13,5 @@
   "populationMismatch": [true],
   "populationExtension": [true],
   "populationCoordinates": [true],
-  "distanceFunction": "braycurtis",
-  "coordinateShift": 0,
+  "distanceFunction": "braycurtis"
 }

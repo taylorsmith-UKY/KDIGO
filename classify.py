@@ -16,7 +16,15 @@ resPath = os.path.join(basePath, 'RESULTS', 'icu', '7days_021319/')
 dm_tag = 'custmismatch_extension_a1E+00_normBC_popcoord'
 
 # featNames = ['sofa_norm', 'apache_norm']
-featNames = ['everything_mean', 'everything_center']
+# feats format: {featName: [clust/ind, [selectionModelIndices]]}
+featNames = {'sofa_norm': ['ind', [0]],
+             'apache_norm': ['ind', [0]],
+             'all_clinical': ['ind', [0, 1, 2]],
+             'all_trajectory_norm': ['ind', [0, 1, 2]],
+             'all_trajectory_ratio': ['ind', [0, 1, 2]],
+             'everything_ratio': ['ind', [0, 1, 2]],
+             'everything_mean': ['clust', [0, 1, 2]],
+             'everything_center': ['clust', [0, 1, 2]]}
 
 # ['VarianceThreshold', vThresh]
 # ['UnivariateSelection', ScoringFunction, k]
@@ -25,7 +33,8 @@ featNames = ['everything_mean', 'everything_center']
 #                                n_jobs=n_jobs,
 #                                random_state=0)]
 # ['RFECV', SVC(kernel='linear')]
-featureSelectionModels = [['RFECV', ExtraTreesClassifier(n_estimators=100,
+featureSelectionModels = [[None],
+                          ['RFECV', ExtraTreesClassifier(n_estimators=100,
                                                          n_jobs=-1,
                                                          random_state=0), 'ExtraTrees'],
                           ['RFECV', SVC(kernel='linear'), 'SVM']]
@@ -43,78 +52,82 @@ ids = ids[pt_sel]
 indFeatPath = os.path.join(resPath, 'features', 'individual')
 clustFeatPath = os.path.join(resPath, 'features', '7days', dm_tag, 'final')
 
-for featName in featNames:
-    X, hdr = load_csv(os.path.join(clustFeatPath, '%s.csv' % featName), ids, skip_header='keep')
+for featName in list(featNames):
+    feat = featNames[featName]
+    if feat[0] == 'clust':
+        X, hdr = load_csv(os.path.join(clustFeatPath, '%s.csv' % featName), ids, skip_header='keep')
+    else:
+        X, hdr = load_csv(os.path.join(indFeatPath, '%s.csv' % featName), ids, skip_header='keep')
     y = died
     if len(hdr) == X.shape[1] + 1:
         hdr = hdr[1:]
     assert len(hdr) == X.shape[1]
-    classPath = os.path.join(resPath, 'classification', '7days', 'died_inp', dm_tag)
-    if not os.path.exists(classPath):
-        os.mkdir(classPath)
-    classPath = os.path.join(classPath, featName)
-    if not os.path.exists(classPath):
-        os.mkdir(classPath)
-    for selectionModel in featureSelectionModels:
+    if feat[0] == 'clust':
+        classPath = os.path.join(resPath, 'classification', '7days', 'died_inp', dm_tag)
+        if not os.path.exists(classPath):
+            os.mkdir(classPath)
+        classPath = os.path.join(classPath, featName)
+        if not os.path.exists(classPath):
+            os.mkdir(classPath)
+    else:
+        classPath = os.path.join(resPath, 'classification', '7days', 'died_inp', featName)
+        if not os.path.exists(classPath):
+            os.mkdir(classPath)
+    for selectionModel in [featureSelectionModels[x] for x in feat[1]]:
         modelName = selectionModel[0]
         tX = X
-        if 'everything' in featName:
-            # Variance threshold
-            if modelName == 'VarianceThreshold':
-                vThresh = selectionModel[1]
-                sel = VarianceThreshold(threshold=(vThresh * (1 - vThresh)))
-                sel.fit(tX)
-                tX = sel.transform(tX)
-                selectionPath = os.path.join(classPath, 'vthresh_%d' % (100 * vThresh))
-                df = open(os.path.join(selectionPath, 'feature_scores.txt'), 'w')
-                df.write('feature_name,variance\n')
-                for i in range(len(hdr)):
-                    df.write('%s,%f\n' % (hdr[i], sel.variances_[i]))
-                df.close()
-            # Univariate Selection
-            elif modelName == 'UnivariateSelection':
-                scoringFunction = selectionModel[1]
-                k = selectionModel[2]
-                sel = SelectKBest(scoringFunction, k=k)
-                sel.fit(tX, y)
-                tX = sel.transform(tX)
-                selectionPath = os.path.join(classPath, 'uni_%s_%d' % (scoringFunction.__name__, k))
-                df = open(os.path.join(selectionPath, 'feature_scores.txt'), 'w')
-                df.write('feature_name,score\n')
-                for i in range(len(hdr)):
-                    df.write('%s,%f\n' % (hdr[i], sel.scores_[i]))
-                df.close()
-            elif modelName == 'RFECV':
-                estimator = selectionModel[1]
-                rfecv = RFECV(estimator=estimator, step=1, cv=StratifiedKFold(4),
-                              scoring='f1', verbose=1, n_jobs=-1)
-                rfecv.fit(tX, y)
-                print("Optimal number of features : %d" % rfecv.n_features_)
-                tX = tX[:, rfecv.support_]
-                selectionPath = os.path.join(classPath, 'RFECV')
-                selectedFeats = hdr[rfecv.support_]
-                if not os.path.exists(selectionPath):
-                    os.mkdir(selectionPath)
-                selectionPath = os.path.join(selectionPath, selectionModel[2])
-                if not os.path.exists(selectionPath):
-                    os.mkdir(selectionPath)
-                df = open(os.path.join(selectionPath, 'feature_ranking.txt'), 'w')
-                df.write('feature_name,rank\n')
-                for i in range(len(hdr)):
-                    df.write('%s,%d\n' % (hdr[i], rfecv.ranking_[i]))
-                df.close()
-            else:
-                selectionPath = classPath
+        # Variance threshold
+        if modelName == 'VarianceThreshold':
+            vThresh = selectionModel[1]
+            sel = VarianceThreshold(threshold=(vThresh * (1 - vThresh)))
+            sel.fit(tX)
+            tX = sel.transform(tX)
+            selectionPath = os.path.join(classPath, 'vthresh_%d' % (100 * vThresh))
+            df = open(os.path.join(selectionPath, 'feature_scores.txt'), 'w')
+            df.write('feature_name,variance\n')
+            for i in range(len(hdr)):
+                df.write('%s,%f\n' % (hdr[i], sel.variances_[i]))
+            df.close()
+        # Univariate Selection
+        elif modelName == 'UnivariateSelection':
+            scoringFunction = selectionModel[1]
+            k = selectionModel[2]
+            sel = SelectKBest(scoringFunction, k=k)
+            sel.fit(tX, y)
+            tX = sel.transform(tX)
+            selectionPath = os.path.join(classPath, 'uni_%s_%d' % (scoringFunction.__name__, k))
+            df = open(os.path.join(selectionPath, 'feature_scores.txt'), 'w')
+            df.write('feature_name,score\n')
+            for i in range(len(hdr)):
+                df.write('%s,%f\n' % (hdr[i], sel.scores_[i]))
+            df.close()
+        elif modelName == 'RFECV':
+            estimator = selectionModel[1]
+            rfecv = RFECV(estimator=estimator, step=1, cv=StratifiedKFold(4),
+                          scoring='f1', verbose=1, n_jobs=-1)
+            rfecv.fit(tX, y)
+            print("Optimal number of features : %d" % rfecv.n_features_)
+            tX = tX[:, rfecv.support_]
+            selectionPath = os.path.join(classPath, 'RFECV')
+            selectedFeats = hdr[rfecv.support_]
             if not os.path.exists(selectionPath):
                 os.mkdir(selectionPath)
-            else:
-                selectionPath = classPath
-                if not os.path.exists(selectionPath):
-                    os.mkdir(selectionPath)
+            selectionPath = os.path.join(selectionPath, selectionModel[2])
+            if not os.path.exists(selectionPath):
+                os.mkdir(selectionPath)
+            df = open(os.path.join(selectionPath, 'feature_ranking.txt'), 'w')
+            df.write('feature_name,rank\n')
+            for i in range(len(hdr)):
+                df.write('%s,%d\n' % (hdr[i], rfecv.ranking_[i]))
+            df.close()
+        else:
+            selectionPath = classPath
+        if not os.path.exists(selectionPath):
+            os.mkdir(selectionPath)
         for classificationModel in ['rf', 'svm']:
             modelPath = os.path.join(selectionPath, classificationModel)
             if not os.path.exists(modelPath):
                 os.mkdir(modelPath)
             # Feature Selection
-            classify(tX, y, classification_model='svm', out_path=modelPath, feature_name=featName,
+            classify(tX, y, classification_model=classificationModel, out_path=modelPath, feature_name=featName,
                      gridsearch=gridsearch, sample_method='rand_over')
