@@ -341,8 +341,8 @@ def get_patients(scr_all_m, scr_val_loc, scr_date_loc, d_disp_loc,
         mort_date = 'nan'
         if mort_idx.size > 0:
             for i in range(len(mort_idx)):
-                tid = mort_idx[i]
-                mdate = str(mort_m[tid, mdate_loc]).split('.')[0]
+                midx = mort_idx[i]
+                mdate = str(mort_m[midx, mdate_loc]).split('.')[0]
                 mort_date = get_date(mdate)
         if mort_date != 'nan' and icu_admit != 'nan':
             death_dur = (mort_date - icu_admit).total_seconds() / (60 * 60 * 24)
@@ -1491,7 +1491,7 @@ def get_baselines(ids, hosp_windows, scr_all_m, scr_val_loc, scr_date_loc, scr_d
     # date_m, hosp_locs, scr_all_m, scr_val_loc, scr_date_loc, scr_desc_loc,
     # dem_m, sex_loc, eth_loc, dob_m, birth_loc
     log = open(fname, 'w')
-    log.write('ID,bsln_val,bsln_type,bsln_date,admit_date,time_delta\n')
+    log.write('ID,bsln_val,bsln_type,bsln_date,admit_date,time_delta,black,male,age\n')
 
     out_lim = (datetime.timedelta(outp_rng[0]), datetime.timedelta(outp_rng[1]))
     inp_lim = (datetime.timedelta(inp_rng[0]), datetime.timedelta(inp_rng[1]))
@@ -1500,7 +1500,7 @@ def get_baselines(ids, hosp_windows, scr_all_m, scr_val_loc, scr_date_loc, scr_d
         tid = ids[i]
         log.write(str(tid) + ',')
         # determine earliest admission date
-        admit = hosp_windows[tid][0]
+        admit = get_date(hosp_windows[tid][0])
 
         # find indices of all SCr values for this patient
         all_rows = np.where(scr_all_m[:, 0] == tid)[0]
@@ -1537,9 +1537,9 @@ def get_baselines(ids, hosp_windows, scr_all_m, scr_val_loc, scr_date_loc, scr_d
 
         # find the baseline
         if len(tid_rows) == 0:  # no indexed tpts, so disregard entirely
-            bsln_type = 'No_indexed_values'
+            bsln_type = None
         elif np.all([np.isnan(scr_all_m[x, scr_val_loc]) for x in tid_rows]):
-            bsln_type = 'No_indexed_values'
+            bsln_type = None
         # BASELINE CRITERIUM A
         # first look for valid outpatient values before admission
         if len(pre_out_rows) != 0 and bsln_type is None:
@@ -1576,18 +1576,18 @@ def get_baselines(ids, hosp_windows, scr_all_m, scr_val_loc, scr_date_loc, scr_d
                 bsln_delta = delta.total_seconds() / (60 * 60 * 24)
         # BASELINE CRITERIUM C
         # no values prior to admission, calculate MDRD derived
+        sex = genders[i]
+        eth = races[i]
+        age = ages[i]
         if bsln_type is None:
-            demtid = np.where(dem_m[:, 0] == tid)[0][0]
-            sex = genders[i]
-            eth = races[i]
-            age = ages[i]
             bsln_val = baseline_est_gfr_mdrd(75, sex, eth, age)
             bsln_date = get_date(str(admit).split('.')[0])
             bsln_type = 'mdrd'
             bsln_delta = 'na'
         admit = str(admit).split('.')[0]
         log.write(str(bsln_val) + ',' + str(bsln_type) + ',' + str(bsln_date) + ',' +
-                  str(admit) + ',' + str(bsln_delta) + '\n')
+                  str(admit) + ',' + str(bsln_delta) + ',' + str(eth) + ',' +
+                  str(sex) + ',' + str(age) + '\n')
     log.close()
 
 
@@ -2349,7 +2349,10 @@ def load_csv(fname, ids=None, dt=float, skip_header=False, idxs=None, targets=No
                     res.append(d)
                 else:
                     res.append(np.array([l[idx] for idx in idxs], dtype=dt))
-            rid.append(type(ids[0])(l[0]))
+            if ids is not None:
+                rid.append(type(ids[0])(l[0]))
+            else:
+                rid.append(l[0])
     try:
         if np.all([len(res[x]) == len(res[0]) for x in range(len(res))]):
             res = np.array(res)
@@ -2366,17 +2369,11 @@ def load_csv(fname, ids=None, dt=float, skip_header=False, idxs=None, targets=No
         else:
             return res
     else:
-        rid = np.array(rid, dtype=type(ids[0]))
+        rid = np.array(rid)
         if skip_header == 'keep':
-            if ids is None:
-                return hdr, res, rid
-            else:
-                return hdr, res
+            return hdr, res, rid
         else:
-            if ids is None:
-                return res, rid
-            else:
-                return res
+            return res, rid
 
 
 def get_dmTag(use_mismatch, use_extension, use_popcoords, shift, dfuncName):
@@ -3532,20 +3529,20 @@ def load_all_csv(datapath, sort_id='STUDY_PATIENT_ID'):
     blood_m = pd.read_csv(datapath + 'all_sheets/BLOOD_GAS.csv')
     blood_m.sort_values(by=sort_id, inplace=True)
     pao2_locs = [blood_m.columns.get_loc('PO2_D1_LOW_VALUE'),
-             blood_m.columns.get_loc('PO2_D1_HIGH_VALUE')]
+                 blood_m.columns.get_loc('PO2_D1_HIGH_VALUE')]
     paco2_locs = [blood_m.columns.get_loc('PCO2_D1_LOW_VALUE'),
-              blood_m.columns.get_loc('PCO2_D1_HIGH_VALUE')]
+                  blood_m.columns.get_loc('PCO2_D1_HIGH_VALUE')]
     ph_locs = [blood_m.columns.get_loc('PH_D1_LOW_VALUE'),
-              blood_m.columns.get_loc('PH_D1_HIGH_VALUE')]
+               blood_m.columns.get_loc('PH_D1_HIGH_VALUE')]
     blood_m = blood_m.values
 
     print('Loading clinical others...')
     clinical_oth = pd.read_csv(datapath + 'all_sheets/CLINICAL_OTHERS.csv')
     clinical_oth.sort_values(by=sort_id, inplace=True)
     resp_locs = [clinical_oth.columns.get_loc('RESP_RATE_D1_LOW_VALUE'),
-            clinical_oth.columns.get_loc('RESP_RATE_D1_HIGH_VALUE')]
+                 clinical_oth.columns.get_loc('RESP_RATE_D1_HIGH_VALUE')]
     fio2_locs = [clinical_oth.columns.get_loc('FI02_D1_LOW_VALUE'),
-             clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')]
+                 clinical_oth.columns.get_loc('FI02_D1_HIGH_VALUE')]
     gcs_loc = clinical_oth.columns.get_loc('GLASGOW_SCORE_D1_LOW_VALUE')
     weight_loc = clinical_oth.columns.get_loc('INITIAL_WEIGHT_KG')
     height_loc = clinical_oth.columns.get_loc('HEIGHT_CM_VALUE')
@@ -3555,13 +3552,13 @@ def load_all_csv(datapath, sort_id='STUDY_PATIENT_ID'):
     clinical_vit = pd.read_csv(datapath + 'all_sheets/CLINICAL_VITALS.csv')
     clinical_vit.sort_values(by=sort_id, inplace=True)
     temp_locs = [clinical_vit.columns.get_loc('TEMPERATURE_D1_LOW_VALUE'),
-            clinical_vit.columns.get_loc('TEMPERATURE_D1_HIGH_VALUE')]
+                 clinical_vit.columns.get_loc('TEMPERATURE_D1_HIGH_VALUE')]
     map_locs = [clinical_vit.columns.get_loc('ART_MEAN_D1_LOW_VALUE'),
-               clinical_vit.columns.get_loc('ART_MEAN_D1_HIGH_VALUE')]
+                clinical_vit.columns.get_loc('ART_MEAN_D1_HIGH_VALUE')]
     cuff_locs = [clinical_vit.columns.get_loc('CUFF_MEAN_D1_LOW_VALUE'),
-            clinical_vit.columns.get_loc('CUFF_MEAN_D1_HIGH_VALUE')]
+                 clinical_vit.columns.get_loc('CUFF_MEAN_D1_HIGH_VALUE')]
     hr_locs = [clinical_vit.columns.get_loc('HEART_RATE_D1_LOW_VALUE'),
-           clinical_vit.columns.get_loc('HEART_RATE_D1_HIGH_VALUE')]
+               clinical_vit.columns.get_loc('HEART_RATE_D1_HIGH_VALUE')]
     clinical_vit = clinical_vit.values
 
     print('Loading standard labs...')
@@ -3570,16 +3567,19 @@ def load_all_csv(datapath, sort_id='STUDY_PATIENT_ID'):
     bili_loc = labs1_m.columns.get_loc('BILIRUBIN_D1_HIGH_VALUE')
     pltlt_loc = labs1_m.columns.get_loc('PLATELETS_D1_LOW_VALUE')
     na_locs = [labs1_m.columns.get_loc('SODIUM_D1_LOW_VALUE'),
-          labs1_m.columns.get_loc('SODIUM_D1_HIGH_VALUE')]
+               labs1_m.columns.get_loc('SODIUM_D1_HIGH_VALUE')]
     pk_locs = [labs1_m.columns.get_loc('POTASSIUM_D1_LOW_VALUE'),
-           labs1_m.columns.get_loc('POTASSIUM_D1_HIGH_VALUE')]
+               labs1_m.columns.get_loc('POTASSIUM_D1_HIGH_VALUE')]
     hemat_locs = [labs1_m.columns.get_loc('HEMATOCRIT_D1_LOW_VALUE'),
-             labs1_m.columns.get_loc('HEMATOCRIT_D1_HIGH_VALUE')]
+                  labs1_m.columns.get_loc('HEMATOCRIT_D1_HIGH_VALUE')]
     hemo_locs = [labs1_m.columns.get_loc('HEMOGLOBIN_D1_LOW_VALUE'),
-             labs1_m.columns.get_loc('HEMOGLOBIN_D1_HIGH_VALUE')]
+                 labs1_m.columns.get_loc('HEMOGLOBIN_D1_HIGH_VALUE')]
     wbc_locs = [labs1_m.columns.get_loc('WBC_D1_LOW_VALUE'),
-             labs1_m.columns.get_loc('WBC_D1_HIGH_VALUE')]
-    bun_loc = labs1_m.columns.get_loc('BUN_D0_HIGH_VALUE')
+                labs1_m.columns.get_loc('WBC_D1_HIGH_VALUE')]
+    bun_locs = [labs1_m.columns.get_loc('BUN_D0_HIGH_VALUE'),
+                labs1_m.columns.get_loc('BUN_D1_HIGH_VALUE'),
+                labs1_m.columns.get_loc('BUN_D2_HIGH_VALUE'),
+                labs1_m.columns.get_loc('BUN_D3_HIGH_VALUE')]
     labs1_m = labs1_m.values
 
     labs2_m = pd.read_csv(datapath + 'all_sheets/LABS_SET2.csv')
@@ -3670,7 +3670,7 @@ def load_all_csv(datapath, sort_id='STUDY_PATIENT_ID'):
              blood_m, pao2_locs, paco2_locs, ph_locs,
              clinical_oth, resp_locs, fio2_locs, gcs_loc, weight_loc, height_loc,
              clinical_vit, temp_locs, map_locs, cuff_locs, hr_locs,
-             labs1_m, bili_loc, pltlt_loc, na_locs, pk_locs, hemat_locs, wbc_locs, hemo_locs, bun_loc,
+             labs1_m, bili_loc, pltlt_loc, na_locs, pk_locs, hemat_locs, wbc_locs, hemo_locs, bun_locs,
              labs2_m, alb_loc, lac_loc,
              med_m, med_type, med_name, med_date, med_dur,
              organ_sup_mv, mech_vent_dates, mech_vent_days,

@@ -2,8 +2,9 @@ import numpy as np
 from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.utils import resample
+from sklearn.tree import export_graphviz
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, precision_recall_curve, \
     average_precision_score, roc_curve, auc
@@ -11,6 +12,7 @@ from sklearn.metrics.classification import classification_report
 from stat_funcs import perf_measure, get_even_pos_neg
 import os
 from scipy import interp
+from subprocess import call
 
 svm_tuned_parameters = [{'kernel': ['rbf', 'linear'],
                          'C': [0.05, 0.1, 0.25, 0.5, 0.75],
@@ -27,7 +29,7 @@ rf_params = {'n_estimators': 250,
              'max_features': 'sqrt'}
 
 
-def classify(X, y, classification_model, out_path, feature_name, gridsearch=False, sample_method='under', cv_num=8):
+def classify(X, y, classification_model, out_path, feature_name, gridsearch=False, sample_method='under', cv_num=8, vis=False, featNames=None):
 
     # 'criterion': ['gini', ],
     # 'max_features': ['sqrt', ]}]
@@ -46,6 +48,9 @@ def classify(X, y, classification_model, out_path, feature_name, gridsearch=Fals
     elif classification_model == 'mvr':
         clf = LinearRegression()
         coef = []
+    elif classification_model == 'log':
+        clf = LogisticRegression()
+        params = {}
 
     sel = get_even_pos_neg(y, sample_method)
     vX = X[sel]
@@ -82,6 +87,8 @@ def classify(X, y, classification_model, out_path, feature_name, gridsearch=Fals
             elif classification_model == 'mvr':
                 clf = LinearRegression()
                 # clf.set_params(**params)
+            elif classification_model == 'log':
+                clf = LogisticRegression()
             clf.fit(X_train, y_train)
 
             if classification_model == 'mvr':
@@ -164,6 +171,7 @@ def classify(X, y, classification_model, out_path, feature_name, gridsearch=Fals
         return mean_auc
     else:
         np.savetxt(os.path.join(out_path, 'mvr_coefficients.csv'), coef, delimiter=',')
+    return clf
 
 
 
