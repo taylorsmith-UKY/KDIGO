@@ -7,24 +7,25 @@ import numpy as np
 from scipy.spatial.distance import squareform, pdist, braycurtis
 from scipy.cluster.hierarchy import dendrogram, fcluster, to_tree
 from scipy.stats.mstats import normaltest
-from scipy.stats import mode, sem, t, ttest_ind
+from scipy.stats import mode, sem, t
 from sklearn.cluster import DBSCAN
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, homogeneity_score, completeness_score,\
     v_measure_score, fowlkes_mallows_score, silhouette_score, calinski_harabaz_score
-from sklearn.preprocessing import MinMaxScaler
 import fastcluster as fc
-from kdigo_funcs import arr2csv, load_csv, daily_max_kdigo, daily_max_kdigo_interp, get_date, dtw_p
-import datetime
-from stat_funcs import get_cstats, formatted_stats
+from kdigo_funcs import arr2csv, load_csv, daily_max_kdigo_interp, get_date, dtw_p
+from stat_funcs import formatted_stats
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-import pandas as pd
+from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+from matplotlib.backends.backend_pdf import PdfPages
+from myDBA import performDBA
 import os
 
 # %%
 def cluster_trajectories(f, ids, mk, dm, meta_grp='meta', eps=0.015, p_thresh_l=[], min_size_l=[], hom_thresh_l=[],
                          max_size_pct=0.2, n_clusters_l=[2, ], height_lim_l=[], data_path=None,
-                         interactive=True, save=False, v=False, plot_daily=False, only_flat=False, skip_db=False):
+                         interactive=True, save=False, v=False, plot_daily=False, only_flat=False, skip_db=False,
+                         kdigos=None, days=None):
     '''
     Provided a pre-computed distance matrix, cluster the corresponding trajectories using the specified methods.
     First applies DBSCAN to identify and remove any patients designated as noise. Next applies a dynamic hierarchical
@@ -318,6 +319,12 @@ def cluster_trajectories(f, ids, mk, dm, meta_grp='meta', eps=0.015, p_thresh_l=
                 else:
                     arr2csv(os.path.join(save_path, 'clusters.csv'), lbls_sel, ids, fmt='%d')
                 formatted_stats(f['meta'], save_path)
+                if not os.path.exists(os.path.join(save_path, 'rename')) and kdigos is not None:
+                    os.mkdir(os.path.join(save_path, 'rename'))
+                if kdigos is not None:
+                    nlbls, clustCats = clusterCategorizer(mk, kdigos, days, lbls_sel)
+                    arr2csv(os.path.join(save_path, 'rename', 'clusters.csv'), nlbls, ids, fmt='%s')
+                    formatted_stats(f['meta'], os.path.join(save_path, 'rename'))
                 if data_path is not None and plot_daily:
                     dkpath = os.path.join(save_path, 'daily_kdigo')
                     os.mkdir(dkpath)
@@ -480,7 +487,7 @@ def dynamic_tree_cut(node, sqdm, ids, mk, p_thresh=0.05, min_size=20, hom_thresh
 # %%
 def clusterCategorizer(max_kdigos, kdigos, days, lbls):
     lblIds = np.unique(lbls)
-    lblNames = []
+    lblNames = {}
     for lbl in lblIds:
         idx = np.where(lbls == lbl)[0]
         tmk = mode(max_kdigos[idx]).mode[0]
@@ -509,8 +516,17 @@ def clusterCategorizer(max_kdigos, kdigos, days, lbls):
             thisName = '%s-Im' % mkstr
         else:
             thisName = '%s-St' % mkstr
-        lblNames.append(thisName)
-    return lblNames
+        if thisName in lblNames.values():
+            thisName += '-1'
+        while thisName in lblNames.values():
+            tag = int(thisName.split('-')[-1])
+            thisName = '-'.join(thisName.split('-')[:-1] + [str(tag + 1)])
+        lblNames[lbl] = thisName
+    maxNameLen = max([len(lblNames[x]) for x in list(lblNames)])
+    out = np.zeros(len(lbls), dtype='|S%d' % maxNameLen).astype(str)
+    for lbl in lblIds:
+        out[np.where(lbls == lbl)] = lblNames[lbl]
+    return out, lblNames
 
 
 # %%
@@ -545,19 +561,27 @@ def getTreeLocs(lbls, tree):
 def evaluateDmClusters(lbls, mk_7d, mk_w, died_inp, days, sqdm):
     lblNames = np.unique(lbls)
     lblIdxs = {}
-    lblGrps = [[], [], []]
+    # lblGrps = [[], [], []]
+    lblGrps = {'1': {'Im': [], 'St': [], 'Ws':[]},
+               '2': {'Im': [], 'St': [], 'Ws':[]},
+               '3': {'Im': [], 'St': [], 'Ws':[]},
+               '3D': {'Im': [], 'St': [], 'Ws':[]}}
     for lbl in lblNames:
         idx = np.where(lbls == lbl)[0]
         lblIdxs[lbl] = idx
-        tmk = mk_7d[idx]
-        mkv = mode(tmk).mode[0]
-        if mkv == 4:
-            mkv = 3
-        lblGrps[mkv - 1].append(lbl)
+        # tmk = mk_7d[idx]
+        # mkv = mode(tmk).mode[0]
+        # if mkv == 4:
+        #     mkv = 3
+        # lblGrps[mkv - 1].append(lbl)
+        mk = lbl.split('-')[0]
+        trend = lbl.split('-')[1]
+        lblGrps[mk][trend].append(lbl)
     # lblGrps[2] = lbl
 
-    for i in range(len(lblGrps)):
-        lblGrps[i] = np.array(lblGrps[i])
+    for mk in ['1', '2', '3', '3D']:
+        for trend in ['Im', 'St', 'Ws']:
+            lblGrps[mk][trend] = np.array(lblGrps[mk][trend])
 
     intra_clust_dists = np.zeros(sqdm.shape[0])
 
@@ -570,114 +594,195 @@ def evaluateDmClusters(lbls, mk_7d, mk_w, died_inp, days, sqdm):
     morts[:, 0] = 100
     # progs = np.vstack([np.repeat(np.nan, 2) for x in range(3)])
     # progs[:, 0] = 100
-    pct_progs = [[], [], []]
-    sils = [[], [], []]
-    ind_morts = [[], [], []]
-    n_gt7d = {}
-    all_progs = {}
-    all_morts = {}
-    all_sils = {}
-    all_mk = {}
-    for i in range(len(lblGrps)):
-        lblGrp = lblGrps[i]
-        for lbl in lblGrp:
-            mask = lbls == lbl
-            current_distances = sqdm[mask]
+    pct_progs = {'1': {'Im': [], 'St': [], 'Ws':[]},
+               '2': {'Im': [], 'St': [], 'Ws':[]},
+               '3': {'Im': [], 'St': [], 'Ws':[]},
+               '3D': {'Im': [], 'St': [], 'Ws':[]}}
+    sils = {'1': {'Im': [], 'St': [], 'Ws':[]},
+               '2': {'Im': [], 'St': [], 'Ws':[]},
+               '3': {'Im': [], 'St': [], 'Ws':[]},
+               '3D': {'Im': [], 'St': [], 'Ws':[]}}
+    ind_morts = {'1': {'Im': [], 'St': [], 'Ws':[]},
+               '2': {'Im': [], 'St': [], 'Ws':[]},
+               '3': {'Im': [], 'St': [], 'Ws':[]},
+               '3D': {'Im': [], 'St': [], 'Ws':[]}}
+    n_gt7d = {'1': {'Im': [], 'St': [], 'Ws':[]},
+               '2': {'Im': [], 'St': [], 'Ws':[]},
+               '3': {'Im': [], 'St': [], 'Ws':[]},
+               '3D': {'Im': [], 'St': [], 'Ws':[]}}
+    all_progs = {'1': {'Im': [], 'St': [], 'Ws':[]},
+               '2': {'Im': [], 'St': [], 'Ws':[]},
+               '3': {'Im': [], 'St': [], 'Ws':[]},
+               '3D': {'Im': [], 'St': [], 'Ws':[]}}
+    all_morts = {'1': {'Im': [], 'St': [], 'Ws':[]},
+               '2': {'Im': [], 'St': [], 'Ws':[]},
+               '3': {'Im': [], 'St': [], 'Ws':[]},
+               '3D': {'Im': [], 'St': [], 'Ws':[]}}
+    all_sils = {'1': {'Im': [], 'St': [], 'Ws':[]},
+               '2': {'Im': [], 'St': [], 'Ws':[]},
+               '3': {'Im': [], 'St': [], 'Ws':[]},
+               '3D': {'Im': [], 'St': [], 'Ws':[]}}
+    all_mk = {'1': {'Im': [], 'St': [], 'Ws':[]},
+               '2': {'Im': [], 'St': [], 'Ws':[]},
+               '3': {'Im': [], 'St': [], 'Ws':[]},
+               '3D': {'Im': [], 'St': [], 'Ws':[]}}
+    for mk in ['1', '2', '3', '3D']:
+        for trend in ['Im', 'St', 'Ws']:
+            lblGrp = lblGrps[mk][trend]
+            for lbl in lblGrp:
+                mask = lbls == lbl
+                current_distances = sqdm[mask]
+    
+                n_samples_curr_lab = len(np.where(mask)[0])
+                if n_samples_curr_lab != 0:
+                    intra_clust_dists[mask] = np.sum(
+                        current_distances[:, mask], axis=1) / n_samples_curr_lab
+    
+                for other_lbl in lblNames:
+                    if other_lbl != lbl:
+                        other_mask = lbls == other_lbl
+                        other_distances = np.nanmean(
+                            current_distances[:, other_mask], axis=1)
+                        inter_clust_dists_all[mask] = np.nanmin((inter_clust_dists_all[mask], other_distances), axis=0)
+                        if other_lbl in lblGrp:
+                            inter_clust_dists_grp[mask] = np.nanmin((inter_clust_dists_grp[mask], other_distances),
+                                                                    axis=0)
+    
+                inter_clust_dists_grp[np.where(inter_clust_dists_grp == np.inf)] = np.nan
+    
+                pct_died = float(len(np.where(died_inp[lblIdxs[lbl]])[0])) / len(lblIdxs[lbl]) * 100
+    
+                gt7d = np.where([max(days[x]) > 7 for x in lblIdxs[lbl]])[0]
+                no_mk3d = np.where(mk_7d < 4)[0]
+                prog_idxs = np.intersect1d(gt7d, no_mk3d)
+                n_gt7d[lbl] = (len(gt7d), float(len(gt7d))/len(lblIdxs[lbl]) * 100)
+                prog_sel = np.where(mk_7d[lblIdxs[lbl]][prog_idxs] != mk_w[lblIdxs[lbl]][prog_idxs])[0]
+                if len(prog_idxs) > 10:
+                    pct_prog = float(len(prog_sel)) / len(prog_idxs) * 100
+                    pct_progs[mk][trend].append(pct_prog)
+                else:
+                    pct_progs[mk][trend].append(np.nan)
+                    pct_prog = np.nan
+            #
+            #     sil_samples_grp = inter_clust_dists_grp - intra_clust_dists
+            #     sil_samples_grp /= np.maximum(intra_clust_dists, inter_clust_dists_grp)
+            #
+            #     # morts[i, 0] = np.nanmin((morts[i, 0], pct_died))
+            #     # morts[i, 1] = np.nanmax((morts[i, 1], pct_died))
+            #     # progs[i, 0] = np.nanmin((progs[i, 0], pct_prog))
+            #     # progs[i, 1] = np.nanmax((progs[i, 1], pct_prog))
+            #     sils[mk][trend].append(sil_samples_grp[mask])
+                ind_morts[mk][trend].append(pct_died)
+            #     all_morts[lbl] = pct_died
+            #     all_progs[lbl] = pct_prog
+            #     all_sils[lbl] = np.mean(sil_samples_grp[mask])
+            #     tmk = mk_7d[lblIdxs[lbl]]
+            #     mkv = mode(tmk).mode[0]
+            #     all_mk[lbl] = mkv
+            # if len(sils[mk][trend]) > 1:
+            #     sils[mk][trend] = float(np.nanmean(np.hstack(sils[mk][trend])))
+            # elif len(sils[mk][trend]) == 1:
+            #     sils[mk][trend] = float(np.nanmean(sils[mk][trend]))
+            # else:
+            #     sils[mk][trend] = np.nan
+    # mort_l = [np.max(morts) - np.min(morts), ]
+    # # prog_l = [np.max(progs) - np.min(progs), ]
+    # all_prog = np.concatenate([[pct_progs[x][y] for y in ['Im', 'St', 'Ws']] for x in ['1', '2', '3', '3D']]).reshape(-1, 1)
+    # all_prog = np.array(pct_progs[0] + pct_progs[1] + pct_progs[2]).reshape(-1, 1)
+    # all_mort = np.array(ind_morts[0] + ind_morts[1] + ind_morts[2]).reshape(-1, 1)
+    min_prod_diff_l = {'1': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '2': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3D': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan}}
+    max_prod_diff_l = {'1': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '2': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3D': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan}}
+    rel_prod_diff_l = {'1': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '2': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3D': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan}}
+    min_mort_diff_l = {'1': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '2': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3D': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan}}
+    max_mort_diff_l = {'1': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '2': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3D': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan}}
+    rel_mort_diff_l = {'1': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '2': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3D': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan}}
+    sil_l = {'1': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '2': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan},
+             '3D': {'Im': np.nan, 'St': np.nan, 'Ws': np.nan}}
+    for mk in ['1', '2', '3', '3D']:
+        for trend in ['Im', 'St', 'Ws']:
+            if len(lblGrps[mk][trend]) > 1:
+                min_prod_diff_l[mk][trend] = np.nanmin(pdist(np.array(pct_progs[mk][trend]).reshape(-1, 1)))
+                max_prod_diff_l[mk][trend] = np.nanmax(pdist(np.array(pct_progs[mk][trend]).reshape(-1, 1)))
+                rel_prod_diff_l[mk][trend] = max_prod_diff_l[mk][trend] / (100 - min_prod_diff_l[mk][trend])
+                min_mort_diff_l[mk][trend] = np.nanmin(pdist(np.array(ind_morts[mk][trend]).reshape(-1, 1)))
+                max_mort_diff_l[mk][trend] = np.nanmax(pdist(np.array(ind_morts[mk][trend]).reshape(-1, 1)))
+                rel_mort_diff_l[mk][trend] = max_mort_diff_l[mk][trend] / (100 - min_mort_diff_l[mk][trend])
+    # 
+    # for i in range(3):
+    #     if len(lblGrps[i]) > 1:
+    #         mort_l.append(morts[i, 1] - morts[i, 0])
+    #         min_prod_diff_l.append(np.nanmin(pdist(np.array(pct_progs[i]).reshape(-1, 1))))
+    #         max_prod_diff_l.append(np.nanmax(pdist(np.array(pct_progs[i]).reshape(-1, 1))))
+    #         rel_prod_diff_l.append(max_prod_diff_l[i + 1] / (100 - min_prod_diff_l[i + 1]))
+    #         min_mort_diff_l.append(np.nanmin(pdist(np.array(ind_morts[i]).reshape(-1, 1))))
+    #         max_mort_diff_l.append(np.nanmax(pdist(np.array(ind_morts[i]).reshape(-1, 1))))
+    #         rel_mort_diff_l.append(max_mort_diff_l[i + 1] / (100 - min_mort_diff_l[i + 1]))
+    #     else:
+    #         mort_l.append(np.nan)
+    #         min_prod_diff_l.append(np.nan)
+    #         max_prod_diff_l.append(np.nan)
+    #         rel_prod_diff_l.append(np.nan)
+    #         min_mort_diff_l.append(np.nan)
+    #         max_mort_diff_l.append(np.nan)
+    #         rel_mort_diff_l.append(np.nan)
+    #     sil_l.append(sils[i])
 
-            n_samples_curr_lab = len(np.where(mask)[0])
-            if n_samples_curr_lab != 0:
-                intra_clust_dists[mask] = np.sum(
-                    current_distances[:, mask], axis=1) / n_samples_curr_lab
-
-            for other_lbl in lblNames:
-                if other_lbl != lbl:
-                    other_mask = lbls == other_lbl
-                    other_distances = np.nanmean(
-                        current_distances[:, other_mask], axis=1)
-                    inter_clust_dists_all[mask] = np.nanmin((inter_clust_dists_all[mask], other_distances), axis=0)
-                    if other_lbl in lblGrp:
-                        inter_clust_dists_grp[mask] = np.nanmin((inter_clust_dists_grp[mask], other_distances),
-                                                                axis=0)
-
-            inter_clust_dists_grp[np.where(inter_clust_dists_grp == np.inf)] = np.nan
-
-            pct_died = float(len(np.where(died_inp[lblIdxs[lbl]])[0])) / len(lblIdxs[lbl]) * 100
-
-            gt7d = np.where([max(days[x]) > 7 for x in lblIdxs[lbl]])[0]
-            no_mk3d = np.where(mk_7d < 4)[0]
-            prog_idxs = np.intersect1d(gt7d, no_mk3d)
-            n_gt7d[lbl] = (len(gt7d), float(len(gt7d))/len(lblIdxs[lbl]) * 100)
-            prog_sel = np.where(mk_7d[lblIdxs[lbl]][prog_idxs] != mk_w[lblIdxs[lbl]][prog_idxs])[0]
-            if len(prog_idxs) > 10:
-                pct_prog = float(len(prog_sel)) / len(prog_idxs) * 100
-                pct_progs[i].append(pct_prog)
+    l1 = ''
+    for mk in ['1', '2', '3', '3D']:
+        for trend in ['Im', 'St', 'Ws']:
+            if l1 == '':
+                l1 = '%.2f' % min_mort_diff_l[mk][trend]
             else:
-                pct_progs[i].append(np.nan)
-                pct_prog = np.nan
+                l1 += ',%.2f' % min_mort_diff_l[mk][trend]
+    for mk in ['1', '2', '3', '3D']:
+        for trend in ['Im', 'St', 'Ws']:
+            l1 += ',%.2f' % max_mort_diff_l[mk][trend]
+    for mk in ['1', '2', '3', '3D']:
+        for trend in ['Im', 'St', 'Ws']:
+            l1 += ',%.2f' % rel_mort_diff_l[mk][trend]
+    for mk in ['1', '2', '3', '3D']:
+        for trend in ['Im', 'St', 'Ws']:
+            l1 += ',%.2f' % min_prod_diff_l[mk][trend]
+    for mk in ['1', '2', '3', '3D']:
+        for trend in ['Im', 'St', 'Ws']:
+            l1 += ',%.2f' % max_prod_diff_l[mk][trend]
+    for mk in ['1', '2', '3', '3D']:
+        for trend in ['Im', 'St', 'Ws']:
+            l1 += ',%.2f' % rel_prod_diff_l[mk][trend]
 
-            sil_samples_grp = inter_clust_dists_grp - intra_clust_dists
-            sil_samples_grp /= np.maximum(intra_clust_dists, inter_clust_dists_grp)
-
-            morts[i, 0] = np.nanmin((morts[i, 0], pct_died))
-            morts[i, 1] = np.nanmax((morts[i, 1], pct_died))
-            # progs[i, 0] = np.nanmin((progs[i, 0], pct_prog))
-            # progs[i, 1] = np.nanmax((progs[i, 1], pct_prog))
-            sils[i].append(sil_samples_grp[mask])
-            ind_morts[i].append(pct_died)
-            all_morts[lbl] = pct_died
-            all_progs[lbl] = pct_prog
-            all_sils[lbl] = np.mean(sil_samples_grp[mask])
-            tmk = mk_7d[lblIdxs[lbl]]
-            mkv = mode(tmk).mode[0]
-            all_mk[lbl] = mkv
-        if len(sils[i]) > 1:
-            sils[i] = float(np.nanmean(np.hstack(sils[i])))
-        elif len(sils[i]) == 1:
-            sils[i] = float(np.nanmean(sils[i]))
-        else:
-            sils[i] = np.nan
-    mort_l = [np.max(morts) - np.min(morts), ]
-    # prog_l = [np.max(progs) - np.min(progs), ]
-    all_prog = np.array(pct_progs[0] + pct_progs[1] + pct_progs[2]).reshape(-1, 1)
-    all_mort = np.array(ind_morts[0] + ind_morts[1] + ind_morts[2]).reshape(-1, 1)
-    min_prod_diff_l = [np.nanmin(pdist(all_prog)), ]
-    max_prod_diff_l = [np.nanmax(pdist(all_prog)), ]
-    rel_prod_diff_l = [max_prod_diff_l[0] / (100 - min_prod_diff_l[0]), ]
-    min_mort_diff_l = [np.nanmin(pdist(all_mort)), ]
-    max_mort_diff_l = [np.nanmax(pdist(all_mort)), ]
-    rel_mort_diff_l = [max_mort_diff_l[0] / (100 - min_mort_diff_l[0]), ]
-    sil_l = [np.nanmean(sil_samples_grp), ]
-    for i in range(3):
-        if len(lblGrps[i]) > 1:
-            mort_l.append(morts[i, 1] - morts[i, 0])
-            min_prod_diff_l.append(np.nanmin(pdist(np.array(pct_progs[i]).reshape(-1, 1))))
-            max_prod_diff_l.append(np.nanmax(pdist(np.array(pct_progs[i]).reshape(-1, 1))))
-            rel_prod_diff_l.append(max_prod_diff_l[i + 1] / (100 - min_prod_diff_l[i + 1]))
-            min_mort_diff_l.append(np.nanmin(pdist(np.array(ind_morts[i]).reshape(-1, 1))))
-            max_mort_diff_l.append(np.nanmax(pdist(np.array(ind_morts[i]).reshape(-1, 1))))
-            rel_mort_diff_l.append(max_mort_diff_l[i + 1] / (100 - min_mort_diff_l[i + 1]))
-        else:
-            mort_l.append(np.nan)
-            min_prod_diff_l.append(np.nan)
-            max_prod_diff_l.append(np.nan)
-            rel_prod_diff_l.append(np.nan)
-            min_mort_diff_l.append(np.nan)
-            max_mort_diff_l.append(np.nan)
-            rel_mort_diff_l.append(np.nan)
-        sil_l.append(sils[i])
-
-    l1 = '%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,' \
-        '%.2f,%.2f,%.2f,%.2f,%.2f,%.2f' % (# min_mort_diff_l[0], max_mort_diff_l[0], min_prod_diff_l[0],
-                                                 # max_prod_diff_l[0], sil_l[0],
-                                                 min_mort_diff_l[1], min_mort_diff_l[2], min_mort_diff_l[3],
-                                                 max_mort_diff_l[1], max_mort_diff_l[2], max_mort_diff_l[3],
-                                                 rel_mort_diff_l[1], rel_mort_diff_l[2], rel_mort_diff_l[3],
-                                                 min_prod_diff_l[1], min_prod_diff_l[2], min_prod_diff_l[3],
-                                                 max_prod_diff_l[1], max_prod_diff_l[2], max_prod_diff_l[3],
-                                                 rel_prod_diff_l[1], rel_prod_diff_l[2], rel_prod_diff_l[3],
-                                                 sil_l[1], sil_l[2], sil_l[3])
-    l2 = '%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f' % (min_mort_diff_l[0], max_mort_diff_l[0], rel_mort_diff_l[0], min_prod_diff_l[0],
-                                                 max_prod_diff_l[0], rel_prod_diff_l[0], sil_l[0])
+    # l1 = '%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,' \
+    #     '%.2f,%.2f,%.2f,%.2f,%.2f,%.2f' % (# min_mort_diff_l[0], max_mort_diff_l[0], min_prod_diff_l[0],
+    #                                              # max_prod_diff_l[0], sil_l[0],
+    #                                              min_mort_diff_l[1], min_mort_diff_l[2], min_mort_diff_l[3],
+    #                                              max_mort_diff_l[1], max_mort_diff_l[2], max_mort_diff_l[3],
+    #                                              rel_mort_diff_l[1], rel_mort_diff_l[2], rel_mort_diff_l[3],
+    #                                              min_prod_diff_l[1], min_prod_diff_l[2], min_prod_diff_l[3],
+    #                                              max_prod_diff_l[1], max_prod_diff_l[2], max_prod_diff_l[3],
+    #                                              rel_prod_diff_l[1], rel_prod_diff_l[2], rel_prod_diff_l[3],
+    #                                              sil_l[1], sil_l[2], sil_l[3])
+    # l2 = '%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f' % (min_mort_diff_l[0], max_mort_diff_l[0], rel_mort_diff_l[0], min_prod_diff_l[0],
+    #                                              max_prod_diff_l[0], rel_prod_diff_l[0], sil_l[0])
+    l2 = ''
     return l1, l2, n_gt7d, all_morts, all_progs, all_sils, all_mk
 
 
@@ -1517,8 +1622,6 @@ def inter_intra_dist(sqdm, lbls, lbl_grps):
     return intras, inters_all, inters_grp
 
 
-
-
 def return_centers(ids, dm_f, lbl_f):
     '''
     Returns indices of of the patient closest to the cluster center, as defined by the minimum intra-cluster distance
@@ -1541,3 +1644,183 @@ def return_centers(ids, dm_f, lbl_f):
         cid = np.argsort(all_intra)[0]
         centers[i] = ids[idx[cid]]
     return centers, lbl_names
+
+
+def countCategories(lbls):
+    lblNames = np.unique(lbls)
+    counts = np.zeros(12)
+    counts[0] = np.sum(np.array(['1-Im' in x for x in lblNames]))
+    counts[1] = np.sum(np.array(['1-St' in x for x in lblNames]))
+    counts[2] = np.sum(np.array(['1-Ws' in x for x in lblNames]))
+    counts[3] = np.sum(np.array(['2-Im' in x for x in lblNames]))
+    counts[4] = np.sum(np.array(['2-St' in x for x in lblNames]))
+    counts[5] = np.sum(np.array(['2-Ws' in x for x in lblNames]))
+    counts[6] = np.sum(np.array(['3-Im' in x for x in lblNames]))
+    counts[7] = np.sum(np.array(['3-St' in x for x in lblNames]))
+    counts[8] = np.sum(np.array(['3-Ws' in x for x in lblNames]))
+    counts[9] = np.sum(np.array(['3D-Im' in x for x in lblNames]))
+    counts[10] = np.sum(np.array(['3D-St' in x for x in lblNames]))
+    counts[11] = np.sum(np.array(['3D-Ws' in x for x in lblNames]))
+    return counts
+
+
+def visualize_merges(ids, basePath, sqdm, kdigos, features, outcome, featNames=None, outcomeName='Death', mismatch=lambda x,y: abs(x-y), extension=lambda x:0, stopClust=0):
+    olbls = load_csv(os.path.join(basePath, 'clusters.csv'), ids, str)
+    oCatLbls = load_csv(os.path.join(basePath, 'rename', 'clusters.csv'), ids, str)
+    lblNames = np.unique(olbls)
+    mergePath = os.path.join(basePath, 'merged')
+    nClust = len(lblNames) - 1
+    link = fc.ward(squareform(sqdm))
+    tree = to_tree(link)
+    tree_order = np.array(tree.pre_order(), dtype=int)
+    with PdfPages(os.path.join(basePath, 'merge_visualization.pdf')) as pdf:
+        mergeNum = 1
+        while os.path.exists(os.path.join(mergePath, '%d_clusters' % nClust) and nClust >= stopClust):
+            nlbls = load_csv(os.path.join(mergePath, '%d_clusters' % nClust, 'clusters.csv'), ids, str)
+            nCatLbls = load_csv(os.path.join(mergePath, '%d_clusters' % nClust, 'rename', 'clusters.csv'), ids, str)
+            nlblNames = np.unique(nlbls)
+            newLbl = [lbl for lbl in nlblNames if lbl not in lblNames][0]
+            n_members = len(newLbl.split('-'))
+            if n_members == 2:
+                olbl1, olbl2 = newLbl.split('-')
+            else:
+                olbl1 = newLbl.split('-')[0]
+                for i in range(1, n_members):
+                    if olbl1 in lblNames:
+                        break
+                    olbl1 += '-' + newLbl.split('-')[i]
+                assert olbl1 in lblNames
+                olbl2 = newLbl[len(olbl1) + 1:]
+                # for i in range(n_members - 1):
+                #     temp1 = '-'.join(newLbl.split('-')[:i+1])
+                #     temp2 = '-'.join(newLbl.split('-')[i:])
+                #     if temp1 in lblNames and temp2 in lblNames:
+                #         olbl1 = temp2
+                #         olbl2 = temp1
+            nidx = np.where(nlbls == newLbl)[0]
+            oidx1 = np.where(olbls == olbl1)[0]
+            oidx2 = np.where(olbls == olbl2)[0]
+
+            n_pct_out = float(len(np.where(outcome[nidx] == 1)[0])) / len(nidx) * 100
+            o1_pct_out = float(len(np.where(outcome[oidx1] == 1)[0])) / len(oidx1) * 100
+            o2_pct_out = float(len(np.where(outcome[oidx2] == 1)[0])) / len(oidx2) * 100
+
+            cat = '-'.join(oCatLbls[oidx1[0]].split('-')[:2])
+
+            nsq = np.ix_(nidx, nidx)
+            osq1 = np.ix_(oidx1, oidx1)
+            osq2 = np.ix_(oidx2, oidx2)
+
+            nkdigos = [kdigos[x] for x in range(len(kdigos)) if x in nidx]
+            okdigos1 = [kdigos[x] for x in range(len(kdigos)) if x in oidx1]
+            okdigos2 = [kdigos[x] for x in range(len(kdigos)) if x in oidx2]
+
+            n_center, n_std, n_conf = performDBA(nkdigos, sqdm[nsq], mismatch=mismatch, extension=extension)
+            o1_center, o1_std, o1_conf = performDBA(okdigos1, sqdm[osq1], mismatch=mismatch, extension=extension)
+            o2_center, o2_std, o2_conf = performDBA(okdigos2, sqdm[osq2], mismatch=mismatch, extension=extension)
+
+            fig = plt.figure(figsize=(6, 8))
+            gs = GridSpec(8, 2)
+            nax = fig.add_subplot(gs[1:3, 1])
+            oax1 = fig.add_subplot(gs[:2, 0])
+            oax2 = fig.add_subplot(gs[2:4, 0])
+
+            extra = Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
+
+            nax.plot(n_center)
+            nax.fill_between(range(len(n_center)), n_center - n_conf, n_center + n_conf, alpha=0.4,)
+            nax.set_ylim(-0.5, 5)
+            nax.set_xticks([4 * x for x in range(8)])
+            nax.set_xticklabels(['%d' % x for x in range(8)])
+            nax.set_yticks([0, 1, 2, 3, 4])
+            nax.set_yticklabels(['0', '1', '2', '3', '3D'])
+            nax.set_xlim(-2, 30)
+            nax.set_xlabel('Days')
+            nax.legend([extra], ['%% %s   %.2f%%\n# Patients %d' % (outcomeName, n_pct_out, len(nidx)), ], frameon=False)
+
+            oax1.plot(o1_center)
+            oax1.fill_between(range(len(o1_center)), o1_center - o1_conf, o1_center + o1_conf, alpha=0.4, )
+            oax1.set_ylim(-0.5, 5)
+            oax1.set_xticks([4 * x for x in range(8)])
+            oax1.set_xticklabels(())
+            # oax1.set_xticklabels(['%d' % x for x in range(8)])
+            oax1.set_yticks([0, 1, 2, 3, 4])
+            oax1.set_yticklabels(['0', '1', '2', '3', '3D'])
+            oax1.set_xlim(-2, 30)
+            oax1.legend([extra], ['%% %s   %.2f%%\n# Patients %d' % (outcomeName, o1_pct_out, len(oidx1)), ], frameon=False)
+
+            oax2.plot(o2_center)
+            oax2.fill_between(range(len(o2_center)), o2_center - o2_conf, o2_center + o2_conf, alpha=0.4, )
+            oax2.set_ylim(-0.5, 5)
+            oax2.set_xticks([4 * x for x in range(8)])
+            oax2.set_xticklabels(())
+            # oax2.set_xticklabels(['%d' % x for x in range(8)])
+            oax2.set_yticks([0, 1, 2, 3, 4])
+            oax2.set_yticklabels(['0', '1', '2', '3', '3D'])
+            oax2.set_xlim(-2, 30)
+            oax2.legend([extra], ['%% %s   %.2f%%\n# Patients %d' % (outcomeName, o2_pct_out, len(oidx2)), ], frameon=False)
+
+            tgs = GridSpecFromSubplotSpec(4, 5, subplot_spec=gs[5:7, 1])
+            out = outcome[nidx]
+            to = np.array([x for x in tree_order if x in nidx])
+            ax0 = plt.subplot(tgs[:, 4])
+            ax0.pcolormesh(np.vstack([out for _ in range(10)]).astype(int).T, cmap='binary', linewidth=0, rasterized=True)
+            ax0.set_xticks(())
+            ax0.set_yticks(())
+            ax0.set_title(outcomeName)
+
+            ax1 = plt.subplot(tgs[:, 0:4])
+            ax1.pcolormesh(features[to, :], cmap='cividis', linewidth=0, rasterized=True)
+            if featNames is not None:
+                ax1.set_xticks(np.arange(len(featNames)) + 0.5)
+                ax1.set_xticklabels(featNames, rotation=90, fontsize=8)
+            else:
+                ax1.set_xticks(())
+            ax1.set_yticks(())
+            ax1.set_title('Trajectory Features')
+
+            tgs = GridSpecFromSubplotSpec(4, 5, subplot_spec=gs[4:6, 0])
+            out = outcome[oidx1]
+            to = np.array([x for x in tree_order if x in oidx1])
+            ax0 = plt.subplot(tgs[:, 4])
+            ax0.pcolormesh(np.vstack([out for _ in range(10)]).astype(int).T, cmap='binary', linewidth=0, rasterized=True)
+            ax0.set_xticks(())
+            ax0.set_yticks(())
+
+            ax1 = plt.subplot(tgs[:, 0:4])
+            ax1.pcolormesh(features[to, :], cmap='cividis', linewidth=0, rasterized=True)
+            # if featNames is not None:
+            #     ax1.set_xticks(np.arange(len(featNames)) + 0.5)
+            #     ax1.set_xticklabels(featNames, rotation=90, fontsize=8)
+            # else:
+            ax1.set_xticks(())
+            ax1.set_yticks(())
+
+            tgs = GridSpecFromSubplotSpec(4, 5, subplot_spec=gs[6:8, 0])
+            out = outcome[oidx2]
+            to = np.array([x for x in tree_order if x in oidx2])
+            ax0 = plt.subplot(tgs[:, 4])
+            ax0.pcolormesh(np.vstack([out for _ in range(10)]).astype(int).T, cmap='binary', linewidth=0, rasterized=True)
+            ax0.set_xticks(())
+            ax0.set_yticks(())
+
+            ax1 = plt.subplot(tgs[:, 0:4])
+            ax1.pcolormesh(features[to, :], cmap='cividis', linewidth=0, rasterized=True)
+            # if featNames is not None:
+            #     ax1.set_xticks(np.arange(len(featNames)) + 0.5)
+            #     ax1.set_xticklabels(featNames, rotation=90)
+            # else:
+            ax1.set_xticks(())
+            ax1.set_yticks(())
+
+            plt.suptitle('Merge #%d\n%s: %s + %s' % (mergeNum, cat, olbl1, olbl2))
+            plt.tight_layout()
+            pdf.savefig(dpi=600)
+            plt.close(fig)
+            mergeNum += 1
+
+            oCatLbls = nCatLbls
+            olbls = nlbls
+            lblNames = nlblNames
+            nClust -= 1
+    return
