@@ -251,77 +251,78 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
         meta.create_dataset('urine_out', data=urine_outs, dtype=float)
         meta.create_dataset('urine_flow', data=urine_flows, dtype=float)
 
-    mks_7d = []
-    mks_w = []
-    neps = []
-    hosp_days = []
-    hosp_frees = []
-    icu_days = []
-    icu_frees = []
+    if 'hosp_los' not in list(meta):
+        mks_7d = []
+        mks_w = []
+        neps = []
+        hosp_days = []
+        hosp_frees = []
+        icu_days = []
+        icu_frees = []
 
-    admit_scrs = []
-    peak_scrs = []
+        admit_scrs = []
+        peak_scrs = []
 
-    for i in range(len(ids)):
-        tid = ids[i]
-        td = days[i]
-        (hosp_admit, hosp_disch) = hosp_windows[tid]
-        (icu_admit, icu_disch) = icu_windows[tid]
+        for i in range(len(ids)):
+            tid = ids[i]
+            td = days[i]
+            (hosp_admit, hosp_disch) = hosp_windows[tid]
+            (icu_admit, icu_disch) = icu_windows[tid]
 
-        if len(scrs[i]):
-            mask = np.where(td <= tlim)[0]
-            mk7d = np.max(kdigos[i][mask])
-            mk = np.max(kdigos[i])
+            if len(scrs[i]):
+                mask = np.where(td <= tlim)[0]
+                mk7d = np.max(kdigos[i][mask])
+                mk = np.max(kdigos[i])
 
-            admit_scr = scrs[i][0]
-            peak_scr = np.max(scrs[i])
-        else:
-            mk7d = -1
-            mk = -1
-            admit_scr = np.nan
-            peak_scr = np.nan
+                admit_scr = scrs[i][0]
+                peak_scr = np.max(scrs[i])
+            else:
+                mk7d = -1
+                mk = -1
+                admit_scr = np.nan
+                peak_scr = np.nan
 
-        try:
-            hlos = (hosp_disch - hosp_admit).total_seconds() / (60 * 60 * 24)
-            ilos = (icu_disch - icu_admit).total_seconds() / (60 * 60 * 24)
-            hfree = 28 - hlos
-            ifree = 28 - ilos
-            if hfree < 0 or died_inps[i]:
-                hfree = 0
-            if ifree < 0 or died_inps[i]:
-                ifree = 0
-        except TypeError:
-            hlos = np.nan
-            ilos = np.nan
-            hfree = np.nan
-            ifree = np.nan
+            try:
+                hlos = (hosp_disch - hosp_admit).total_seconds() / (60 * 60 * 24)
+                ilos = (icu_disch - icu_admit).total_seconds() / (60 * 60 * 24)
+                hfree = 28 - hlos
+                ifree = 28 - ilos
+                if hfree < 0 or died_inps[i]:
+                    hfree = 0
+                if ifree < 0 or died_inps[i]:
+                    ifree = 0
+            except TypeError:
+                hlos = np.nan
+                ilos = np.nan
+                hfree = np.nan
+                ifree = np.nan
 
-        mks_7d.append(mk7d)
-        mks_w.append(mk)
-        hosp_days.append(hlos)
-        hosp_frees.append(hfree)
-        icu_days.append(ilos)
-        icu_frees.append(ifree)
-        admit_scrs.append(admit_scr)
-        peak_scrs.append(peak_scr)
+            mks_7d.append(mk7d)
+            mks_w.append(mk)
+            hosp_days.append(hlos)
+            hosp_frees.append(hfree)
+            icu_days.append(ilos)
+            icu_frees.append(ifree)
+            admit_scrs.append(admit_scr)
+            peak_scrs.append(peak_scr)
 
-    mks_7d = np.array(mks_7d, dtype=int)
-    mks_w = np.array(mks_w, dtype=int)
-    hosp_days = np.array(hosp_days, dtype=float)
-    hosp_frees = np.array(hosp_frees, dtype=float)
-    icu_days = np.array(icu_days, dtype=float)
-    icu_frees = np.array(icu_frees, dtype=float)
-    admit_scrs = np.array(admit_scrs, dtype=float)
-    peak_scrs = np.array(peak_scrs, dtype=float)
+        mks_7d = np.array(mks_7d, dtype=int)
+        mks_w = np.array(mks_w, dtype=int)
+        hosp_days = np.array(hosp_days, dtype=float)
+        hosp_frees = np.array(hosp_frees, dtype=float)
+        icu_days = np.array(icu_days, dtype=float)
+        icu_frees = np.array(icu_frees, dtype=float)
+        admit_scrs = np.array(admit_scrs, dtype=float)
+        peak_scrs = np.array(peak_scrs, dtype=float)
 
-    meta.create_dataset('hosp_los', data=hosp_days, dtype=float)
-    meta.create_dataset('hosp_free_days', data=hosp_frees, dtype=float)
-    meta.create_dataset('icu_los', data=icu_days, dtype=float)
-    meta.create_dataset('icu_free_days', data=icu_frees, dtype=float)
-    meta.create_dataset('admit_scr', data=admit_scrs, dtype=float)
-    meta.create_dataset('peak_scr', data=peak_scrs, dtype=float)
-    meta.create_dataset('max_kdigo_7d', data=mks_7d, dtype=int)
-    meta.create_dataset('max_kdigo', data=mks_w, dtype=int)
+        meta.create_dataset('hosp_los', data=hosp_days, dtype=float)
+        meta.create_dataset('hosp_free_days', data=hosp_frees, dtype=float)
+        meta.create_dataset('icu_los', data=icu_days, dtype=float)
+        meta.create_dataset('icu_free_days', data=icu_frees, dtype=float)
+        meta.create_dataset('admit_scr', data=admit_scrs, dtype=float)
+        meta.create_dataset('peak_scr', data=peak_scrs, dtype=float)
+        meta.create_dataset('max_kdigo_7d', data=mks_7d, dtype=int)
+        meta.create_dataset('max_kdigo', data=mks_w, dtype=int)
 
     return meta
 
