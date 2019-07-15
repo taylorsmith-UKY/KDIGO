@@ -11,8 +11,8 @@ import shutil
 #################################################################################
 basePath = "/Volumes/GoogleDrive/My Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/"
 
-dataPath = os.path.join(basePath, 'DATA', 'icu', '7days_051019/')
-resPath = os.path.join(basePath, 'RESULTS', 'icu', '7days_051019/')
+dataPath = os.path.join(basePath, 'DATA', 'icu', '7days_052319/')
+resPath = os.path.join(basePath, 'RESULTS', 'icu', '7days_052319/')
 dm_tags = [#'zeropad_normBC', 'zeropad_classicEuclidean', 'zeropad_classicCityblock',
 #            'absmismatch_normBC', 'absmismatch_normBC_popcoord',
 #            'absmismatch_normBC_popcoord_shift25E-02', 'absmismatch_normBC_popcoord_shift5E-01',
@@ -55,7 +55,7 @@ max_noise = 0.1
 max_size_pct = 0.2
 
 # number of clusters to extract if method is flat
-n_clusters = range(74, 200, 12)
+n_clusters = range(2, 19)
 
 max_clust = 50
 # Which clustering algorithm to apply

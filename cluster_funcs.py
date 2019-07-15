@@ -20,6 +20,7 @@ from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from matplotlib.backends.backend_pdf import PdfPages
 from myDBA import performDBA
 import os
+import copy
 
 # %%
 def cluster_trajectories(f, ids, mk, dm, meta_grp='meta', eps=0.015, p_thresh_l=[], min_size_l=[], hom_thresh_l=[],
@@ -1662,6 +1663,470 @@ def countCategories(lbls):
     counts[10] = np.sum(np.array(['3D-St' in x for x in lblNames]))
     counts[11] = np.sum(np.array(['3D-Ws' in x for x in lblNames]))
     return counts
+
+
+def merge_clusters(ids, kdigos, max_kdigos, days, dm, lblPath, meta, mismatch=lambda x,y: abs(x-y), extension=lambda x:0, dist=braycurtis, t_lim=7, mergeType='dba', folderName='merged'):
+    ids = np.loadtxt(os.path.join(lblPath, 'clusters.csv'), delimiter=',', usecols=0, dtype=int)
+    assert len(ids) == len(kdigos)
+    lbls = load_csv(os.path.join(lblPath, 'clusters.csv'), ids, str)
+    lbls = np.array(lbls, dtype='|S100').astype(str)
+    catLbls, lblNames = clusterCategorizer(max_kdigos, kdigos, days, lbls)
+    centers = {}
+    if not os.path.exists(os.path.join(lblPath, 'centers.csv')):
+        for i in range(len(kdigos)):
+            kdigos[i] = kdigos[i][np.where(days[i] <= t_lim)]
+        with PdfPages(os.path.join(lblPath, 'centers.pdf')) as pdf:
+            for lbl in np.unique(lbls):
+                idx = np.where(lbls == lbl)[0]
+                dm_sel = np.ix_(idx, idx)
+                tkdigos = [kdigos[x] for x in idx]
+                tdm = squareform(squareform(dm)[dm_sel])
+                center, stds, confs = performDBA(tkdigos, tdm, mismatch=mismatch, extension=extension, extraDesc=' for cluster ' + lbl)
+                centers[lbl] = center
+                plt.figure()
+                plt.plot(center)
+                plt.fill_between(range(len(center)), center-confs, center+confs)
+                plt.xticks(range(0, len(center), 4), ['%d' % x for x in range(len(center))])
+                plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
+                plt.ylim((-0.5, 4.5))
+                plt.title(lbl)
+                pdf.savefig(dpi=600)
+            arr2csv(os.path.join(lblPath, 'centers.csv'), list(centers.values()), list(centers.keys()))
+    else:
+        center_vecs, centerNames = load_csv(os.path.join(lblPath, 'centers.csv'), None)
+        for tname in list(centerNames):
+            centers[tname] = center_vecs[np.where(centerNames == tname)[0][0]]
+    if not os.path.exists(os.path.join(lblPath, folderName)):
+        os.mkdir(os.path.join(lblPath, folderName))
+
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-Im', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-St', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-Ws', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-Im', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-St', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-Ws', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-Im', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-St', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-Ws', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-Im', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-St', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-Ws', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName)
+
+
+def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-Im',
+                mismatch=lambda x,y: abs(x-y), extension=lambda x:0, dist=braycurtis, mergeType='dba', folderName='merged', extWeight=1):
+    lblgrp = [x for x in np.unique(lbls) if cat in lblNames[x]]
+    if len(lblgrp) < 2:
+        return
+    if not os.path.exists(os.path.join(lblPath, folderName, cat)):
+        os.mkdir(os.path.join(lblPath, folderName, cat))
+    idx = np.where(lbls == lblgrp[0])[0]
+    for i in range(1, len(lblgrp)):
+        idx = np.union1d(idx, np.where(lbls == lblgrp[i])[0])
+    dmidx = np.ix_(idx, idx)
+    grpLbls = lbls[idx]
+    grpCenters = {}
+
+    for lbl in lblgrp:
+        grpCenters[lbl] = centers[lbl]
+
+    allProgs = []
+    allMorts = []
+    for i in range(len(idx)):
+        tidx = np.where(meta['ids'][:] == ids[i])[0][0]
+        if meta['max_kdigo'][tidx] > meta['max_kdigo_7d'][tidx]:
+            allProgs.append(1)
+        else:
+            allProgs.append(0)
+        allMorts.append(meta['died_inp'][tidx])
+    allProgs = np.array(allProgs)
+    allMorts = np.array(allMorts)
+
+    grpProgs = {}
+    grpMorts = {}
+    for lbl in lblgrp:
+        tidx = np.where(grpLbls == lbl)[0]
+        grpProgs[lbl] = np.mean(allProgs[tidx])
+        grpMorts[lbl] = np.mean(allMorts[tidx])
+
+    # grpCenters = [centers[x] for x in lblgrp]
+    grpKdigos = [kdigos[x] for x in idx]
+    grpIds = ids[idx]
+    grpDm = squareform(squareform(dm)[dmidx])
+    nClust = len(lblgrp)
+    progScores = []
+    mortScores = []
+    sils = []
+    fext = 0
+    with PdfPages(os.path.join(lblPath, folderName, cat, cat + '_merge_visualization.pdf')) as pdf:
+        with PdfPages(os.path.join(lblPath, folderName, cat, cat + '_clusters_each_merge.pdf')) as pdf2:
+            if not os.path.exists(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust)):
+                os.mkdir(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust))
+                arr2csv(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'clusters.csv'), grpLbls, grpIds, fmt='%s')
+                formatted_stats(meta, os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust))
+                with PdfPages(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'centers.pdf')) as pdf1:
+                    for i in range(len(lblgrp)):
+                        tlbl = lblgrp[i]
+                        fig = plt.figure()
+                        plt.plot(grpCenters[tlbl])
+                        plt.xticks(range(0, len(grpCenters[tlbl]), 4), ['%d' % x for x in range(len(grpCenters[tlbl]))])
+                        plt.ylim((-0.2, 4.2))
+                        plt.xlabel('Days')
+                        plt.ylabel('KDIGO')
+                        plt.title('Cluster ' + tlbl)
+                        pdf1.savefig(dpi=600)
+                        plt.close(fig)
+            mergeCt = 0
+            mergeDist = []
+            allDist = []
+            progs = np.array([x for x in grpProgs.values()])[:, None]
+            morts = np.array([x for x in grpMorts.values()])[:, None]
+            progDist = pdist(progs, metric='cityblock')
+            mortDist = pdist(morts, metric='cityblock')
+            try:
+                progScores.append([np.min(progDist), np.max(progDist), np.max(progDist) / (100 - np.min(progDist))])
+            except ValueError:
+                progScores.append([0, 0, 0])
+            try:
+                mortScores.append([np.min(mortDist), np.max(mortDist), np.max(mortDist) / (100 - np.min(mortDist))])
+            except ValueError:
+                mortScores.append([0, 0, 0])
+            try:
+                sils.append(silhouette_score(squareform(grpDm), grpLbls, metric='precomputed'))
+            except ValueError:
+                sils.append(0)
+            mergeLabels = ['Original']
+            extl = []
+            curExt = {}
+            curMis = {}
+            while len(lblgrp) > 2:
+                minDist = 1000
+                minExt = 1000
+                mergeGrp = [0, 0]
+                tdist = []
+                xpenalties = []
+                ypenalties = []
+                xipenalties = []
+                yipenalties = []
+                mismatches = []
+                imismatches = []
+                for i in range(len(lblgrp)):
+                    for j in range(i + 1, len(lblgrp)):
+                        lbl1 = lblgrp[i]
+                        lbl2 = lblgrp[j]
+                        c1 = grpCenters[lbl1]
+                        c2 = grpCenters[lbl2]
+                        # if len(c1) != len(c2):
+                        #     _, _, _, paths = dtw_p(c1, c2, mismatch=mismatch, extension=extension)
+                        #     c1 = c1[paths[0]]
+                        #     c2 = c2[paths[1]]
+                        _, _, _, paths, xext, yext = dtw_p(c1, c2, mismatch=mismatch, extension=extension, alpha=extWeight)
+                        mism = np.sum([np.abs(c1[paths[0][x]] - c2[paths[1][x]]) for x in range(len(paths[0]))])
+                        imismatches.append(mism)
+                        xipenalties.append(xext)
+                        yipenalties.append(yext)
+                        if lbl1 in list(curExt):
+                            xext += curExt[lbl1]
+                        if lbl2 in list(curExt):
+                            yext += curExt[lbl2]
+                        if lbl1 in list(curMis):
+                            mism += curMis[lbl1]
+                        if lbl2 in list(curMis):
+                            mism += curMis[lbl2]
+                        c1 = c1[paths[0]]
+                        c2 = c2[paths[1]]
+                        d = dist(c1, c2)
+                        tdist.append(d)
+                        xpenalties.append(xext)
+                        ypenalties.append(yext)
+                        # penalties.append((xext, yext))
+                        mismatches.append(mism)
+                        if d < minDist:
+                            minDist = d
+                            mergeGrp = [i, j]
+                allDist.append(tdist)
+                mergeDist.append(minDist)
+                idx1 = np.where(grpLbls == lblgrp[mergeGrp[0]])[0]
+                idx2 = np.where(grpLbls == lblgrp[mergeGrp[1]])[0]
+                if lblgrp[mergeGrp[0]] not in grpLbls:
+                    print(lblgrp[mergeGrp[0]] + 'not in labels')
+                if lblgrp[mergeGrp[1]] not in grpLbls:
+                    print(lblgrp[mergeGrp[1]] + 'not in labels')
+                plotGrp = copy.deepcopy(lblgrp)
+                nlbl = '-'.join((lblgrp[mergeGrp[0]], lblgrp[mergeGrp[1]]))
+                mergeLabels.append(lblgrp[mergeGrp[0]] + ' + ' + lblgrp[mergeGrp[1]] + ' -> ' + nlbl)
+                vdm = squareform(tdist)
+                grpLbls[idx1] = nlbl
+                grpLbls[idx2] = nlbl
+                sils.append(silhouette_score(squareform(grpDm), grpLbls, metric='precomputed'))
+                c2 = grpCenters[lblgrp[mergeGrp[1]]]
+                c1 = grpCenters[lblgrp[mergeGrp[0]]]
+                del grpCenters[lblgrp[mergeGrp[1]]], grpCenters[lblgrp[mergeGrp[0]]]
+                lbl2 = lblgrp.pop(mergeGrp[1])
+                lbl1 = lblgrp.pop(mergeGrp[0])
+                idx = np.sort(np.concatenate((idx1, idx2)))
+                dmidx = np.ix_(idx, idx)
+                tkdigos = [grpKdigos[x] for x in idx]
+                tdm = squareform(squareform(grpDm)[dmidx])
+                xext_cum = squareform(xpenalties)[mergeGrp[0], mergeGrp[1]]
+                yext_cum = squareform(ypenalties)[mergeGrp[0], mergeGrp[1]]
+                tmis = squareform(mismatches)[mergeGrp[0], mergeGrp[1]]
+                xext_ind = squareform(xipenalties)[mergeGrp[0], mergeGrp[1]]
+                yext_ind = squareform(yipenalties)[mergeGrp[0], mergeGrp[1]]
+                itmis = squareform(imismatches)[mergeGrp[0], mergeGrp[1]]
+                curExt[nlbl] = max(xext_cum, yext_cum)
+                curMis[nlbl] = tmis
+                if lbl1 in list(curExt):
+                    del curExt[lbl1]
+                if lbl2 in list(curExt):
+                    del curExt[lbl2]
+                del grpProgs[lbl1]
+                del grpProgs[lbl2]
+                del grpMorts[lbl1]
+                del grpMorts[lbl2]
+                grpProgs[nlbl] = np.mean(allProgs[idx])
+                grpMorts[nlbl] = np.mean(allMorts[idx])
+
+                progs = np.array([x for x in grpProgs.values()])[:, None]
+                morts = np.array([x for x in grpMorts.values()])[:, None]
+                progDist = pdist(progs, metric='cityblock')
+                mortDist = pdist(morts, metric='cityblock')
+                progScores.append([np.min(progDist), np.max(progDist), np.max(progDist) / (100 - np.min(progDist))])
+                mortScores.append([np.min(mortDist), np.max(mortDist), np.max(mortDist) / (100 - np.min(mortDist))])
+                if mergeType == 'dba':
+                    center, stds, confs = performDBA(tkdigos, tdm, mismatch=mismatch, extension=extension, n_iterations=10)
+                elif 'mean' in mergeType:
+                    # if len(c1) == len(c2):
+                    #     if 'weighted' in mergeType:
+                    #         count1 = len(idx1)
+                    #         count2 = len(idx2)
+                    #         w1 = count1 / (count1 + count2)
+                    #         w2 = count2 / (count2 + count1)
+                    #         center = np.array([(w1 * c1[x]) + (w2 * c2[x]) for x in range(len(c1))])
+                    #     else:
+                    #         center = np.array([((c1[x]/2) + (c2[x])/2) for x in range(len(c1))])
+                    # else:
+                    _, _, _, path, xext, yext = dtw_p(c1, c2, mismatch=mismatch, extension=extension, alpha=extWeight)
+                    # fext += ext
+                    # extl.append(max(penalties))
+                    c1 = c1[path[0]]
+                    c2 = c2[path[1]]
+                    if 'weighted' in mergeType:
+                        count1 = len(idx1)
+                        count2 = len(idx2)
+                        w1 = count1 / (count1 + count2)
+                        w2 = count2 / (count2 + count1)
+                        center = np.array([(w1 * c1[x]) + (w2 * c2[x]) for x in range(len(c1))])
+                    else:
+                        center = np.array([((c1[x]/2) + (c2[x]) / 2) for x in range(len(c1))])
+
+                extl.append(np.max([x for x in curExt.values()]))
+
+                grpCenters[nlbl] = center
+                lblgrp.append(nlbl)
+                nClust = len(lblgrp)
+                os.mkdir(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust))
+                arr2csv(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'clusters.csv'), grpLbls, grpIds, fmt='%s')
+                arr2csv(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'centers.csv'), list(grpCenters.values()), list(grpCenters.keys()))
+                formatted_stats(meta, os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust))
+                mergeCt += 1
+                fig = plt.figure(figsize=[10, 6])
+                gs = GridSpec(4, 3)
+                ax = fig.add_subplot(gs[:2, 0])
+                p = ax.plot(c1, label='%d Patients' % len(idx1))
+                ax.set_xticks(range(0, len(c1), 4))
+                ax.set_xticklabels(['%d' % x for x in range(len(c1))], wrap=True)
+                ax.set_xlabel('Days')
+                ax.set_ylabel('KDIGO')
+                extra = Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
+                ax.legend([extra, extra], ['%d Patients' % len(idx1), 'Extension: %.1f + %.1f = %.1f' % (xext_ind, xext_cum-xext_ind, xext_cum)])
+                # ax.set_title('Cluster ' + lbl1, wrap=True)
+                ax.set_ylim((-0.2, 4.2))
+                # plt.legend()
+                ax = fig.add_subplot(gs[2:, 0])
+                p = ax.plot(c2, label='%d Patients' % len(idx2))
+                ax.set_xticks(range(0, len(c2), 4))
+                ax.set_xticklabels(['%d' % x for x in range(len(c2))], wrap=True)
+                ax.set_xlabel('Days')
+                ax.set_ylabel('KDIGO')
+                extra = Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
+                ax.legend([extra, extra], ['%d Patients' % len(idx2),
+                                       'Extension: %.1f + %.1f = %.1f' % (yext_ind, yext_cum - yext_ind, yext_cum)])
+                # ax.set_title('Cluster ' + lbl2, wrap=True)
+                ax.set_ylim((-0.2, 4.2))
+                # plt.legend()
+                ax = fig.add_subplot(gs[1:3, 1])
+                ax.plot(center, label='%d Patients' % len(idx))
+                ax.set_xticks(range(0, len(center), 4))
+                ax.set_xticklabels(['%d' % x for x in range(len(center))], wrap=True)
+                ax.set_xlabel('Days')
+                ax.set_ylabel('KDIGO')
+                # ax.set_title('Cluster ' + nlbl, wrap=True)
+                ax.set_ylim((-0.2, 4.2))
+                ax = fig.add_subplot(gs[:2, 2])
+                plt.pcolormesh(vdm, linewidth=0, rasterized=True)
+                ax.set_xticks(np.arange(vdm.shape[0]) + 0.5)
+                ax.set_xticklabels([str(x) for x in plotGrp], rotation=30, ha='right')
+                ax.set_yticks(np.arange(vdm.shape[0]) + 0.5)
+                ax.set_yticklabels([str(x) for x in plotGrp])
+                ax.set_title('Distance Matrix')
+                if vdm.shape[0] <= 5:
+                    fs = 8.
+                    rot = 0
+                elif vdm.shape[0] < 10:
+                    fs = 4.5
+                    rot = 0
+                elif vdm.shape[0] < 15:
+                    fs = 3.5
+                    rot = 0
+                else:
+                    fs = 2
+                    rot = 45
+                for y in range(vdm.shape[0]):
+                    for x in range(vdm.shape[1]):
+                        plt.text(x + 0.5, y + 0.5, '%.3f' % vdm[y, x],
+                                 horizontalalignment='center',
+                                 verticalalignment='center',
+                                 fontsize=fs,
+                                 rotation=rot
+                                 )
+                ax = fig.add_subplot(gs[2:, 2])
+                vdm = np.max(np.dstack((squareform(xpenalties), squareform(ypenalties))), axis=-1)
+                plt.pcolormesh(vdm, linewidth=0, rasterized=True)
+                ax.set_xticks(np.arange(vdm.shape[0]) + 0.5)
+                ax.set_xticklabels([str(x) for x in plotGrp], rotation=30, ha='right')
+                ax.set_yticks(np.arange(vdm.shape[0]) + 0.5)
+                ax.set_yticklabels([str(x) for x in plotGrp])
+                ax.set_title('Extension Penalties')
+                if vdm.shape[0] <= 5:
+                    fs = 8.
+                    rot = 0
+                elif vdm.shape[0] < 10:
+                    fs = 4.5
+                    rot = 0
+                elif vdm.shape[0] < 15:
+                    fs = 3.5
+                    rot = 0
+                else:
+                    fs = 2
+                    rot = 45
+                for y in range(vdm.shape[0]):
+                    for x in range(vdm.shape[1]):
+                        plt.text(x + 0.5, y + 0.5, '%.1f' % vdm[y, x],
+                                 horizontalalignment='center',
+                                 verticalalignment='center',
+                                 fontsize=fs,
+                                 rotation=rot
+                                 )
+                plt.suptitle("Merge #%d (%d Clusters)\n%s + %s\nExtension: %.1f\nDistance:%.2f" % (
+                              mergeCt, len(lblgrp), lbl1, lbl2, curExt[nlbl], mergeDist[-1]))
+                # plt.colorbar(ax=ax)
+                plt.tight_layout()
+                pdf.savefig(dpi=600)
+                plt.close(fig)
+                with PdfPages(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'centers.pdf')) as pdf1:
+                    for i in range(len(lblgrp)):
+                        tlbl = lblgrp[i]
+                        fig = plt.figure()
+                        plt.plot(grpCenters[tlbl])
+                        plt.xticks(range(0, len(grpCenters[tlbl]), 4), ['%d' % x for x in range(len(grpCenters[tlbl]))])
+                        plt.ylim((-0.2, 4.2))
+                        plt.xlabel('Days')
+                        plt.ylabel('KDIGO')
+                        plt.title('Cluster ' + tlbl, wrap=True)
+                        pdf1.savefig(dpi=600)
+                        plt.close(fig)
+            fig = plt.figure()
+            plt.plot(mergeDist)
+            plt.xticks(range(len(mergeDist)), ['%d' % (x + 1) for x in range(len(mergeDist))])
+            plt.xlabel('Merge Number')
+            plt.ylabel('Distance')
+            plt.title('Individual Merge Distances')
+            pdf.savefig(dpi=600)
+            plt.close(fig)
+            fig = plt.figure()
+            plt.plot(extl)
+            plt.xticks(range(len(extl)), ['%d' % (x + 1) for x in range(len(mergeDist))])
+            plt.xlabel('Merge Number')
+            plt.ylabel('Extension Penalty')
+            plt.title('Maximum Cumulative Extension Penalty')
+            pdf.savefig(dpi=600)
+            plt.close(fig)
+    np.savetxt(os.path.join(lblPath, folderName, cat, 'merge_distances.txt'), mergeDist)
+    arr2csv(os.path.join(lblPath, folderName, cat, 'all_distances.csv'), allDist, mergeLabels)
+    arr2csv(os.path.join(lblPath, folderName, cat, 'prog_scores.csv'), progScores, mergeLabels,
+            header='Merge,MinProgDiff,MaxProgDiff,RelProgDiff')
+    arr2csv(os.path.join(lblPath, folderName, cat, 'mort_scores.csv'), mortScores, mergeLabels,
+            header='Merge,MinMortDiff,MaxMortDiff,RelMortDiff')
+    arr2csv(os.path.join(lblPath, folderName, cat, 'silhouette_scores.csv'), sils, mergeLabels,
+            header='Merge,Silhouette')
+    progScores = np.array(progScores)
+    mortScores = np.array(mortScores)
+    with PdfPages(os.path.join(lblPath, folderName, cat, cat + '_merge_evaluation.pdf')) as pdf:
+        fig = plt.figure()
+        plt.plot(progScores[:, 0])
+        plt.xlabel('Merge #')
+        plt.ylabel('Value')
+        plt.title('MinProgDiff')
+        pdf.savefig(dpi=600)
+        plt.close(fig)
+        fig = plt.figure()
+        plt.plot(progScores[:, 1])
+        plt.xlabel('Merge #')
+        plt.ylabel('Value')
+        plt.title('MaxProgDiff')
+        pdf.savefig(dpi=600)
+        plt.close(fig)
+        fig = plt.figure()
+        plt.plot(progScores[:, 2])
+        plt.xlabel('Merge #')
+        plt.ylabel('Value')
+        plt.title('RelProgDiff')
+        pdf.savefig(dpi=600)
+        plt.close(fig)
+        fig = plt.figure()
+        plt.plot(mortScores[:, 0])
+        plt.xlabel('Merge #')
+        plt.ylabel('Value')
+        plt.title('MinMortDiff')
+        pdf.savefig(dpi=600)
+        plt.close(fig)
+        fig = plt.figure()
+        plt.plot(mortScores[:, 1])
+        plt.xlabel('Merge #')
+        plt.ylabel('Value')
+        plt.title('MaxMortDiff')
+        pdf.savefig(dpi=600)
+        plt.close(fig)
+        fig = plt.figure()
+        plt.plot(mortScores[:, 2])
+        plt.xlabel('Merge #')
+        plt.ylabel('Value')
+        plt.title('RelMortDiff')
+        pdf.savefig(dpi=600)
+        plt.close(fig)
+
+
+def addCenterPlots(grpCenters, lblgrp, mergeGrp, grpLbls, vdm, doc):
+    nClust = len(lblgrp)
+    l = int(np.ceil(nClust / 3))
+    nlbl = '-'.join((lblgrp[mergeGrp[0]], lblgrp[mergeGrp[1]]))
+    tmerge = lblgrp[mergeGrp[0]] + ' + ' + lblgrp[mergeGrp[1]] + ' -> ' + nlbl
+    fig = plt.figure(figsize=(9, 3*l))
+    gs = GridSpec(l, 3)
+    row = 1
+    col = 1
+    for i in range(nClust):
+        ax = fig.add_subplot(gs[row, col])
+        ax.plot(grpCenters[i])
+        ax.set_title(lblgrp[i], wrap=True)
+        if col == 3:
+            row += 1
+            col = 0
+        else:
+            col += 1
+    doc.savefig(dpi=600)
+    return
 
 
 def visualize_merges(ids, basePath, sqdm, kdigos, features, outcome, featNames=None, outcomeName='Death', mismatch=lambda x,y: abs(x-y), extension=lambda x:0, stopClust=0):

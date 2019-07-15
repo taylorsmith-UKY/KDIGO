@@ -1,17 +1,9 @@
 {
   "basePath" : "/Volumes/GoogleDrive/My Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/",
-  "cohortName" : "7days_030719",
-  "useMismatch" : true,
-  "useExtension": true,
-  "usePopulationCoordinates": true,
-  "coordinateShift" : 0,
-  "reverseCoordinates": false,
+  "cohortName" : "7days_071219",
+  "analyze" : "icu",
   "analysisDays": 7,
   "timeResolutionHrs": 6,
-  "transitionCosts": [1.00, 2.73, 4.36, 6.74],
   "verbose": false,
-  "populationMismatch": [true],
-  "populationExtension": [true],
-  "populationCoordinates": [true],
-  "distanceFunction": "braycurtis"
+  "transition_cost_file": "KDIGO_transition_weights.csv"
 }

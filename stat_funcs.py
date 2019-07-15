@@ -25,53 +25,27 @@ from rpy2.robjects.packages import importr
 import rpy2.robjects.numpy2ri as n2r
 
 
-def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
-                    dem_m, sex_loc, eth_loc,
-                    dob_m, birth_loc,
-                    diag_m, diag_loc,
-                    charl_m, charl_loc, elix_m, elix_loc,
-                    organ_sup_mv, mech_vent_dates,
-                    organ_sup_ecmo, ecmo_dates,
-                    organ_sup_iabp, iabp_dates,
-                    organ_sup_vad, vad_dates,
-                    io_m,
-                    mort_m, mdate_loc,
-                    clinical_vit, map_locs, cuff_locs, temp_locs, hr_locs,
-                    clinical_oth, height_loc, weight_loc, fio2_locs, gcs_loc, resp_locs,
-                    dia_m, crrt_locs, hd_locs, hd_trt_loc,
-                    med_m, med_type, med_date, med_name, med_dur,
-                    labs1_m, hemat_locs, hemo_locs, bili_loc, bun_locs,
-                       pltlt_loc, na_locs, pk_locs, wbc_locs, bicarb_locs,
-                    labs2_m, alb_loc, lac_loc,
-                    blood_m, ph_locs, po2_locs, pco2_locs,
-                    urine_m, urine_locs,
-                    smoke_m, former_smoke, current_smoke,
-                    out_name, data_path, grp_name='meta', tlim=7):
-    dd = np.array(load_csv(data_path + 'disch_disp.csv', ids, str, idxs=[1, ]))
-    if type(icu_windows) == list:
-        icu_windows = np.array(icu_windows, dtype=np.object)
-    if type(hosp_windows) == list:
-        hosp_windows = np.array(hosp_windows, dtype=np.object)
-
-    try:
-        f = h5py.File(out_name, 'r+')
-    except:
-        f = h5py.File(out_name, 'w')
-
+def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_path, grp_name='meta', tlim=7):
     try:
         meta = f[grp_name]
     except:
         meta = f.create_group(grp_name)
         meta.create_dataset('ids', data=ids, dtype=int)
 
+    icu_windows_save = []
+    hosp_windows_save = []
+    for tid in ids:
+        icu_windows_save.append(icu_windows[tid])
+        hosp_windows_save.append(hosp_windows[tid])
+
     # stringType = h5py.special_dtype(vlen=np.str)
     stringType = 'S20'
     if 'icu_dates' not in list(meta):
-        icu_windows_save = np.array(icu_windows, dtype='S20')
+        icu_windows_save = np.array(icu_windows_save, dtype='S20')
         meta.create_dataset('icu_dates', data=icu_windows_save, dtype=stringType)
 
     if 'hosp_dates' not in list(meta):
-        hosp_windows_save = np.array(hosp_windows, dtype='S20')
+        hosp_windows_save = np.array(hosp_windows_save, dtype='S20')
         meta.create_dataset('hosp_dates', data=hosp_windows_save, dtype=stringType)
 
     if 'num_episodes' not in list(meta):
@@ -80,17 +54,9 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
             n_eps.append(count_eps(kdigos[i]))
         meta.create_dataset('num_episodes', data=n_eps, dtype=int)
 
-    if 'baseline_scr' not in list(meta):
-        bsln_scrs = load_csv(data_path + 'baselines.csv', ids, float)
-        bsln_gfrs = load_csv(data_path + 'baseline_gfr.csv', ids, float)
-        bsln_types = load_csv(data_path + 'baseline_types.csv', ids, 'S20')
-        meta.create_dataset('baseline_scr', data=bsln_scrs, dtype=float)
-        meta.create_dataset('baseline_gfr', data=bsln_gfrs, dtype=float)
-        meta.create_dataset('baseline_type', data=np.array(bsln_types, dtype=stringType), dtype=stringType)
-
     if 'age' not in list(meta):
         print('Getting patient demographics...')
-        genders, eths, ages = get_uky_demographics(ids, hosp_windows[:, 0], dem_m, sex_loc, eth_loc, dob_m, birth_loc)
+        genders, eths, ages = get_uky_demographics(ids, hosp_windows, data_path)
         genders = np.array(genders, dtype=bool)
         eths = np.array(eths, dtype=bool)
         ages = np.array(ages, dtype=float)
@@ -102,9 +68,24 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
         ages = meta['age'][:]
         eths = meta['race'][:]
 
+    if 'baseline_scr' not in list(meta):
+        bvals = load_csv(os.path.join(data_path, 'all_baseline_info.csv'), ids, idxs=[1], dt=float, skip_header=True)
+        btypes_temp = load_csv(os.path.join(data_path, 'all_baseline_info.csv'), ids, idxs=[2], dt=str, skip_header=True)
+        gfrs = np.zeros(len(bvals))
+        btypes = np.zeros(len(bvals), dtype='|S20').astype(str)
+        for i in range(len(gfrs)):
+            gfrs[i] = calc_gfr(bvals[i], genders[i], eths[i], ages[i])
+            if btypes_temp[i] == 'mdrd':
+                btypes[i] = 'imputed'
+            else:
+                btypes[i] = 'measured'
+        meta.create_dataset('baseline_scr', data=bvals, dtype=float)
+        meta.create_dataset('baseline_gfr', data=gfrs, dtype=float)
+        meta.create_dataset('baseline_type', data=np.array(btypes, dtype=stringType), dtype=stringType)
+
     if 'map' not in list(meta):
         print('Getting patient vitals...')
-        temps, maps, hrs = get_uky_vitals(ids, clinical_vit, map_locs, cuff_locs, temp_locs, hr_locs)
+        temps, maps, hrs = get_uky_vitals(ids, data_path)
         temps = np.array(temps, dtype=float)
         maps = np.array(maps, dtype=float)
         hrs = np.array(hrs, dtype=float)
@@ -114,19 +95,19 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
 
     if 'charlson' not in list(meta):
         print('Getting patient comorbidities...')
-        c_scores, e_scores, smokers = get_uky_comorbidities(ids, charl_m, charl_loc, elix_m, elix_loc, smoke_m,
-                                                            former_smoke, current_smoke, )
+        c_scores, e_scores, smokers, charls, elixs = get_uky_comorbidities(ids, data_path)
         c_scores = np.array(c_scores, dtype=float)  # Float bc posible NaNs
         e_scores = np.array(e_scores, dtype=float)  # Float bc posible NaNs
         smokers = np.array(smokers, dtype=bool)
         meta.create_dataset('smoker', data=smokers, dtype=bool)
         meta.create_dataset('charlson', data=c_scores, dtype=int)
         meta.create_dataset('elixhauser', data=e_scores, dtype=int)
+        meta.create_dataset('charlson_components', data=charls, dtype=int)
+        meta.create_dataset('elixhauser_components', data=elixs, dtype=int)
 
     if 'bmi' not in list(meta):
         print('Getting clinical others...')
-        bmis, weights, heights, fio2s, resps, gcs = get_uky_clinical_others(ids, clinical_oth, height_loc, weight_loc,
-                                                                             fio2_locs, resp_locs, gcs_loc)
+        bmis, weights, heights, fio2s, resps, gcs = get_uky_clinical_others(ids, data_path)
         bmis = np.array(bmis, dtype=float)
         weights = np.array(weights, dtype=float)
         fio2s = np.array(fio2s, dtype=float)
@@ -142,7 +123,7 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
 
     if 'septic' not in list(meta):
         print('Getting diagnoses...')
-        septics, diabetics, hypertensives = get_uky_diagnoses(ids, diag_m, diag_loc)
+        septics, diabetics, hypertensives = get_uky_diagnoses(ids, data_path)
         septics = np.array(septics, dtype=bool)
         diabetics = np.array(diabetics, dtype=bool)
         hypertensives = np.array(hypertensives, bool)
@@ -152,7 +133,7 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
 
     if 'net_fluid' not in list(meta):
         print('Getting fluid IO...')
-        net_fluids, gros_fluids, fos = get_uky_fluids(ids, weights, io_m)
+        net_fluids, gros_fluids, fos = get_uky_fluids(ids, weights, data_path)
         net_fluids = np.array(net_fluids, dtype=float)
         gros_fluids = np.array(gros_fluids, dtype=float)
         fos = np.array(fos, dtype=float)
@@ -162,21 +143,24 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
 
     if 'died_inp' not in list(meta):
         print('Getting mortalities...')
-        dieds, dtds, mdates = get_uky_mortality(ids, dd, hosp_windows, icu_windows, mort_m, mdate_loc)
-        dieds = np.array(dieds, dtype=int)
-        dtds = np.array(dtds, dtype=float)
-        mdates = np.array(mdates, dtype=stringType)
+        died_inps, died_90d_admit, died_90d_disch, \
+        died_120d_admit, died_120d_disch, dtds, dods = get_uky_mortality(ids, hosp_windows, icu_windows, data_path)
+        dods = np.array(dods, dtype=stringType)
         meta.create_dataset('days_to_death', data=dtds, dtype=float)
-        meta.create_dataset('died_inp', data=dieds, dtype=int)
-        meta.create_dataset('dod', data=mdates, dtype=stringType)
+        meta.create_dataset('died_inp', data=died_inps, dtype=int)
+        meta.create_dataset('died_90d_admit', data=died_90d_admit, dtype=int)
+        meta.create_dataset('died_90d_disch', data=died_90d_disch, dtype=int)
+        meta.create_dataset('died_120d_admit', data=died_120d_admit, dtype=int)
+        meta.create_dataset('died_120d_disch', data=died_120d_disch, dtype=int)
+        meta.create_dataset('dod', data=dods, dtype=stringType)
     else:
-        dieds = meta['died_inp'][:]
+        died_inps = meta['died_inp'][:]
 
     if 'rrt_flag' not in list(meta):
         print('Getting dialysis...')
         rrt_flags, hd_days, crrt_days, \
         hd_frees_7d, hd_frees_28d, hd_trtmts, \
-        crrt_frees_7d, crrt_frees_28d = get_uky_rrt(ids, dieds, icu_windows, dia_m, crrt_locs, hd_locs, hd_trt_loc)
+        crrt_frees_7d, crrt_frees_28d = get_uky_rrt(ids, died_inps, icu_windows, data_path)
         rrt_flags = np.array(rrt_flags, dtype=bool)
         hd_days = np.array(hd_days, dtype=int)
         crrt_days = np.array(crrt_days, dtype=int)
@@ -196,11 +180,7 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
 
     if 'vad' not in list(meta):
         print('Getting other organ support...')
-        mv_flags, mv_days, mv_frees, ecmos, vads, iabps = get_uky_organsupp(ids, dieds, icu_windows,
-                                                                            organ_sup_mv, mech_vent_dates,
-                                                                            organ_sup_ecmo, ecmo_dates,
-                                                                            organ_sup_vad, vad_dates,
-                                                                            organ_sup_iabp, iabp_dates)
+        mv_flags, mv_days, mv_frees, ecmos, vads, iabps = get_uky_organsupp(ids, died_inps, icu_windows, data_path)
         mv_flags = np.array(mv_flags, dtype=int)
         mv_days = np.array(mv_days, dtype=float)
         mv_frees = np.array(mv_frees, dtype=float)
@@ -216,8 +196,7 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
 
     if 'nephrotox_ct' not in list(meta):
         print('Getting medications...')
-        nephrotox_cts, vasopres_cts, dopas, epis = get_uky_medications(ids, icu_windows[:, 0], med_m,
-                                                                        med_type, med_date, med_name, med_dur)
+        nephrotox_cts, vasopres_cts, dopas, epis = get_uky_medications(ids, icu_windows, data_path)
         nephrotox_cts = np.array(nephrotox_cts, dtype=int)
         vasopres_cts = np.array(vasopres_cts, dtype=int)
         dopas = np.array(dopas)
@@ -232,9 +211,7 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
         anemics, bilis, buns, \
         hemats, hemos, pltlts, \
         nas, pks, albs, lacs, phs, \
-        po2s, pco2s, wbcs, bicarbs = get_uky_labs(ids, genders, labs1_m, bili_loc, bun_locs, hemat_locs, hemo_locs, pltlt_loc,
-                                         na_locs, pk_locs, bicarb_locs, labs2_m, alb_loc, lac_loc, blood_m, ph_locs,
-                                         po2_locs, pco2_locs, wbc_locs)
+        po2s, pco2s, wbcs, bicarbs = get_uky_labs(ids, genders, data_path)
         anemics = np.array(anemics, dtype=bool)
         bilis = np.array(bilis, dtype=float)
         buns = np.array(buns, dtype=float)
@@ -268,7 +245,7 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
 
     if 'urine_out' not in list(meta):
         print('Getting urine flow...')
-        urine_outs, urine_flows = get_uky_urine(ids, weights, urine_m, urine_locs)
+        urine_outs, urine_flows = get_uky_urine(ids, weights, data_path)
         urine_outs = np.array(urine_outs, dtype=float)
         urine_flows = np.array(urine_flows, dtype=float)
         meta.create_dataset('urine_out', data=urine_outs, dtype=float)
@@ -286,9 +263,10 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
     peak_scrs = []
 
     for i in range(len(ids)):
+        tid = ids[i]
         td = days[i]
-        (hosp_admit, hosp_disch) = hosp_windows[i]
-        (icu_admit, icu_disch) = icu_windows[i]
+        (hosp_admit, hosp_disch) = hosp_windows[tid]
+        (icu_admit, icu_disch) = icu_windows[tid]
 
         if len(scrs[i]):
             mask = np.where(td <= tlim)[0]
@@ -303,15 +281,20 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
             admit_scr = np.nan
             peak_scr = np.nan
 
-        hlos = (hosp_disch - hosp_admit).total_seconds() / (60 * 60 * 24)
-        ilos = (icu_disch - icu_admit).total_seconds() / (60 * 60 * 24)
-
-        hfree = 28 - hlos
-        ifree = 28 - ilos
-        if hfree < 0 or dieds[i]:
-            hfree = 0
-        if ifree < 0 or dieds[i]:
-            ifree = 0
+        try:
+            hlos = (hosp_disch - hosp_admit).total_seconds() / (60 * 60 * 24)
+            ilos = (icu_disch - icu_admit).total_seconds() / (60 * 60 * 24)
+            hfree = 28 - hlos
+            ifree = 28 - ilos
+            if hfree < 0 or died_inps[i]:
+                hfree = 0
+            if ifree < 0 or died_inps[i]:
+                ifree = 0
+        except TypeError:
+            hlos = np.nan
+            ilos = np.nan
+            hfree = np.nan
+            ifree = np.nan
 
         mks_7d.append(mk7d)
         mks_w.append(mk)
@@ -340,76 +323,79 @@ def summarize_stats(ids, kdigos, days, scrs, icu_windows, hosp_windows,
     meta.create_dataset('max_kdigo_7d', data=mks_7d, dtype=int)
     meta.create_dataset('max_kdigo', data=mks_w, dtype=int)
 
-    return f
+    return meta
 
 
-def get_uky_vitals(ids, clinical_vit, map_locs, cuff_locs, temp_locs, hr_locs):
+def get_uky_vitals(ids, dataPath=''):
+    clinical_vit = pd.read_csv(os.path.join(dataPath, 'CLINICAL_VITALS.csv'))
     temps = np.zeros((len(ids), 2))
     maps = np.zeros((len(ids), 2))
     hrs = np.zeros((len(ids), 2))
     for i in range(len(ids)):
         tid = ids[i]
         # Clinical vitals
-        vit_idx = np.where(clinical_vit[:, 0] == tid)[0]
+        vit_idx = np.where(clinical_vit['STUDY_PATIENT_ID'].values == tid)[0]
         tmap = np.array((np.nan, np.nan))
         temp = np.array((np.nan, np.nan))
         hr = np.array((np.nan, np.nan))
         if vit_idx.size > 0:
             vit_idx = vit_idx[0]
-            tmap = clinical_vit[vit_idx, map_locs]
+            tmap = [clinical_vit['ART_MEAN_D1_LOW_VALUE'][vit_idx], clinical_vit['ART_MEAN_D1_HIGH_VALUE'][vit_idx]]
             if np.isnan(tmap[0]):
-                tmap = clinical_vit[vit_idx, cuff_locs]
-            temp = clinical_vit[vit_idx, temp_locs]
-            hr = clinical_vit[vit_idx, hr_locs]
+                tmap = [clinical_vit['CUFF_MEAN_D1_LOW_VALUE'][vit_idx], clinical_vit['CUFF_MEAN_D1_HIGH_VALUE'][vit_idx]]
+            temp = [clinical_vit['TEMPERATURE_D1_LOW_VALUE'][vit_idx], clinical_vit['TEMPERATURE_D1_HIGH_VALUE'][vit_idx]]
+            hr = [clinical_vit['HEART_RATE_D1_LOW_VALUE'][vit_idx], clinical_vit['HEART_RATE_D1_HIGH_VALUE'][vit_idx]]
         temps[i] = temp
         maps[i] = tmap
         hrs[i] = hr
+    del clinical_vit
     return temps, maps, hrs
 
 
-def get_uky_urine(ids, weights, urine_m, urine_locs):
+def get_uky_urine(ids, weights, dataPath=''):
+    urine_m = pd.read_csv(os.path.join(dataPath, 'URINE_OUTPUT.csv'))
     urine_outs = np.zeros(len(ids))
     urine_flows = np.zeros(len(ids))
     for i in range(len(ids)):
         tid = ids[i]
         weight = weights[i]
-        urine_idx = np.where(urine_m[:, 0] == tid)[0]
+        urine_idx = np.where(urine_m['STUDY_PATIENT_ID'].values == tid)[0]
         urine_out = np.zeros(3)
-        urine_flow = np.zeros(3)
         if urine_idx.size > 0:
             urine_idx = urine_idx[0]
             for j in range(3):
-                tidx = 2 * j
                 urine_out[j] = np.nansum(
-                    (urine_m[urine_idx, urine_locs[tidx]], urine_m[urine_idx, urine_locs[tidx + 1]]))
-            urine_flow = urine_out / weight / 24
+                    (urine_m['U0_INDWELLING_URETHRAL_CATHTER_D%d_VALUE' % j][urine_idx],
+                     urine_m['U0_VOIDED_ML_D%d_VALUE' % j][urine_idx]))
         urine_outs[i] = np.nanmean(urine_out)
-        urine_flows[i] = np.nanmean(urine_flow)
+        urine_flows[i] = urine_outs[i] / weight / 24
+    del urine_m
     return urine_outs, urine_flows
 
 
-def get_uky_medications(ids, admits, med_m, med_type, med_date, med_name, med_dur):
+def get_uky_medications(ids, icu_windows, dataPath=''):
+    med_m = pd.read_csv(os.path.join(dataPath, 'MEDICATIONS_INDX.csv'))
     neph_cts = np.zeros(len(ids))
     vaso_cts = np.zeros(len(ids))
     dopas = np.zeros(len(ids))
     epis = np.zeros(len(ids))
     for i in range(len(ids)):
         tid = ids[i]
-        admit = admits[i]
+        admit = icu_windows[tid][0]
         if type(admit) == str:
             admit = get_date(admit)
-        med_idx = np.where(med_m[:, 0] == tid)[0]
+        med_idx = np.where(med_m['STUDY_PATIENT_ID'].values == tid)[0]
         neph_ct = 0
         vaso_ct = 0
         dopa = 0
         epi = 0
         if med_idx.size > 0:
             for tid in med_idx:
-                tstr = str(med_m[tid, med_date]).split('.')[0]
+                tstr = str(med_m['ORDER_ENTERED_DATE'][tid]).split('.')[0]
                 tdate = get_date(tstr)
-                tname = med_m[tid, med_name].lower()
+                tname = med_m['MEDICATION_NAME'][tid].lower()
                 start = tdate
-                dur = float(med_m[tid, med_dur])
+                dur = float(med_m['DAYS_ON_MEDICATION'][tid])
                 if not np.isnan(dur):
                     stop = start + datetime.timedelta(dur)
                     if tdate != 'nan':
@@ -421,108 +407,160 @@ def get_uky_medications(ids, admits, med_m, med_type, med_date, med_name, med_du
                                     epi = 1
                         if admit.day <= tdate.day <= admit.day + 1:
                             # Nephrotoxins
-                            if np.any([med_m[tid, med_type].lower() in x for x in ['acei', 'ace inhibitors',
+                            if np.any([med_m['MEDICATION_TYPE'][tid].lower() in x for x in ['acei', 'ace inhibitors',
                                                                                    'angiotensin receptor blockers', 'arb',
                                                                                    'aminoglycosides', 'nsaids']]):
                                 neph_ct += 1
 
                             # Vasoactive Drugs
-                            if np.any([med_m[tid, med_type].lower() in x for x in ['presor', 'inotrope',
+                            if np.any([med_m['MEDICATION_TYPE'][tid].lower() in x for x in ['presor', 'inotrope',
                                                                                    'presor or inotrope']]):
                                 vaso_ct += 1
         neph_cts[i] = neph_ct
         vaso_cts[i] = vaso_ct
         dopas[i] = dopa
         epis[i] = epi
+    del med_m
     return neph_cts, vaso_cts, dopas, epis
 
 
-def get_uky_mortality(ids, disch_disps, hosp_windows, icu_windows, mort_m, mdate_loc):
-    dieds = np.zeros(len(ids))
+def get_uky_mortality(ids, hosp_windows, icu_windows, dataPath=''):
+    date_m = pd.read_csv(os.path.join(dataPath, 'ADMISSION_INDX.csv'))
+    mort_m = pd.read_csv(os.path.join(dataPath, 'OUTCOMES_COMBINED.csv'))
+    died_inps = np.zeros(len(ids), dtype=int)
+    died_90d_admit = np.zeros(len(ids), dtype=int)
+    died_90d_disch = np.zeros(len(ids), dtype=int)
+    died_120d_admit = np.zeros(len(ids), dtype=int)
+    died_120d_disch = np.zeros(len(ids), dtype=int)
     dtds = np.zeros(len(ids))
     dods = np.zeros(len(ids), dtype='|S20')
     dods[:] = 'nan'
     for i in range(len(ids)):
         tid = ids[i]
-        died = 0
-        if 'EXPIRED' in disch_disps[i].upper() or 'DIED' in disch_disps[i].upper():
-            died = 1
-
-        mort_idx = np.where(mort_m[:, 0] == tid)[0]
+        died_inp = 0
+        died_90a = 0
+        died_90d = 0
+        died_120a = 0
+        died_120d = 0
+        admit = icu_windows[tid][0]
+        disch = hosp_windows[tid][1]
+        icu_disch = icu_windows[tid][1]
         dtd = np.nan
-        admit = icu_windows[i][0]
-        disch = hosp_windows[i][1]
-        icu_disch = icu_windows[i][1]
+
         if type(admit) != datetime.datetime:
             admit = get_date(str(admit))
             disch = get_date(str(disch))
-        if mort_idx.size > 0:
-            tstr = str(mort_m[mort_idx[0], mdate_loc]).split('.')[0]
-            mdate = get_date(tstr)
-            if mdate != 'nan':
-                dods[i] = tstr
-                dtd = (mdate - admit).total_seconds() / (60 * 60 * 24)
-                # if icu_disch == 'nan' or admit < mdate < icu_disch:
-                #     died = 2
-                if disch == 'nan' or admit < mdate < disch:
-                    died = 1
-        dieds[i] = died
-        dtds[i] = dtd
-    return dieds, dtds, dods
 
-def get_uky_comorbidities(ids, charl_m, charl_loc, elix_m, elix_loc, smoke_m, former_smoke, current_smoke,):
-    charls = np.zeros(len(ids))
-    elixs = np.zeros(len(ids))
+        mdate = 'nan'
+        didx = np.where(date_m['STUDY_PATIENT_ID'].values == tid)[0][0]
+        disch_disp = date_m['DISCHARGE_DISPOSITION'][didx]
+        try:
+            disch_disp = disch_disp.upper()
+            if 'EXPIRED' in disch_disp or 'DIED' in disch_disp:
+                died_inp = 1
+                mdate = disch
+                tstr = str(mdate)
+        except AttributeError:
+            pass
+
+        mort_idx = np.where(mort_m['STUDY_PATIENT_ID'].values == tid)[0]
+        if mort_idx.size > 0:
+            mdate = get_date(mort_m['DECEASED_DATE'][mort_idx[0]])
+        if mdate != 'nan':
+            dods[i] = str(mdate)
+            dtd = (mdate - admit).total_seconds() / (60 * 60 * 24)
+            # if icu_disch == 'nan' or admit < mdate < icu_disch:
+            #     died = 2
+            if disch == 'nan':
+                died_inp = 1
+                died_90d = 1
+            else:
+                if mdate < disch or mdate.toordinal() == disch.toordinal():
+                    died_inp = 1
+                if (mdate - disch) < datetime.timedelta(90):
+                    died_90d = 1
+                if (mdate - disch) < datetime.timedelta(120):
+                    died_120d = 1
+            if (mdate - admit) < datetime.timedelta(90):
+                died_90a = 1
+            if (mdate - admit) < datetime.timedelta(120):
+                died_120a = 1
+        if died_inp and mdate == 'nan':
+            mdate = disch
+        died_inps[i] = died_inp
+        died_90d_admit[i] = died_90a
+        died_90d_disch[i] = died_90d
+        died_120d_admit[i] = died_120a
+        died_120d_disch[i] = died_120d
+        dtds[i] = dtd
+        dods[i] = str(mdate)
+    del date_m, mort_m
+    return died_inps, died_90d_admit, died_90d_disch, died_120d_admit, died_120d_disch, dtds, dods
+
+
+def get_uky_comorbidities(ids, dataPath=''):
+    charl_m = pd.read_csv(os.path.join(dataPath, 'CHARLSON_SCORE.csv'))
+    elix_m = pd.read_csv(os.path.join(dataPath, 'ELIXHAUSER_SCORE.csv'))
+    smoke_m = pd.read_csv(os.path.join(dataPath, 'SMOKING_HIS.csv'))
+    charl_idxs = np.zeros(len(ids))
+    elix_idxs = np.zeros(len(ids))
+    charls = np.zeros((len(ids), 14))
+    elixs = np.zeros((len(ids), 31))
     smokers = np.zeros(len(ids))
     for i in range(len(ids)):
         tid = ids[i]
-        charl_idx = np.where(charl_m[:, 0] == tid)[0]
+        charl_idx = np.where(charl_m['STUDY_PATIENT_ID'].values == tid)[0]
         charl = np.nan
-        if charl_idx.size > 0 and charl_m[charl_idx, charl_loc] > 0:
-            charl = charl_m[charl_idx, charl_loc]
+        if charl_idx.size > 0:
+            charl_idx = charl_idx[0]
+            if charl_m['CHARLSON_INDEX'][charl_idx] > 0:
+                charl = charl_m['CHARLSON_INDEX'][charl_idx]
+            for j in range(14):
+                charls[i, j] = charl_m['CC_GRP_%d' % (j+1)][charl_idx]
 
-        elix_idx = np.where(elix_m[:, 0] == tid)[0]
+        elix_idx = np.where(elix_m['STUDY_PATIENT_ID'].values == tid)[0]
         elix = np.nan
-        if elix_idx.size > 0 and elix_m[elix_idx, elix_loc] > 0:
-            elix = elix_m[elix_idx, elix_loc]
-        charls[i] = charl
-        elixs[i] = elix
+        if elix_idx.size > 0:
+            elix_idx = elix_idx[0]
+            if elix_m['ELIXHAUSER_INDEX'][elix_idx] > 0:
+                elix = elix_m['ELIXHAUSER_INDEX'][elix_idx]
+            for j in range(31):
+                elixs[i, j] = elix_m['ELX_GRP_%d' % (j + 1)][charl_idx]
+        charl_idxs[i] = charl
+        elix_idxs[i] = elix
 
-        smoke_idx = np.where(smoke_m[:, 0] == tid)[0]
+        smoke_idx = np.where(smoke_m['STUDY_PATIENT_ID'].values == tid)[0]
         smoker = 0
         if smoke_idx.size > 0:
             smoke_idx = smoke_idx[0]
-            if smoke_m[smoke_idx, former_smoke] == 'FORMER SMOKER':
+            if smoke_m['SMOKING_HISTORY_STATUS'][smoke_idx] == 'FORMER SMOKER':
                 smoker = 1
-            if smoke_m[smoke_idx, current_smoke] == 'YES':
+            if smoke_m['SMOKING_CURRENT_STATUS'][smoke_idx] == 'YES':
                 smoker = 1
         smokers[i] = smoker
-    return charls, elixs, smokers
+    del charl_m, elix_m, smoke_m
+    return charl_idxs, elix_idxs, smokers, charls, elixs
 
 
-def get_uky_fluids(ids, weights, io_m):
+def get_uky_fluids(ids, weights, dataPath=''):
+    io_m = pd.read_csv(os.path.join(dataPath, 'IO_TOTALS.csv'))
     nets = np.zeros(len(ids))
     tots = np.zeros(len(ids))
     fos = np.zeros(len(ids))
     for i in range(len(ids)):
         tid = ids[i]
         weight = weights[i]
-        io_idx = np.where(io_m[:, 0] == tid)[0]
+        io_idx = np.where(io_m['STUDY_PATIENT_ID'].values == tid)[0]
         if io_idx.size > 0:
             net = 0
             tot = 0
             for tid in io_idx:
-                if not np.isnan(io_m[tid, 1]) and not np.isnan(io_m[tid, 2]):
-                    net += (io_m[tid, 1] - io_m[tid, 2])
-                    tot += (io_m[tid, 1] + io_m[tid, 2])
-
-                if not np.isnan(io_m[tid, 3]) and not np.isnan(io_m[tid, 4]):
-                    net += (io_m[tid, 3] - io_m[tid, 4])
-                    tot += (io_m[tid, 3] + io_m[tid, 4])
-
-                if not np.isnan(io_m[tid, 5]) and not np.isnan(io_m[tid, 6]):
-                    net += (io_m[tid, 5] - io_m[tid, 6])
-                    tot += (io_m[tid, 5] + io_m[tid, 6])
+                for j in range(3):
+                    inval = io_m['IO_TOTALS_D%d_INVALUE' % j][tid]
+                    outval = io_m['IO_TOTALS_D%d_OUTVALUE' % j][tid]
+                    if not np.isnan(inval) and not np.isnan(outval):
+                        net += (inval - outval)
+                        tot += (inval + outval)
         else:
             net = np.nan
             tot = np.nan
@@ -539,11 +577,15 @@ def get_uky_fluids(ids, weights, io_m):
         nets[i] = net
         tots[i] = tot
         fos[i] = fo
+    del io_m
     return nets, tots, fos
 
 
-def get_uky_organsupp(ids, dieds, admits, organ_sup_mv, mech_vent_dates, organ_sup_ecmo, ecmo_dates,
-                      organ_sup_vad, vad_dates, organ_sup_iabp, iabp_dates):
+def get_uky_organsupp(ids, dieds, windows, dataPath=''):
+    organ_sup_mv = pd.read_csv(os.path.join(dataPath, 'ORGANSUPP_VENT.csv'))
+    organ_sup_vad = pd.read_csv(os.path.join(dataPath, 'ORGANSUPP_VAD.csv'))
+    organ_sup_ecmo = pd.read_csv(os.path.join(dataPath, 'ORGANSUPP_ECMO.csv'))
+    organ_sup_iabp = pd.read_csv(os.path.join(dataPath, 'ORGANSUPP_IABP.csv'))
     mech_flags = np.zeros(len(ids))
     mech_days = np.zeros(len(ids))
     mech_frees = np.zeros(len(ids))
@@ -553,20 +595,18 @@ def get_uky_organsupp(ids, dieds, admits, organ_sup_mv, mech_vent_dates, organ_s
     for i in range(len(ids)):
         tid = ids[i]
         died = dieds[i]
-        admit = admits[i]
+        admit = windows[tid][0]
         if type(admit) == 'str':
             admit = get_date(admit)
         mech_flag = 0
         mech_day = 0
         mech_free = 28
-        mech_idx = np.where(organ_sup_mv[:, 0] == tid)[0]
+        mech_idx = np.where(organ_sup_mv['STUDY_PATIENT_ID'].values == tid)[0]
         if mech_idx.size > 0:
             mech_idx = mech_idx[0]
             try:
-                start_str = organ_sup_mv[mech_idx, mech_vent_dates[0]]
-                mech_start = get_date(start_str)
-                stop_str = str(organ_sup_mv[mech_idx, mech_vent_dates[1]])
-                mech_stop = get_date(stop_str)
+                mech_start = get_date(organ_sup_mv['VENT_START_DATE'][mech_idx])
+                mech_stop = get_date(organ_sup_mv['VENT_STOP_DATE'][mech_idx])
                 if mech_stop < admit:
                     pass
                 elif (mech_start - admit).days > 28:
@@ -585,14 +625,12 @@ def get_uky_organsupp(ids, dieds, admits, organ_sup_mv, mech_vent_dates, organ_s
             mech_free = 0
 
         ecmo = 0
-        ecmo_idx = np.where(organ_sup_ecmo[:, 0] == tid)[0]
+        ecmo_idx = np.where(organ_sup_ecmo['STUDY_PATIENT_ID'].values == tid)[0]
         if ecmo_idx.size > 0:
             ecmo_idx = ecmo_idx[0]
             try:
-                start_str = str(organ_sup_ecmo[ecmo_idx, ecmo_dates[0]])
-                ecmo_start = get_date(start_str)
-                stop_str = str(organ_sup_ecmo[ecmo_idx, ecmo_dates[1]])
-                ecmo_stop = get_date(stop_str)
+                ecmo_start = get_date(organ_sup_ecmo['ECMO_START_DATE'][ecmo_idx])
+                ecmo_stop = get_date(organ_sup_ecmo['ECMO_STOP_DATE'][ecmo_idx])
                 if ecmo_stop < admit:
                     pass
                 elif (ecmo_start - admit).days > 28:
@@ -603,14 +641,12 @@ def get_uky_organsupp(ids, dieds, admits, organ_sup_mv, mech_vent_dates, organ_s
                 pass
 
         iabp = 0
-        iabp_idx = np.where(organ_sup_iabp[:, 0] == tid)[0]
+        iabp_idx = np.where(organ_sup_iabp['STUDY_PATIENT_ID'].values == tid)[0]
         if iabp_idx.size > 0:
             iabp_idx = iabp_idx[0]
             try:
-                start_str = str(organ_sup_iabp[iabp_idx, iabp_dates[0]])
-                iabp_start = get_date(start_str)
-                stop_str = str(organ_sup_iabp[iabp_idx, iabp_dates[1]])
-                iabp_stop = get_date(stop_str)
+                iabp_start = get_date(organ_sup_iabp['IABP_START_DATE'][iabp_idx])
+                iabp_stop = get_date(organ_sup_iabp['IABP_STOP_DATE'][iabp_idx])
                 if iabp_stop < admit:
                     pass
                 elif (iabp_start - admit).days > 28:
@@ -621,14 +657,12 @@ def get_uky_organsupp(ids, dieds, admits, organ_sup_mv, mech_vent_dates, organ_s
                 pass
 
         vad = 0
-        vad_idx = np.where(organ_sup_vad[:, 0] == tid)[0]
+        vad_idx = np.where(organ_sup_vad['STUDY_PATIENT_ID'].values == tid)[0]
         if vad_idx.size > 0:
             vad_idx = vad_idx[0]
             try:
-                start_str = str(organ_sup_vad[vad_idx, vad_dates[0]])
-                vad_start = get_date(start_str)
-                stop_str = str(organ_sup_vad[vad_idx, vad_dates[1]])
-                vad_stop = get_date(stop_str)
+                vad_start = get_date(organ_sup_vad['VAD_START_DATE'][vad_idx])
+                vad_stop = get_date(organ_sup_vad['VAD_STOP_DATE'][vad_idx])
                 if vad_stop < admit:
                     pass
                 elif (vad_start - admit).days > 28:
@@ -648,10 +682,12 @@ def get_uky_organsupp(ids, dieds, admits, organ_sup_mv, mech_vent_dates, organ_s
         ecmos[i] = ecmo
         vads[i] = vad
         iabps[i] = iabp
+    del organ_sup_mv, organ_sup_iabp, organ_sup_vad, organ_sup_ecmo
     return mech_flags, mech_days, mech_frees, ecmos, vads, iabps
 
 
-def get_uky_clinical_others(ids, clinical_oth, height_loc, weight_loc, fio2_locs, resp_locs, gcs_loc):
+def get_uky_clinical_others(ids, dataPath=''):
+    clinical_oth = pd.read_csv(os.path.join(dataPath, 'CLINICAL_OTHERS.csv'))
     bmis = np.zeros(len(ids))
     weights = np.zeros(len(ids))
     heights = np.zeros(len(ids))
@@ -666,18 +702,18 @@ def get_uky_clinical_others(ids, clinical_oth, height_loc, weight_loc, fio2_locs
         fio2 = np.array((np.nan, np.nan))
         gcs = np.array((np.nan, np.nan))
         resp = np.array((np.nan, np.nan))
-        co_rows = np.where(clinical_oth[:, 0] == tid)[0]
+        co_rows = np.where(clinical_oth['STUDY_PATIENT_ID'].values == tid)[0]
         if co_rows.size > 0:
             row = co_rows[0]
-            height = clinical_oth[row, height_loc] / 100
-            weight = clinical_oth[row, weight_loc]
+            height = clinical_oth['HEIGHT_CM_VALUE'][row] / 100
+            weight = clinical_oth['INITIAL_WEIGHT_KG'][row]
             if height > 0.2 and weight != 0:
                 bmi = weight / (height * height)
                 weight = weight
-            fio2 = clinical_oth[row, fio2_locs]
-            resp = clinical_oth[row, resp_locs]
+            fio2 = [clinical_oth['FI02_D1_LOW_VALUE'][row], clinical_oth['FI02_D1_HIGH_VALUE'][row]]
+            resp = [clinical_oth['RESP_RATE_D1_LOW_VALUE'][row], clinical_oth['RESP_RATE_D1_HIGH_VALUE'][row]]
             try:
-                gcs_str = np.array(str(clinical_oth[row, gcs_loc]).split('-'))
+                gcs_str = np.array(str(clinical_oth['GLASGOW_SCORE_D1_LOW_VALUE'][row]).split('-'))
                 if len(gcs_str) == 2:
                     gcs[0] = float(gcs_str[0])
                     gcs[1] = float(gcs_str[1])
@@ -692,48 +728,41 @@ def get_uky_clinical_others(ids, clinical_oth, height_loc, weight_loc, fio2_locs
     return bmis, weights, heights, fio2s, resps, gcss
 
 
-def get_uky_demographics(ids, admits, dem_m, sex_loc, eth_loc,
-                         dob_m, birth_loc):
-    males = np.zeros(len(ids))
+def get_uky_demographics(ids, hosp_windows, dataPath=''):
+    dem_m = pd.read_csv(os.path.join(dataPath, 'DEMOGRAPHICS_INDX.csv'))
+    dob_m = pd.read_csv(os.path.join(dataPath, 'DOB.csv'))
+    males = np.full(len(ids), np.nan)
     races = np.full(len(ids), np.nan)
-    ages = np.zeros(len(ids))
+    ages = np.full(len(ids), np.nan)
     for i in range(len(ids)):
         tid = ids[i]
-        male = 'nan'
-        dem_idx = np.where(dem_m[:, 0] == tid)[0]
+        dem_idx = np.where(dem_m['STUDY_PATIENT_ID'].values == tid)[0]
         if dem_idx.size > 0:
             dem_idx = dem_idx[0]
-            male = np.nan
-            if str(dem_m[dem_idx, sex_loc]).upper() == 'M':
-                male = 1
-            elif str(dem_m[dem_idx, sex_loc]).upper() == 'F':
-                male = 0
-            if type(admits) != dict:
-                admit = admits[i]
-            else:
-                admit = admits[tid][0]
-            admit = get_date(admit)
-            race = str(dem_m[dem_idx, eth_loc]).upper()
+            if str(dem_m['GENDER'][dem_idx]).upper() == 'M':
+                males[i] = 1
+            elif str(dem_m['GENDER'][dem_idx]).upper() == 'F':
+                males[i] = 0
+            admit = get_date(hosp_windows[tid][0])
+            race = str(dem_m['RACE'][dem_idx]).upper()
             if "WHITE" in race:
                 races[i] = 0
             elif "BLACK" in race:
                 races[i] = 1
             else:
                 races[i] = 2
-        age = 'nan'
-        dob_idx = np.where(dob_m[:, 0] == tid)[0]
+        dob_idx = np.where(dob_m['STUDY_PATIENT_ID'].values == tid)[0]
         if dob_idx.size > 0:
             dob_idx = dob_idx[0]
-            dob = get_date(dob_m[dob_idx, birth_loc])
+            dob = get_date(dob_m['DOB'][dob_idx])
             tage = admit - dob
-            age = tage.total_seconds() / (60 * 60 * 24 * 365)
-
-        males[i] = male
-        ages[i] = age
+            ages[i] = tage.total_seconds() / (60 * 60 * 24 * 365)
+    del dem_m, dob_m
     return males, races, ages
 
 
-def get_uky_rrt(ids, dieds, windows, dia_m, crrt_locs, hd_locs, hd_trt_loc):
+def get_uky_rrt(ids, dieds, windows, dataPath=''):
+    rrt_m = pd.read_csv(os.path.join(dataPath, 'RENAL_REPLACE_THERAPY.csv'))
     hd_dayss = np.zeros(len(ids))
     crrt_dayss = np.zeros(len(ids))
     hd_frees_7d = np.zeros(len(ids))
@@ -744,8 +773,8 @@ def get_uky_rrt(ids, dieds, windows, dia_m, crrt_locs, hd_locs, hd_trt_loc):
     hd_trtmts = np.zeros(len(ids))
     for i in range(len(ids)):
         tid = ids[i]
-        admit = windows[i][0]
-        disch = windows[i][1]
+        admit = windows[tid][0]
+        disch = windows[tid][1]
         died = dieds[i]
         if type(admit) == str:
             admit = get_date(admit)
@@ -760,12 +789,12 @@ def get_uky_rrt(ids, dieds, windows, dia_m, crrt_locs, hd_locs, hd_trt_loc):
         hd_free_28d = np.ones(28)
         crrt_free_7d = np.ones(7)
         crrt_free_28d = np.ones(28)
-        dia_ids = np.where(dia_m[:, 0] == tid)[0]
+        dia_ids = np.where(rrt_m['STUDY_PATIENT_ID'].values == tid)[0]
         if np.size(dia_ids) > 0:
             for row in dia_ids:
                 # CRRT
-                start = get_date(dia_m[row, crrt_locs[0]])
-                stop = get_date(dia_m[row, crrt_locs[1]])
+                start = get_date(rrt_m['CRRT_START_DATE'][row])
+                stop = get_date(rrt_m['CRRT_STOP_DATE'][row])
                 if start != 'nan' and stop != 'nan':
                     wstart = max(admit, start)
                     wstop = min(disch, stop)
@@ -788,13 +817,13 @@ def get_uky_rrt(ids, dieds, windows, dia_m, crrt_locs, hd_locs, hd_trt_loc):
                             te = (end28d - admit).days
                             crrt_free_28d[ts:te] = 0
                 # hd
-                start = get_date(dia_m[row, hd_locs[0]])
-                stop = get_date(dia_m[row, hd_locs[1]])
+                start = get_date(rrt_m['HD_START_DATE'][row])
+                stop = get_date(rrt_m['HD_STOP_DATE'][row])
                 if start != 'nan' and stop != 'nan':
                     wstart = max(admit, start)
                     wstop = min(disch, stop)
                     hd_days += (wstop - wstop).total_seconds() / (60 * 60 * 24)
-                    hd_trtmt += dia_m[row, hd_trt_loc]
+                    hd_trtmt += rrt_m['HD_TREATMENTS'][row]
                     if wstart < end7d:
                         if wstop < end7d:
                             ts = (start - admit).days
@@ -837,10 +866,12 @@ def get_uky_rrt(ids, dieds, windows, dia_m, crrt_locs, hd_locs, hd_trt_loc):
         crrt_frees_28d[i] = crrt_free_28d
         rrt_flags[i] = rrt_flag
         hd_trtmts[i] = hd_trtmt
+    del rrt_m
     return rrt_flags, hd_dayss, crrt_dayss, hd_frees_7d, hd_frees_28d, hd_trtmts, crrt_frees_7d, crrt_frees_28d
 
 
-def get_uky_diagnoses(ids, diag_m, diag_loc):
+def get_uky_diagnoses(ids, dataPath=''):
+    diag_m = pd.read_csv(os.path.join(dataPath, 'DIAGNOSIS.csv'))
     sepsiss = np.zeros(len(ids))
     diabetics = np.zeros(len(ids))
     hypertensives = np.zeros(len(ids))
@@ -849,24 +880,31 @@ def get_uky_diagnoses(ids, diag_m, diag_loc):
         sepsis = 0
         diabetic = 0
         hypertensive = 0
-        diag_ids = np.where(diag_m[:, 0] == tid)[0]
+        diag_ids = np.where(diag_m['STUDY_PATIENT_ID'].values == tid)[0]
         for j in range(len(diag_ids)):
             tid = diag_ids[j]
-            if 'sep' in str(diag_m[tid, diag_loc]).lower():
-                # if int(diag_m[tid, diag_nb_loc]) == 1:
-                sepsis = 1
-            if 'diabe' in str(diag_m[tid, diag_loc]).lower():
-                diabetic = 1
-            if 'hypert' in str(diag_m[tid, diag_loc]).lower():
-                hypertensive = 1
+            try:
+                desc = diag_m['DIAGNOSIS_DESC'][tid].lower()
+                if 'sep' in desc:
+                    # if int(diag_m[tid, diag_nb_loc]) == 1:
+                    sepsis = 1
+                if 'diabe' in desc:
+                    diabetic = 1
+                if 'hypert' in desc:
+                    hypertensive = 1
+            except AttributeError:
+                pass
         sepsiss[i] = sepsis
         diabetics[i] = diabetic
         hypertensives[i] = hypertensive
+    del diag_m
     return sepsiss, diabetics, hypertensives
 
 
-def get_uky_labs(ids, males, labs1_m, bili_loc, bun_locs, hemat_locs, hemo_locs, pltlt_loc, na_locs, pk_locs, bicarb_locs,
-                 labs2_m, alb_loc, lac_loc, blood_m, ph_locs, po2_locs, pco2_locs, wbc_locs):
+def get_uky_labs(ids, males, dataPath=''):
+    labs1_m = pd.read_csv(os.path.join(dataPath, 'LABS_SET1.csv'))
+    labs2_m = pd.read_csv(os.path.join(dataPath, 'LABS_SET2.csv'))
+    blood_m = pd.read_csv(os.path.join(dataPath, 'BLOOD_GAS.csv'))
     anemics = np.zeros((len(ids), 3))
     bilis = np.zeros(len(ids))
     buns = np.zeros((len(ids), 4))
@@ -896,18 +934,19 @@ def get_uky_labs(ids, males, labs1_m, bili_loc, bun_locs, hemat_locs, hemo_locs,
         pk = np.array((np.nan, np.nan))
         wbc = np.array((np.nan, np.nan))
         bicarb = np.array((np.nan, np.nan))
-        lab_idx = np.where(labs1_m[:, 0] == tid)[0]
+        lab_idx = np.where(labs1_m['STUDY_PATIENT_ID'].values == tid)[0]
         if lab_idx.size > 0:
             lab_idx = lab_idx[0]
-            bili = labs1_m[lab_idx, bili_loc]
-            bun = labs1_m[lab_idx, bun_locs]
-            hemat = labs1_m[lab_idx, hemat_locs]
-            hemo = labs1_m[lab_idx, hemo_locs]
-            pltlt = labs1_m[lab_idx, pltlt_loc]
-            na = labs1_m[lab_idx, na_locs]
-            pk = labs1_m[lab_idx, pk_locs]
-            wbc = labs1_m[lab_idx, wbc_locs]
-            bicarb = labs1_m[lab_idx, bicarb_locs]
+            bili = labs1_m['BILIRUBIN_D1_HIGH_VALUE'][lab_idx]
+            bun = [labs1_m['BUN_D0_HIGH_VALUE'][lab_idx], labs1_m['BUN_D1_HIGH_VALUE'][lab_idx],
+                   labs1_m['BUN_D2_HIGH_VALUE'][lab_idx], labs1_m['BUN_D3_HIGH_VALUE'][lab_idx]]
+            hemat = [labs1_m['HEMATOCRIT_D1_LOW_VALUE'][lab_idx], labs1_m['HEMATOCRIT_D1_HIGH_VALUE'][lab_idx]]
+            hemo = [labs1_m['HEMOGLOBIN_D1_LOW_VALUE'][lab_idx], labs1_m['HEMOGLOBIN_D1_HIGH_VALUE'][lab_idx]]
+            pltlt = labs1_m['PLATELETS_D1_LOW_VALUE'][lab_idx]
+            na = [labs1_m['SODIUM_D1_LOW_VALUE'][lab_idx], labs1_m['SODIUM_D1_HIGH_VALUE'][lab_idx]]
+            pk = [labs1_m['POTASSIUM_D1_LOW_VALUE'][lab_idx], labs1_m['POTASSIUM_D1_HIGH_VALUE'][lab_idx]]
+            wbc = [labs1_m['WBC_D1_LOW_VALUE'][lab_idx], labs1_m['WBC_D1_HIGH_VALUE'][lab_idx]]
+            bicarb = [labs1_m['CO2_D1_LOW_VALUE'][lab_idx], labs1_m['CO2_D1_HIGH_VALUE'][lab_idx]]
             # definition A
             if male:
                 if hemat[0] < 39 or hemo[0] < 18:
@@ -923,13 +962,13 @@ def get_uky_labs(ids, males, labs1_m, bili_loc, bun_locs, hemat_locs, hemo_locs,
                 anemic[2] = 1
 
         # Labs set 2
-        lab_idx = np.where(labs2_m[:, 0] == tid)[0]
+        lab_idx = np.where(labs2_m['STUDY_PATIENT_ID'].values == tid)[0]
         alb = np.nan
         lac = np.nan
         if lab_idx.size > 0:
             lab_idx = lab_idx[0]
-            alb = labs2_m[lab_idx, alb_loc]
-            lac = labs2_m[lab_idx, lac_loc]
+            alb = labs2_m['ALBUMIN_VALUE'][lab_idx]
+            lac = labs2_m['LACTATE_SYRINGE_ION_VALUE'][lab_idx]
 
         anemics[i] = anemic
         bilis[i] = bili
@@ -946,18 +985,19 @@ def get_uky_labs(ids, males, labs1_m, bili_loc, bun_locs, hemat_locs, hemo_locs,
 
         # ph_loc, po2_loc, pco2_loc,
         # Blood gas
-        blood_idx = np.where(blood_m[:, 0] == tid)[0]
+        blood_idx = np.where(blood_m['STUDY_PATIENT_ID'].values == tid)[0]
         ph = np.array((np.nan, np.nan))
         po2 = np.array((np.nan, np.nan))
         pco2 = np.array((np.nan, np.nan))
         if blood_idx.size > 0:
             blood_idx = blood_idx[0]
-            ph = blood_m[blood_idx, ph_locs]
-            po2 = blood_m[blood_idx, po2_locs]
-            pco2 = blood_m[blood_idx, pco2_locs]
+            ph = [blood_m['PH_D1_LOW_VALUE'][blood_idx], blood_m['PH_D1_HIGH_VALUE'][blood_idx]]
+            po2 = [blood_m['PO2_D1_LOW_VALUE'][blood_idx], blood_m['PO2_D1_HIGH_VALUE'][blood_idx]]
+            pco2 = [blood_m['PCO2_D1_LOW_VALUE'][blood_idx], blood_m['PCO2_D1_HIGH_VALUE'][blood_idx]]
         phs[i] = ph
         po2s[i] = po2
         pco2s[i] = pco2
+    del labs1_m, labs2_m, blood_m
     return anemics, bilis, buns, hemats, hemos, pltlts, nas, pks, albs, lacs, phs, po2s, pco2s, wbcs, bicarbs
 
 
@@ -2035,6 +2075,79 @@ def get_utsw_diagnoses(ids, icu_windows, hosp_windows, dataPath):
         diabetics[i] = diabetic
         hypertensives[i] = hypertensive
     return septics, diabetics, hypertensives
+
+
+def get_utsw_mortality(ids, icu_windows, hosp_windows, dataPath):
+    usrds_m = pd.read_csv(os.path.join(dataPath, 'tUSRDS.csv'))
+    pat_m = pd.read_csv(os.path.join(dataPath, 'tPatients.csv'))
+    died_inps = np.zeros(len(ids))
+    died_90d_admit = np.zeros(len(ids))
+    died_90d_disch = np.zeros(len(ids))
+    died_120d_admit = np.zeros(len(ids))
+    died_120d_disch = np.zeros(len(ids))
+    dtds = np.zeros(len(ids))
+    dods = np.zeros(len(ids), dtype='|S20')
+    dods[:] = 'nan'
+    for i in range(len(ids)):
+        tid = ids[i]
+        died_inp = 0
+        died_90a = 0
+        died_90d = 0
+        died_120a = 0
+        died_120d = 0
+        admit = icu_windows[i][0]
+        disch = hosp_windows[i][1]
+        icu_disch = icu_windows[i][1]
+        dtd = np.nan
+        dod = 'nan'
+
+        if type(admit) != datetime.datetime:
+            admit = get_date(str(admit))
+            disch = get_date(str(disch))
+
+        idx = np.where(pat_m['PATIENT_NUM'].values == tid)[0][0]
+        tm = get_date(str(pat_m['DOD_Epic'][idx]))
+        if tm != 'nan':
+            dod = tm
+        tm = get_date(str(pat_m['DOD_NDRI'][idx]))
+        if tm != 'nan':
+            dod = tm
+        tm = get_date(str(pat_m['DMF_DEATH_DATE'][idx]))
+        if tm != 'nan':
+            dod = tm
+
+        idx = np.where(usrds_m['PATIENT_NUM'].values == tid)[0]
+        if idx.size > 0:
+            idx = idx[0]
+            tm = get_date(usrds_m['DIED'][idx])
+            if tm != 'nan':
+                if dod != 'nan':
+                    if tm != dod:
+                        print('Patient %d has DOD mismatch' % tid)
+                        print('EHR: %s\tUSRDS: %s' % (str(dod), str(tm)))
+                    dod = min(dod, tm)
+                dod = tm
+
+        if dod != 'nan':
+            if dod < disch or dod.toordinal() == disch.toordinal():
+                died_inp = 1
+            if (dod - disch) < datetime.timedelta(90):
+                died_90d = 1
+            if (dod - disch) < datetime.timedelta(120):
+                died_120d = 1
+            if (dod - admit) < datetime.timedelta(90):
+                died_90a = 1
+            if (dod - admit) < datetime.timedelta(120):
+                died_120a = 1
+            dtd = (dod - admit).total_seconds() / (60*60*24)
+        died_inps[i] = died_inp
+        died_90d_admit[i] = died_90a
+        died_90d_disch[i] = died_90d
+        died_120d_admit[i] = died_120a
+        died_120d_disch[i] = died_120d
+        dods[i] = str(dod)
+        dtds[i] = dtd
+    return died_inps, died_90d_admit, died_90d_disch, died_120d_admit, died_120d_disch, dods, dtds 
 
 
 def get_utsw_demographics(ids, dem_m, dob_loc, sex_loc, eth_locs, dod_locs, hosp_windows):
@@ -4942,7 +5055,7 @@ def get_MAKE90(ids, stats, datapath, out, ref='disch', min_day=7, buffer=0, ct=1
     dods = stats['dod'][:].astype('unicode')
 
     # print('id,died,gfr_drop,new_dialysis')
-    out.write('id,died_inp,died_in_window,esrd_manual_revision,esrd_scm,esrd_usrds,new_dialysis_manual_revision,new_dialysis,gfr_drop_25,gfr_drop_50,n_vals,delta\n')
+    out.write('id,died_inp,died_in_window,esrd_manual_revision,esrd_scm,esrd_usrds,new_dialysis_manual_revision,new_dialysis,gfr_drop_25,gfr_drop_30,gfr_drop_50,n_vals,delta\n')
     scores = []
     out_ids = []
     for i in range(len(ids)):
@@ -4957,12 +5070,15 @@ def get_MAKE90(ids, stats, datapath, out, ref='disch', min_day=7, buffer=0, ct=1
         race = races[i]
         age = ages[i]
 
-        died = 0
+        died90 = 0
+        diedbuf = 0
         esrd = 0
         esrd_man = 0
         esrd_scm = 0
-        esrd_usrds = 0
+        esrd_usrds90 = 0
+        esrd_usrdsbuf = 0
         gfr_drop_25 = 0
+        gfr_drop_30= 0
         gfr_drop_50 = 0
         dia_dep_man = 0
         dia_dep = 0
@@ -4980,7 +5096,9 @@ def get_MAKE90(ids, stats, datapath, out, ref='disch', min_day=7, buffer=0, ct=1
         dod = get_date(dods[idx])
         if dod != 'nan':
             if dod - tmin < datetime.timedelta(90):
-                died = 1
+                died90 = 1
+            if dod - tmin < datetime.timedelta(90 + buffer):
+                diedbuf = 1
 
         # ESRD
         # Check manual revision first
@@ -5005,7 +5123,9 @@ def get_MAKE90(ids, stats, datapath, out, ref='disch', min_day=7, buffer=0, ct=1
             tdate = get_date(usrds_esrd_m[esrd_dloc[0], usrds_esrd_date_loc])
             if tdate != 'nan':
                 if datetime.timedelta(0) < tdate - tmin < datetime.timedelta(90):
-                    esrd_usrds = 1
+                    esrd_usrds90 = 1
+                if datetime.timedelta(0) < tdate - tmin < datetime.timedelta(90 + buffer):
+                    esrd_usrdsbuf = 1
 
         dia_locs = np.where(rrt_m[:, 0] == tid)[0]
         for j in range(len(dia_locs)):
@@ -5018,31 +5138,14 @@ def get_MAKE90(ids, stats, datapath, out, ref='disch', min_day=7, buffer=0, ct=1
                 tstart = get_date(rrt_m[dia_locs[j], hd_locs[0]])
                 tstop = get_date(rrt_m[dia_locs[j], hd_locs[1]])
 
-            # if tstart <= admit:
-            #     if tstop >= disch - datetime.timedelta(2):
-            #         dia_dep = 1
             if tstart <= disch:
                 if tstop >= disch - datetime.timedelta(2):
                     dia_dep = 1
-            # # Must be on RRT within the 48hrs prior to discharge
-            # if ref == 'admit':
-            #     if tstart != 'nan':
-            #         if datetime.timedelta(1) < tstart - tmin < datetime.timedelta(90):
-            #             dia_dep = 1
-            #     if tstop != 'nan':
-            #         if datetime.timedelta(1) <= tstop - tmin < datetime.timedelta(90):
-            #             dia_dep = 1
-            # if ref == 'disch':
-            #     if tstart != 'nan':
-            #         if datetime.timedelta(-2) < tstart - tmin < datetime.timedelta(90):
-            #             dia_dep = 1
-            #     if tstop != 'nan':
-            #         if datetime.timedelta(-2) <= tstop - tmin < datetime.timedelta(90):
-            #             dia_dep = 1
 
         nvals = 0
         delta_str = 'not_evaluated'
-        if not died and not dia_dep and not esrd:
+        # Only evaluates drop in eGFR if patient survived and is not dialysis dependent
+        if not died90 and not dia_dep and not esrd:
             gfr90 = 1000
             delta = 90
             gfrs = []
@@ -5079,6 +5182,11 @@ def get_MAKE90(ids, stats, datapath, out, ref='disch', min_day=7, buffer=0, ct=1
                     deltas = np.array(deltas)
                     o = np.argsort(np.abs(deltas))
                     gfr90 = np.mean(gfrs[o[:tct]])
+                    tdiffs = deltas[o[:tct]]
+                    while max(tdiffs) - min(tdiffs) > 30 and tct > 1:
+                        tct -= 1
+                        gfr90 = np.mean(gfrs[o[:tct]])
+                        tdiffs = deltas[o[:tct]]
                     delta = deltas[o[0]]
                     delta_str = str(delta)
                     nvals = tct
@@ -5087,14 +5195,18 @@ def get_MAKE90(ids, stats, datapath, out, ref='disch', min_day=7, buffer=0, ct=1
             rel_pct = (gfr90 / bsln_gfr) * 100
             if rel_pct < thresh:
                 gfr_drop_25 = 1
+            thresh = 100 - 30
+            rel_pct = (gfr90 / bsln_gfr) * 100
+            if rel_pct < thresh:
+                gfr_drop_30 = 1
             thresh = 100 - 50
             rel_pct = (gfr90 / bsln_gfr) * 100
             if rel_pct < thresh:
                 gfr_drop_50 = 1
 
         out_ids.append(tid)
-        out.write('%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s\n' % (tid, died_inp, died, esrd_man, esrd_scm, esrd_usrds, dia_dep_man, dia_dep, gfr_drop_25, gfr_drop_50, nvals, delta_str))
-        scores.append(np.array((died_inp, died, esrd_man, esrd_scm, esrd_usrds, dia_dep_man, dia_dep, gfr_drop_25, gfr_drop_50)))
+        out.write('%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s\n' % (tid, died_inp, died90, diedbuf, esrd_man, esrd_scm, esrd_usrds90, esrd_usrdsbuf, dia_dep_man, dia_dep, gfr_drop_25, gfr_drop_30, gfr_drop_50, nvals, delta_str))
+        scores.append(np.array((died_inp, died90, esrd_man, esrd_scm, esrd_usrds90, dia_dep_man, dia_dep, gfr_drop_25, gfr_drop_30, gfr_drop_50)))
         # print('%d,%d,%d,%d' % (idx, died, gfr_drop, dia_dep))
     scores = np.array(scores)
     return scores, out_ids
@@ -5157,6 +5269,7 @@ def get_MAKE90_dallas(ids, stats, dataPath,
         esrd_scm = 0
         esrd_usrds = 0
         gfr_drop_25 = 0
+        gfr_drop_30 = 0
         gfr_drop_50 = 0
         dia_dep = 0
 
@@ -5245,6 +5358,11 @@ def get_MAKE90_dallas(ids, stats, dataPath,
                     deltas = np.array(deltas)
                     o = np.argsort(np.abs(deltas))
                     gfr90 = np.mean(gfrs[o[:tct]])
+                    tdiffs = deltas[o[:tct]]
+                    while max(tdiffs) - min(tdiffs) > 30 and tct > 1:
+                        tct -= 1
+                        gfr90 = np.mean(gfrs[o[:tct]])
+                        tdiffs = deltas[o[:tct]]
                     delta = deltas[o[0]]
                     delta_str = str(delta)
                     nvals = tct
@@ -5253,16 +5371,20 @@ def get_MAKE90_dallas(ids, stats, dataPath,
             rel_pct = (gfr90 / bsln_gfr) * 100
             if rel_pct < thresh:
                 gfr_drop_25 = 1
+            thresh = 100 - 30
+            rel_pct = (gfr90 / bsln_gfr) * 100
+            if rel_pct < thresh:
+                gfr_drop_30 = 1
             thresh = 100 - 50
             rel_pct = (gfr90 / bsln_gfr) * 100
             if rel_pct < thresh:
                 gfr_drop_50 = 1
 
         out_ids.append(tid)
-        out.write('%d,%d,%d,%d,%d,%d,%d,%d,%d,%s\n' % (tid, died_inp, died_win, esrd_scm, esrd_usrds, dia_dep,
-                                                    gfr_drop_25, gfr_drop_50, nvals, delta_str))
+        out.write('%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s\n' % (tid, died_inp, died_win, esrd_scm, esrd_usrds, dia_dep,
+                                                    gfr_drop_25, gfr_drop_30, gfr_drop_50, nvals, delta_str))
         scores.append(
-            np.array((died_inp, died_inp, esrd_scm, esrd_usrds, dia_dep, gfr_drop_25, gfr_drop_50)))
+            np.array((died_inp, died_inp, esrd_scm, esrd_usrds, dia_dep, gfr_drop_25, gfr_drop_30, gfr_drop_50)))
         # print('%d,%d,%d,%d' % (idx, died, gfr_drop, dia_dep))
     scores = np.array(scores)
     return scores, out_ids
