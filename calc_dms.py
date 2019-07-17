@@ -1,7 +1,7 @@
 import os
 import numpy as np
-from kdigo_funcs import load_csv, extension_penalty_func, mismatch_penalty_func, \
-    pairwise_dtw_dist, get_custom_distance_discrete
+from utility_funcs import load_csv
+from dtw_distance import extension_penalty_func, mismatch_penalty_func, pairwise_dtw_dist, get_custom_distance_discrete
 import h5py
 import argparse
 import json
@@ -67,7 +67,7 @@ if not os.path.exists(dtw_path):
 
 # load corresponding KDIGO scores and their associated days post admission
 kdigos = load_csv(os.path.join(dataPath, 'kdigo.csv'), ids, int)
-days = load_csv(os.path.join(dataPath, 'days_interp_icu.csv'), ids, int)
+days = load_csv(os.path.join(dataPath, 'days_interp.csv'), ids, int)
 
 # Build filename to distinguish different matrices and specify the
 # mismatch and extension penalties

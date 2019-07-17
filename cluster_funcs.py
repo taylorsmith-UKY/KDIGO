@@ -883,7 +883,6 @@ def getClusterMembership(ids, kdigos, days, lbls, center_kdigos, center_days, mi
 #     return all_daily
 
 
-
 def inter_intra_dist(sqdm, lbls, lbl_grps):
     intras = np.zeros(len(lbls))
     inters_all = np.zeros(len(lbls))

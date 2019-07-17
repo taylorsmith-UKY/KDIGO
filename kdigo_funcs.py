@@ -19,6 +19,7 @@ def get_dialysis_mask(dataPath='', scr_fname='SCR_ALL_VALUES.csv', rrt_fname='RE
     '''
     # mask is same length as number of SCr records
     scr_m = pd.read_csv(os.path.join(dataPath, scr_fname))
+    scr_m.sort_values(by=['STUDY_PATIENT_ID', 'SCR_ENTERED'], inplace=True)
     rrt_m = pd.read_csv(os.path.join(dataPath, rrt_fname))
     mask = np.zeros(len(scr_m))
     # Get column indices corresponding to different types of RRT
@@ -233,6 +234,7 @@ def get_t_mask(dataPath='', scr_fname='SCR_ALL_VALUES.csv', date_fname = 'ADMISS
     :return:
     '''
     scr_m = pd.read_csv(os.path.join(dataPath, scr_fname))
+    scr_m.sort_values(by=['STUDY_PATIENT_ID', 'SCR_ENTERED'], inplace=True)
     date_m = pd.read_csv(os.path.join(dataPath, date_fname))
     for k in list(date_m):
         kv = k.lower()
@@ -447,30 +449,36 @@ def get_exclusion_criteria(ids, mask, icu_windows, genders, races, ages, dataPat
         else:
             death_dur = np.nan
 
-        # remove if ESRD status
-        # Check manual revision
-        esrd_idx = np.where(esrd_man_rev['STUDY_PATIENT_ID'].values == tid)[0]
+        # Check scm flags
+        esrd_idx = np.where(scm_esrd_m['STUDY_PATIENT_ID'].values == tid)[0]
+        scm = 0
         if len(esrd_idx) > 0:
             esrd_idx = esrd_idx[0]
-            if esrd_man_rev['before'][esrd_idx]:
-                exclusions[i][ESRD] = 1
-        else:
-            # Check scm flags
-            esrd_idx = np.where(scm_esrd_m['STUDY_PATIENT_ID'].values == tid)[0]
-            if len(esrd_idx) > 0:
-                esrd_idx = esrd_idx[0]
-                if scm_esrd_m['BEFORE_INDEXED_INDICATOR'][esrd_idx] == 'Y' or scm_esrd_m['AT_INDEXED_INDICATOR'][esrd_idx] == 'Y':
+            if scm_esrd_m['BEFORE_INDEXED_INDICATOR'][esrd_idx] == 'Y' or scm_esrd_m['AT_ADMISSION_INDICATOR'][esrd_idx] == 'Y':
+                scm = 1
+                # exclusions[i][ESRD] = 1
+        # Check USRDS
+        esrd_idx = np.where(usrds_esrd_m['STUDY_PATIENT_ID'].values == tid)[0]
+        usrds = 0
+        if len(esrd_idx) > 0:
+            esrd_idx = esrd_idx[0]
+            tdate = get_date(str(usrds_esrd_m['ESRD_DATE'][esrd_idx]))
+            if tdate != 'nan':
+                if tdate < icu_admit:  # Before admit
                     exclusions[i][ESRD] = 1
-            # Check USRDS
-            esrd_idx = np.where(usrds_esrd_m['STUDY_PATIENT_ID'].values == tid)[0]
+                    usrds = 1
+                elif icu_admit.toordinal() == tdate.toordinal():  # Same day as admit
+                    exclusions[i][ESRD] = 1
+                    usrds = 1
+        if scm != usrds:
+            # Check manual revision
+            esrd_idx = np.where(esrd_man_rev['STUDY_PATIENT_ID'].values == tid)[0]
             if len(esrd_idx) > 0:
                 esrd_idx = esrd_idx[0]
-                tdate = get_date(str(usrds_esrd_m['ESRD_DATE'][esrd_idx]))
-                if tdate != 'nan':
-                    if tdate < icu_admit:  # Before admit
-                        exclusions[i][ESRD] = 1
-                    elif icu_admit - tdate < 1 and icu_admit.day == tdate.day:  # Same day as admit
-                        exclusions[i][ESRD] = 1
+                if esrd_man_rev['before'][esrd_idx]:
+                    exclusions[i][ESRD] = 1
+        else:
+            exclusions[i][ESRD] = scm
 
         # remove patients with baseline GFR < 15
         if bsln != 'nan' and age != 'nan':
@@ -887,7 +895,7 @@ def interpolate_scr(scrs, dates, dmasks, scale):
     end_date = get_date(dates[-1])
 
     tot_hrs = (end_date - start_bin_time).total_seconds() / (60 * 60)
-    nbins = int(np.floor((tot_hrs / scale)))
+    nbins = int(np.floor((tot_hrs / scale)) + 1)
 
     trueVals = {}
 
@@ -921,17 +929,34 @@ def interpolate_scr(scrs, dates, dmasks, scale):
             else:
                 idia[idx:idx + (2 * bins_per_day)] = np.repeat(1, 2 * bins_per_day)
 
-    # Build the corresponding vector indicating to which day each point belongs (including for those yet to be imputed)
-    interpolator = interp1d(sorted(trueVals), [trueVals[x] for x in sorted(trueVals)])
-    for i in range(nbins):
-        iscr[i] = interpolator(i)
+    if nbins > 1:
+        # Build the corresponding vector indicating to which day each point belongs (including for those yet to be imputed)
+        interpolator = interp1d(sorted(trueVals), [trueVals[x] for x in sorted(trueVals)])
+        for i in range(nbins):
+            iscr[i] = interpolator(i)
 
-    idays = list(
-        np.concatenate([[d for _ in range(bins_per_day)] for d in range(int(np.ceil(nbins / bins_per_day)) + 1)]))
+        idays = list(
+            np.concatenate([[d for _ in range(bins_per_day)] for d in range(int(np.ceil(nbins / bins_per_day)) + 1)]))
 
-    for i in range(start_bin):
-        _ = idays.pop(0)
-    idays = np.array(idays, dtype=int)[:nbins]
+        for i in range(start_bin):
+            _ = idays.pop(0)
+        idays = np.array(idays, dtype=int)[:nbins]
+    else:
+        iscr = scrs
+        if len(scrs) > 1:
+            iscr = [np.mean(scrs)]
+            idia = [max(dmasks)]
+            idays = [0]
+        elif len(scrs) == 1:
+            iscr = scrs
+            idays = [0]
+            imask = [1]
+            idia = dmasks
+        else:
+            idays = []
+            imask = []
+            idia = []
+    assert len(iscr) == len(idays) == len(imask) == len(idia)
     return iscr, idays, imask, idia
 
 

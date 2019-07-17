@@ -6,8 +6,8 @@ Created on Wed Nov 29 13:15:39 2017
 @author: taylorsmith
 """
 from __future__ import division
-from kdigo_funcs import load_csv, calc_gfr, get_date, daily_max_kdigo_interp, daily_max_kdigo_aligned, dtw_p,\
-    mismatch_penalty_func, extension_penalty_func
+from kdigo_funcs import load_csv, calc_gfr, get_date
+from dtw_distance import dtw_p, mismatch_penalty_func, extension_penalty_func
 import datetime
 import numpy as np
 import re
@@ -206,7 +206,7 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
         meta.create_dataset('dopa', data=dopas, dtype=float)
         meta.create_dataset('epinephrine', data=epis, dtype=float)
 
-    if 'anemic' not in list(meta):
+    if 'anemia' not in list(meta):
         print('Getting labs...')
         anemics, bilis, buns, \
         hemats, hemos, pltlts, \
@@ -265,7 +265,7 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
 
         for i in range(len(ids)):
             tid = ids[i]
-            td = days[i]
+            td = np.array(days[i])
             (hosp_admit, hosp_disch) = hosp_windows[tid]
             (icu_admit, icu_disch) = icu_windows[tid]
 
@@ -453,16 +453,19 @@ def get_uky_mortality(ids, hosp_windows, icu_windows, dataPath=''):
             disch = get_date(str(disch))
 
         mdate = 'nan'
-        didx = np.where(date_m['STUDY_PATIENT_ID'].values == tid)[0][0]
-        disch_disp = date_m['DISCHARGE_DISPOSITION'][didx]
-        try:
-            disch_disp = disch_disp.upper()
-            if 'EXPIRED' in disch_disp or 'DIED' in disch_disp:
-                died_inp = 1
-                mdate = disch
-                tstr = str(mdate)
-        except AttributeError:
-            pass
+        disch_disp = 'nan'
+        didx = np.where(date_m['STUDY_PATIENT_ID'].values == tid)[0]
+        if didx.size > 0:
+            disch_disp = date_m['DISCHARGE_DISPOSITION'][didx]
+            try:
+                disch_disp = disch_disp.upper()
+                if 'EXPIRED' in disch_disp or 'DIED' in disch_disp:
+                    died_inp = 1
+                    died_90d = 1
+                    died_120d = 1
+                    mdate = disch
+            except AttributeError:
+                pass
 
         mort_idx = np.where(mort_m['STUDY_PATIENT_ID'].values == tid)[0]
         if mort_idx.size > 0:
@@ -3544,288 +3547,6 @@ def formatted_stats(meta, label_path):
 
 
 # %%
-def plot_daily_kdigos(datapath, ids, stat_file, sqdm, lbls, outpath='',
-                      max_day=7, cutoff=None, align=False, template_min_length=7, lsize=8):
-    '''
-    Plot the daily KDIGO score for each cluster indicated in lbls. Plots the following figures:
-        center - only plot the single patient closest to the cluster center
-        all_w_mean - plot all individual patient vectors, along with a bold line indicating the cluster mean
-        mean_conf - plot the cluster mean, along with the 95% confidence interval band
-        mean_std - plot the cluster mean, along with a band indicating 1 standard deviation
-    :param datapath: fully qualified path to the directory containing KDIGO vectors
-    :param ids: list of IDs
-    :param stat_file: file handle for the file containing all patient statistics
-    :param sqdm: square distance matrix for all patients in ids
-    :param lbls: corresponding cluster labels for all patients
-    :param outpath: fully qualified base directory to save figures
-    :param max_day: how many days to include in the figures
-    :param cutoff: optional... if cutoff is supplied, then the mean for days 0 - cutoff will be blue, whereas days
-                    cutoff - max_day will be plotted red with a dotted line
-    :return:
-    '''
-    transition_costs = [1.00,  # [0 - 1]
-                        2.95,  # [1 - 2]
-                        4.71,  # [2 - 3]
-                        7.62]  # [3 - 4]
-    mismatch = mismatch_penalty_func(*transition_costs)
-    extension = extension_penalty_func(*transition_costs)
-
-    c_lbls = np.unique(lbls)
-    n_clusters = len(c_lbls)
-    if np.ndim(sqdm) == 1:
-        sqdm = squareform(sqdm)
-    if type(lbls) is list:
-        lbls = np.array(lbls, dtype=str)
-
-    scrs = load_csv(os.path.join(datapath, 'scr_raw.csv'), ids)
-    bslns = load_csv(os.path.join(datapath, 'baselines.csv'), ids)
-    dmasks = load_csv(os.path.join(datapath, 'dmasks_interp.csv'), ids, dt=int)
-    kdigos = load_csv(os.path.join(datapath, 'kdigo.csv'), ids, dt=int)
-    days_interp = load_csv(os.path.join(datapath, 'days_interp.csv'), ids, dt=int)
-    str_admits = load_csv(os.path.join(datapath, 'patient_summary.csv'), ids, dt=str, idxs=1, skip_header=True)
-    admits = []
-    for i in range(len(ids)):
-        admits.append(datetime.datetime.strptime('%s' % str_admits[i], '%Y-%m-%d %H:%M:%S'))
-
-    str_dates = load_csv(datapath + 'dates.csv', ids, dt=str)
-    for i in range(len(ids)):
-        for j in range(len(str_dates[i])):
-            str_dates[i][j] = str_dates[i][j].split('.')[0]
-    dates = []
-    for i in range(len(ids)):
-        temp = []
-        for j in range(len(str_dates[i])):
-            temp.append(datetime.datetime.strptime('%s' % str_dates[i][j], '%Y-%m-%d %H:%M:%S'))
-        dates.append(temp)
-
-    center_kdigos = {}
-    center_days = {}
-    center_idx = []
-    for lbl in c_lbls:
-        idx = np.where(lbls == lbl)[0]
-        sel = np.ix_(idx, idx)
-        tdm = sqdm[sel]
-        intra = np.sum(tdm, axis=0)
-        o = np.argsort(intra)
-        ct = 0
-        cidx = idx[o[ct]]
-        while max(days_interp[cidx]) < template_min_length:
-            ct += 1
-            cidx = idx[o[ct]]
-        center_kdigos[lbl] = kdigos[cidx][np.where(days_interp[cidx] <= max_day)]
-        center_days[lbl] = days_interp[cidx][np.where(days_interp[cidx] <= max_day)]
-        center_idx.append(cidx)
-
-    blank_daily = np.repeat(np.nan, max_day + 2)
-    all_daily = np.vstack([blank_daily for x in range(len(ids))])
-    for i in range(len(ids)):
-        l = np.min([len(x) for x in [scrs[i], dates[i], dmasks[i]]])
-        if l < 2:
-            continue
-        # tmax = daily_max_kdigo(scrs[i][:l], dates[i][:l], bslns[i], admits[i], dmasks[i][:l], tlim=max_day)
-        # tmax = daily_max_kdigo(scrs[i][:l], days[i][:l], bslns[i], dmasks[i][:l], tlim=max_day)
-        if align:
-            tkdigo = kdigos[i][np.where(days_interp[i] <= max_day)]
-            _, _, _, path = dtw_p(tkdigo, center_kdigos[lbls[i]], mismatch=mismatch, extension=extension)
-            tkdigo = tkdigo[path[0]]
-            # tmax = daily_max_kdigo_aligned(tkdigo[:len(center_kdigos[lbls[i]])])
-            tmax = daily_max_kdigo_interp(tkdigo[:len(center_kdigos[lbls[i]])], center_days[lbls[i]], tlim=max_day)
-        else:
-            tmax = daily_max_kdigo_interp(kdigos[i], days_interp[i], tlim=max_day)
-        if np.all(tmax == 0):
-            print('Patient %d - All 0' % ids[i])
-            print('Baseline: %.3f' % bslns[i])
-            print(days_interp[i])
-            print(kdigos[i])
-            print('\n')
-            print(tmax)
-            temp = raw_input('Enter to continue (q to quit):')
-            if temp == 'q':
-                return
-        if len(tmax) > max_day + 2:
-            all_daily[i, :] = tmax[:max_day + 2]
-        else:
-            all_daily[i, :len(tmax)] = tmax
-
-    centers = np.zeros(n_clusters, dtype=int)
-    n_recs = np.zeros((n_clusters, max_day + 2))
-    cluster_idx = {}
-    for i in range(n_clusters):
-        tlbl = c_lbls[i]
-        idx = np.where(lbls == tlbl)[0]
-        cluster_idx[tlbl] = idx
-        sel = np.ix_(idx, idx)
-        tdm = sqdm[sel]
-        sums = np.sum(tdm, axis=0)
-        center = np.argsort(sums)[0]
-        centers[i] = idx[center]
-        for j in range(max_day + 2):
-            n_recs[i, j] = (float(len(idx) - len(np.where(np.isnan(all_daily[idx, j]))[0])) / len(idx)) * 100
-
-    if outpath != '':
-        font = {'size': 20}
-
-        matplotlib.rc('font', **font)
-        if align:
-            outpath = os.path.join(outpath, 'aligned')
-        f = stat_file
-        all_ids = f['meta']['ids'][:]
-        all_inp_death = f['meta']['died_inp'][:]
-        sel = np.array([x in ids for x in all_ids])
-        inp_death = all_inp_death[sel]
-        if not os.path.exists(outpath):
-            os.mkdir(outpath)
-        if not os.path.exists(os.path.join(outpath, 'all_w_mean')):
-            os.mkdir(os.path.join(outpath, 'all_w_mean'))
-        if not os.path.exists(os.path.join(outpath, 'mean_std')):
-            os.mkdir(os.path.join(outpath, 'mean_std'))
-        if not os.path.exists(os.path.join(outpath, 'mean_conf')):
-            os.mkdir(os.path.join(outpath, 'mean_conf'))
-        if not os.path.exists(os.path.join(outpath, 'center')):
-            os.mkdir(os.path.join(outpath, 'center'))
-        for i in range(n_clusters):
-            cidx = cluster_idx[c_lbls[i]]
-            ct = len(cidx)
-            mort = (float(len(np.where(inp_death[cidx])[0])) / len(cidx)) * 100
-            mean_daily, conf_lower, conf_upper = mean_confidence_interval(all_daily[cidx])
-            std_daily = np.nanstd(all_daily[cidx], axis=0)
-            # stds_upper = np.minimum(mean_daily + std_daily, 4)
-            # stds_lower = np.maximum(mean_daily - std_daily, 0)
-            stds_upper = mean_daily + std_daily
-            stds_lower = mean_daily - std_daily
-
-            # Plot only cluster center
-            if align:
-                dmax = all_daily[center_idx[i], :]
-            else:
-                dmax = all_daily[centers[i], :]
-            tfig = plt.figure()
-            tplot = tfig.add_subplot(111)
-            if cutoff is not None or cutoff >= max_day:
-                # Trajectory used for model
-                tplot.plot(range(len(dmax))[:cutoff + 1], dmax[:cutoff + 1], color='blue')
-                # Rest of trajectory
-                tplot.axvline(x=cutoff, linestyle='dashed')
-                tplot.plot(range(len(dmax))[cutoff:], dmax[cutoff:], color='red',
-                           label='Cluster Mortality = %.2f%%' % mort)
-            else:
-                tplot.plot(range(len(dmax)), dmax, color='blue',
-                           label='Cluster Mortality = %.2f%%' % mort)
-            plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
-            tplot.set_xlim(-0.25, 7.25)
-            tplot.set_ylim(-1.0, 5.0)
-            tplot.set_xlabel('Day')
-            tplot.set_ylabel('KDIGO Score')
-            tplot.set_title('Cluster %s Representative' % c_lbls[i])
-            plt.legend()
-            if align:
-                plt.savefig(os.path.join(outpath, 'center', '%s_center_aligned.png' % c_lbls[i]))
-            else:
-                plt.savefig(os.path.join(outpath, 'center', '%s_center.png' % c_lbls[i]))
-            plt.close(tfig)
-
-            # All patients w/ mean
-            fig = plt.figure()
-            for j in range(len(cidx)):
-                plt.plot(range(max_day + 2), all_daily[cidx[j]], lw=1, alpha=0.3)
-
-            if cutoff is not None or cutoff >= max_day:
-                plt.plot(range(max_day + 2)[:cutoff + 1], mean_daily[:cutoff + 1], color='b',
-                         lw=2, alpha=.8)
-                plt.plot(range(max_day + 2)[cutoff:], mean_daily[cutoff:], color='r',
-                         label='Cluster Mortality = %.2f%%\n%d Patients' % (mort, ct), lw=2, alpha=.8)
-                plt.axvline(x=cutoff, linestyle='dashed')
-            else:
-                plt.plot(range(max_day + 2), mean_daily, color='b',
-                         label='Cluster Mortality = %.2f%%\n%d Patients' % (mort, ct), lw=2, alpha=.8)
-
-            plt.fill_between(range(max_day + 2), conf_lower, conf_upper, color='grey', alpha=.2,
-                             label=r'$\pm$ 1 std. dev.')
-
-            plt.xlim([-0.25, max_day + 0.25])
-            plt.ylim([-1.0, 5.0])
-            plt.xlabel('Time (Days)')
-            plt.ylabel('KDIGO Score')
-            plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
-            plt.legend()
-            plt.title('Average Daily KDIGO\nCluster %s' % c_lbls[i])
-            if align:
-                plt.savefig(os.path.join(outpath, 'all_w_mean', '%s_all_aligned.png' % c_lbls[i]))
-            else:
-                plt.savefig(os.path.join(outpath, 'all_w_mean', '%s_all.png' % c_lbls[i]))
-            plt.close(fig)
-
-            # Mean and standard deviation
-            fig = plt.figure()
-            fig, ax1 = plt.subplots()
-            if cutoff is not None or cutoff >= max_day:
-                ax1.plot(range(max_day + 2)[:cutoff + 1], mean_daily[:cutoff + 1], color='b',
-                         lw=2, alpha=.8)
-                ax1.plot(range(max_day + 2)[cutoff:], mean_daily[cutoff:], color='r', linestyle='dashed',
-                         label='Cluster Mortality = %.2f%%\n%d Patients' % (mort, ct), lw=2, alpha=.8)
-                ax1.axvline(x=cutoff, linestyle='dashed')
-            else:
-                ax1.plot(range(max_day + 2), mean_daily, color='b',
-                         label='Cluster Mortality = %.2f%%\n%d Patients' % (mort, ct), lw=2, alpha=.8)
-            ax1.fill_between(range(max_day + 2), stds_lower, stds_upper, color='grey', alpha=.2,
-                             label=r'+/- 1 Std. Deviation')
-            plt.xlim([-0.25, max_day + 0.25])
-            plt.ylim([-1.0, 5.0])
-            plt.xlabel('Time (Days)')
-            plt.ylabel('KDIGO Score')
-            plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
-            plt.legend()
-            # ax2 = ax1.twinx()
-            # ax2.plot(range(max_day + 2), n_recs[i, :], color='black', label='# Records')
-            # ax2.set_ylim((-5, 105))
-            # ax2.set_ylabel('% Patients Remaining')
-            # plt.legend(loc=7)
-            plt.title('Average Daily KDIGO\nCluster %s' % c_lbls[i])
-            if align:
-                plt.savefig(os.path.join(outpath, 'mean_std', '%s_mean_std_aligned.png' % c_lbls[i]))
-            else:
-                plt.savefig(os.path.join(outpath, 'mean_std', '%s_mean_std.png' % c_lbls[i]))
-            plt.close(fig)
-
-            # Mean and 95% confidence interval
-            fig = plt.figure()
-            fig, ax1 = plt.subplots()
-            if cutoff is not None or cutoff >= max_day:
-                ax1.plot(range(max_day + 2)[:cutoff + 1], mean_daily[:cutoff + 1], color='b',
-                         lw=2, alpha=.8)
-                ax1.plot(range(max_day + 2)[cutoff:], mean_daily[cutoff:], color='r', linestyle='dashed',
-                         label='Cluster Mortality = %.2f%%\n%d Patients' % (mort, ct), lw=2, alpha=.8)
-                ax1.axvline(x=cutoff, linestyle='dashed')
-            else:
-                ax1.plot(range(max_day + 2), mean_daily, color='b',
-                         label='Cluster Mortality = %.2f%%\n%d Patients' % (mort, ct), lw=2, alpha=.8)
-            ax1.fill_between(range(max_day + 2), conf_lower, conf_upper, color='grey', alpha=.2,
-                             label=r'95% Confidence Interval')
-            plt.xlim([-0.25, max_day + 0.25])
-            plt.ylim([-1.0, 5.0])
-            plt.xlabel('Days')
-            plt.ylabel('KDIGO')
-            plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
-            extra = plt.Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
-            plt.legend([extra, ], [c_lbls[i] + '\nMortality %.2f%%\n# Patients %d' % (mort, ct), ], frameon=False, prop={'size': lsize})
-            # ax2 = ax1.twinx()
-            # ax2.plot(range(max_day + 2), n_recs[i, :], color='black', label='# Records')
-            # ax2.set_ylim((-5, 105))
-            # ax2.set_ylabel('% Patients Remaining')
-            # plt.legend(loc=7)
-            # plt.title(c_lbls[i])
-            plt.tight_layout()
-            if align:
-                plt.savefig(os.path.join(outpath, 'mean_conf', '%s_mean_conf_aligned.png' % c_lbls[i]), dpi=600)
-            else:
-                plt.savefig(os.path.join(outpath, 'mean_conf', '%s_mean_conf.png' % c_lbls[i]), dpi=600)
-
-            plt.close(fig)
-        # f.close()
-    return all_daily
-
-
-# %%
 def mean_confidence_interval(data, confidence=0.95):
     '''
     Returns the mean confidence interval for the distribution of data
@@ -5010,8 +4731,6 @@ def get_apache_dallas(stats, out_name):
             out.write(',%d' % (score[i]))
         out.write('\n')
         apaches[i, :] = score
-        if v:
-            print(np.sum(score))
     return apaches
 
 
