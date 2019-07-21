@@ -82,7 +82,7 @@ else:
 if args.ext:
     # mismatch penalty derived from population dynamics
     extension = extension_penalty_func(*transition_costs)
-    dm_tag += '_extension_a%.0E' % args.alpha
+    dm_tag += '_extension'
 else:
     # no extension penalty
     extension = lambda x: 0

@@ -24,7 +24,7 @@ from utility_funcs import get_date, load_csv, arr2csv
 
 
 # %%
-def cluster_trajectories(f, ids, mk, dm, eps=0.015, n_clusters_l=[2, ], data_path=None, interactive=True,
+def cluster_trajectories(f, ids, mk, dm, eps=0.015, n_clusters=2, data_path=None, interactive=True,
                          save=False, plot_daily=False, kdigos=None, days=None):
     '''
     Provided a pre-computed distance matrix, cluster the corresponding trajectories using the specified methods.
@@ -81,42 +81,42 @@ def cluster_trajectories(f, ids, mk, dm, eps=0.015, n_clusters_l=[2, ], data_pat
                 n_clusters = input('Enter desired number of clusters (current is %d):' % n_clusters)
             except SyntaxError:
                 pass
-        for n_clusters in n_clusters_l:
-            lbls_sel = fcluster(link, n_clusters, criterion='maxclust')
-            tlbls = lbls_sel.astype('|S30')
-            if save:
-                save_path = os.path.join(save, 'flat')
-                if not os.path.exists(save_path):
-                    os.mkdir(save_path)
-                save_path = os.path.join(save_path, '%d_clusters' % n_clusters)
-                tag = None
-                if os.path.exists(save_path):
-                    formatted_stats(f['meta'], save_path)
-                    print('%d clusters has already been saved' % n_clusters)
-                    if not interactive:
-                        cont = False
-                    continue
+
+        lbls_sel = fcluster(link, n_clusters, criterion='maxclust')
+        tlbls = lbls_sel.astype('|S30')
+        if save:
+            save_path = os.path.join(save, 'flat')
+            if not os.path.exists(save_path):
                 os.mkdir(save_path)
-                arr2csv(os.path.join(save_path, 'clusters.csv'), lbls_sel, ids, fmt='%d')
+            save_path = os.path.join(save_path, '%d_clusters' % n_clusters)
+            tag = None
+            if os.path.exists(save_path):
                 formatted_stats(f['meta'], save_path)
-                if not os.path.exists(os.path.join(save_path, 'rename')) and kdigos is not None:
-                    os.mkdir(os.path.join(save_path, 'rename'))
-                if kdigos is not None:
-                    nlbls, clustCats = clusterCategorizer(mk, kdigos, days, lbls_sel)
-                    arr2csv(os.path.join(save_path, 'rename', 'clusters.csv'), nlbls, ids, fmt='%s')
-                    formatted_stats(f['meta'], os.path.join(save_path, 'rename'))
-                if data_path is not None and plot_daily:
-                    dkpath = os.path.join(save_path, 'daily_kdigo')
-                    os.mkdir(dkpath)
-                    # plot_daily_kdigos(data_path, ids_sel, f, sqdm, lbls_sel, outpath=dkpath)
-            if interactive:
-                t = input('Try a different configuration? (y/n)')
-                if 'y' in t:
-                    cont = True
-                else:
+                print('%d clusters has already been saved' % n_clusters)
+                if not interactive:
                     cont = False
+                continue
+            os.mkdir(save_path)
+            arr2csv(os.path.join(save_path, 'clusters.csv'), lbls_sel, ids, fmt='%d')
+            formatted_stats(f['meta'], save_path)
+            if not os.path.exists(os.path.join(save_path, 'rename')) and kdigos is not None:
+                os.mkdir(os.path.join(save_path, 'rename'))
+            if kdigos is not None:
+                nlbls, clustCats = clusterCategorizer(mk, kdigos, days, lbls_sel)
+                arr2csv(os.path.join(save_path, 'rename', 'clusters.csv'), nlbls, ids, fmt='%s')
+                formatted_stats(f['meta'], os.path.join(save_path, 'rename'))
+            if data_path is not None and plot_daily:
+                dkpath = os.path.join(save_path, 'daily_kdigo')
+                os.mkdir(dkpath)
+                # plot_daily_kdigos(data_path, ids_sel, f, sqdm, lbls_sel, outpath=dkpath)
+        if interactive:
+            t = input('Try a different configuration? (y/n)')
+            if 'y' in t:
+                cont = True
             else:
                 cont = False
+        else:
+            cont = False
     return eps
 
 

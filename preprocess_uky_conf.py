@@ -6,7 +6,7 @@ import json
 import h5py
 from utility_funcs import arr2csv, load_csv, dict2csv
 from kdigo_funcs import get_dialysis_mask, get_t_mask, extract_scr_data, extract_masked_data, get_baselines, \
-    get_exclusion_criteria, linear_interpo, scr2kdigo, get_transition_weights
+    get_exclusion_criteria, linear_interpo, scr2kdigo, get_transition_weights, rolling_average
 from classification_funcs import descriptive_trajectory_features
 from stat_funcs import get_uky_demographics, summarize_stats, get_sofa, get_apache, formatted_stats
 from sklearn.preprocessing import MinMaxScaler
@@ -61,17 +61,11 @@ else:
     # hosp_mask = np.loadtxt(os.path.join(dataPath, 'hosp_mask.csv'), dtype=int)
     icu_windows, iids = load_csv(os.path.join(dataPath, 'icu_admit_discharge.csv'), ids=None, dt='date', struct='dict')
     hosp_windows, hids = load_csv(os.path.join(dataPath, 'hosp_admit_discharge.csv'), ids=None, dt='date', struct='dict')
+    hosp_mask = np.loadtxt(os.path.join(dataPath, 'hosp_mask.csv'), dtype=int)
 
 ids = np.sort(np.array(list(hosp_windows), dtype=int))
 # Baselines
 genders = None
-# if os.path.exists(os.path.join(baseDataPath, 'all_baseline_info.csv')):
-#     bsln_m = pd.read_csv(os.path.join(baseDataPath, 'all_baseline_info.csv'))
-#     bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
-#     bsln_type_loc = bsln_m.columns.get_loc('bsln_type')
-#     bsln_m = bsln_m.values
-#     print('Loaded previously determined baselines.')
-#     genders = None
 if not os.path.exists(os.path.join(baseDataPath, 'all_baseline_info.csv')):
     print('Determining all patient baseline SCr.')
     genders, races, ages = get_uky_demographics(ids, hosp_windows, baseDataPath)
@@ -111,6 +105,20 @@ else:
         dates = load_csv(os.path.join(dataPath, 'dates_icu.csv'), ids, 'date')
         rrt_masks = load_csv(os.path.join(dataPath, 'ind_rrt_masks_icu.csv'), ids, int)
 
+if not os.path.exists(os.path.join(dataPath, 'scr_raw_icu_2ptAvg.csv')):
+    avgd = rolling_average(scrs, masks=[rrt_masks], times=dates)
+    ascrs = avgd[0]
+    admasks = avgd[1][0]
+    adates = avgd[2]
+    arr2csv(os.path.join(dataPath, 'scr_raw_icu_2ptAvg.csv'), ascrs, ids, fmt='%f')
+    arr2csv(os.path.join(dataPath, 'dates_icu_2ptAvg.csv'), adates, ids, fmt='%s')
+    arr2csv(os.path.join(dataPath, 'ind_rrt_masks_icu_2ptAvg.csv'), admasks, ids, fmt='%d')
+else:
+    if not os.path.exists(os.path.join(dataPath, 'scr_interp_2ptAvg.csv')):
+        ascrs = load_csv(os.path.join(dataPath, 'scr_raw_icu_2ptAvg.csv'), ids)
+        adates = load_csv(os.path.join(dataPath, 'dates_icu_2ptAvg.csv'), ids, 'date')
+        admasks = load_csv(os.path.join(dataPath, 'ind_rrt_masks_icu_2ptAvg.csv'), ids, int)
+
 if not os.path.exists(os.path.join(dataPath, 'exclusion_criteria.csv')):
     print('Evaluating exclusion criteria...')
     if genders is None:
@@ -140,16 +148,36 @@ else:
     days_interp = load_csv(os.path.join(dataPath, 'days_interp.csv'), ids, int)
     interp_masks = load_csv(os.path.join(dataPath, 'interp_masks.csv'), ids, int)
 
+if not os.path.exists(os.path.join(dataPath, 'scr_interp_2ptAvg.csv')):
+    apost_interpo, admasks_interp, adays_interp, ainterp_masks = linear_interpo(ascrs, ids, adates, admasks, tRes)
+    arr2csv(os.path.join(dataPath, 'scr_interp_2ptAvg.csv'), apost_interpo, ids)
+    arr2csv(os.path.join(dataPath, 'days_interp_2ptAvg.csv'), adays_interp, ids, fmt='%d')
+    arr2csv(os.path.join(dataPath, 'interp_masks_2ptAvg.csv'), ainterp_masks, ids, fmt='%d')
+    arr2csv(os.path.join(dataPath, 'dmasks_interp_2ptAvg.csv'), admasks_interp, ids, fmt='%d')
+else:
+    if not os.path.exists(os.path.join(dataPath, 'kdigo_2ptAvg.csv')):
+        apost_interpo = load_csv(os.path.join(dataPath, 'scr_interp_2ptAvg.csv'), ids)
+        admasks_interp = load_csv(os.path.join(dataPath, 'dmasks_interp_2ptAvg.csv'), ids)
+        adays_interp = load_csv(os.path.join(dataPath, 'days_interp_2ptAvg.csv'), ids)
+        ainterp_masks = load_csv(os.path.join(dataPath, 'interp_masks_2ptAvg.csv'), ids)
+
 if not os.path.exists(os.path.join(dataPath, 'kdigo.csv')):
     # Convert SCr to KDIGO
     baselines = pd.read_csv(os.path.join(baseDataPath, 'all_baseline_info.csv'))['bsln_val'].values
     print('Converting to KDIGO')
     kdigos = scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
     arr2csv(os.path.join(dataPath, 'kdigo.csv'), kdigos, ids, fmt='%d')
+    kdigos_noabs = scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks, useAbs=False)
+    arr2csv(os.path.join(dataPath, 'kdigo_noAbs.csv'), kdigos_noabs, ids, fmt='%d')
 else:
     print('Loaded KDIGO scores')
     kdigos = load_csv(os.path.join(dataPath, 'kdigo.csv'), ids, int)
 
+if not os.path.exists(os.path.join(dataPath, 'kdigo_2ptAvg.csv')):
+    akdigos = scr2kdigo(apost_interpo, baselines, admasks_interp, adays_interp, ainterp_masks)
+    arr2csv(os.path.join(dataPath, 'kdigo_2ptAvg.csv'), akdigos, ids, fmt='%d')
+    akdigos_noabs = scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks, useAbs=False)
+    arr2csv(os.path.join(dataPath, 'kdigo_2ptAvg_noAbs.csv'), akdigos_noabs, ids, fmt='%d')
 
 if not os.path.exists(os.path.join(resPath, 'stats.h5')):
     f = h5py.File(os.path.join(resPath, 'stats.h5'), 'w')

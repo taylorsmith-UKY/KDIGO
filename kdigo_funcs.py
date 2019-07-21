@@ -1449,3 +1449,66 @@ def getESRDFlags(f, dataPath):
                 if (disch - stop) < datetime.timedelta(3):
                     flags[i, RRT_LT72] = 1
     return deltas, flags
+
+
+def rolling_average(data, masks=[], times=None, window=2, step=1, maxDiff=24, debug=False):
+    out = []
+    time_out = []
+    omasks = [[] for _ in range(len(masks))]
+    for i, vec in enumerate(data):
+        if times is not None:
+            t = times[i]
+            new_time = []
+            assert len(t) == len(vec)
+        tmasks = [[] for _ in range(len(masks))]
+        if len(vec) <= window:
+            out.append(vec)
+            for j in range(len(masks)):
+                omasks[j].append(masks[j][i])
+            if times is not None:
+                time_out.append(t)
+            continue
+        l = int((np.ceil(len(vec) / step) - (window - step)))
+        nvec = []
+        for ni, oi in enumerate(range(0, len(vec), step)):
+            tt = datetime.timedelta(0)
+            ct = 0
+            for j in range(1, min(window, len(t) - oi)):
+                if (t[oi + j] - t[oi]).total_seconds() / (60 * 60) > maxDiff:
+                    continue
+                tt += (t[oi + j] - t[oi])
+                ct += 1
+            tt /= (ct + 1)
+            new_time.append(t[oi] + tt)
+            for j in range(len(masks)):
+                tmasks[j].append(max(masks[j][i][oi:oi+ct+1]))
+            try:
+                nvec.append(np.nanmean(vec[oi:oi+ct+1]))
+                if np.isnan(nvec[ni]) and debug:
+                    print('Length of vec/t: %d/%d' % (len(vec), len(t)))
+                    print('Original start index + (# points): %d + (%d) = %d' % (oi, ct, oi + ct - 1))
+                    print(vec[oi:oi+ct])
+                    print(nvec[ni])
+                    raise ValueError("NaN encountered in average.")
+            except IndexError:
+                if debug:
+                    print('Length of vec/t: %d/%d' % (len(vec), len(t)))
+                    print('Original start index + (# points): %d + (%d) = %d' % (oi,  ct, oi + ct))
+                    print('Length of new vector: %d' % len(nvec))
+                    print('New index: %d' % ni)
+                raise RuntimeError("Index error when performing rolling average.")
+        out.append(np.array(nvec))
+        for j in range(len(masks)):
+            omasks[j].append(tmasks[j])
+        if times is not None:
+            time_out.append(new_time)
+    if len(omasks) == 0:
+        if times is None:
+            return out
+        else:
+            return out, time_out
+    else:
+        if times is None:
+            return out, omasks
+        else:
+            return out, omasks, time_out

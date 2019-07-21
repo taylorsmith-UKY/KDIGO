@@ -18,15 +18,15 @@
 '''
 from __future__ import division
 import numpy as np
-from scipy.spatial.distance import squareform
-from kdigo_funcs import dtw_p
+from scipy.spatial.distance import squareform, cityblock
+from dtw_distance import dtw_p
 from scipy.stats import sem, t
 import tqdm
 
 __author__ ="Francois Petitjean"
 
 
-def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extension=lambda x: 0, extraDesc=''):
+def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extension=lambda x: 0, extraDesc='', save_every=False, stopThresh=0):
     if dm.ndim == 1:
         sqdm = squareform(dm)
     elif dm.ndim == 2:
@@ -50,29 +50,50 @@ def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extens
 
     center = series[medoid_ind]
 
+    if save_every:
+        cout = []
+        stdout = []
+        confout = []
+        apaths = []
     for i in tqdm.trange(0,n_iterations, desc='Performing DBA Iterations' + extraDesc):
         # print('Iteration %d/%d' % (i+1, n_iterations))
-        center, stds, confs = DBA_update(center, series, mismatch, extension)
+        temp = center
+        center, stds, confs, paths = DBA_update(center, series, mismatch, extension)
+        if save_every:
+            cout.append(center)
+            stdout.append(stds)
+            confout.append(confs)
+            apaths.append(paths)
+        if cityblock(temp, center) < stopThresh:
+            break
+    if not save_every:
+        return center, stds, confs
 
-    return center, stds, confs
+    return cout, stdout, confout, apaths
+
 
 def DBA_update(center, series, mismatch, extension):
     updated_center = np.zeros(center.shape)
     matched_vals = [[] for x in range(len(center))]
     n_elements = np.array(np.zeros(center.shape), dtype=int)
+    paths = []
     for sidx in range(len(series)):
         s = series[sidx]
         _, _, _, p, _, _ = dtw_p(center, s, mismatch=mismatch, extension=extension)
+        pairs = []
         for idx in range(len(p[0])):
             i = p[0][idx]
             j = p[1][idx]
             updated_center[i] += s[j]
             n_elements[i] += 1
             matched_vals[i].append(s[j])
+            pairs.append([i, j])
         updated_center[i] += s[j]
         n_elements[i] += 1
+        paths.append(pairs)
     means, stds, confs = describe_values(matched_vals)
-    return means, stds, confs
+    return means, stds, confs, paths
+
 
 def describe_values(data, confidence=0.95):
     '''
