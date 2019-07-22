@@ -3,65 +3,83 @@ import h5py
 from cluster_funcs import assign_feature_vectors
 from kdigo_funcs import assign_cluster_features, load_csv, arr2csv, get_cluster_features
 import os
+import argparse
+import json
 
 # --------------------------------------------------- PARAMETERS ----------------------------------------------------- #
-basePath = "/Volumes/GoogleDrive/My Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/"
 
-dataPath = os.path.join(basePath, 'DATA', 'icu', '7days_021319/')
-resPath = os.path.join(basePath, 'RESULTS', 'icu', '7days_021319/')
+parser = argparse.ArgumentParser(description='Merge clusters.')
+parser.add_argument('--config_file', action='store', nargs=1, type=str, dest='cfname',
+                    default='kdigo_conf.json')
+parser.add_argument('--config_path', action='store', nargs=1, type=str, dest='cfpath',
+                    default='')
+parser.add_argument('--n_clust', action='store', nargs=1, type=int, dest='n_clust',
+                    default=96)
+parser.add_argument('--feature', '-f', action='store', type=str, dest='feature', default='descriptive_norm')
+parser.add_argument('--use_extension', '-ext', action='store_true', dest='ext')
+parser.add_argument('--use_mismatch', '-mism', action='store_true', dest='mism')
+parser.add_argument('--distance_function', '-dfunc', '-d', action='store', type=str, dest='dfunc', default='braycurtis')
+parser.add_argument('--pop_coords', '-pcoords', '-pc', action='store_true', dest='popcoords')
+parser.add_argument('--aggregate_function', '-afunc', '-d', action='store', type=str, dest='dfunc', default='braycurtis')
+args = parser.parse_args()
 
-meta_grp = 'meta'
+configurationFileName = os.path.join(args.cfpath, args.cfname)
+fp = open(configurationFileName, 'r')
+conf = json.load(fp)
+fp.close()
 
-# methods = ['merged', ]
-cluster_method = 'flat'
+basePath = conf['basePath']
+cohortName = conf['cohortName']
+t_lim = conf['analysisDays']
+tRes = conf['timeResolutionHrs']
+v = conf['verbose']
+analyze = conf['analyze']
+feature = args.feature
 
-dm_tag = '_custmismatch_extension_a1E+00_normBC_popcoord'
+baseDataPath = os.path.join(basePath, 'DATA', 'all_sheets')
+dataPath = os.path.join(basePath, 'DATA', analyze, cohortName)
+resPath = os.path.join(basePath, 'RESULTS', analyze, cohortName)
 
-n_days = 7
+folderName = 'merged'
+if args.popcoords:
+    coord_tag = '_popcoord'
+else:
+    coord_tag = '_abscoord'
+if args.mism:
+    dm_tag = '_popmismatch'
+else:
+    dm_tag = '_absmismatch'
+if args.ext:
+    dm_tag += '_extension'
 
-features = {'descriptive_features': ['mean', 'mean_bin', 'center'],
-            'slope_norm': ['mean', 'center'],
-            'template_norm': ['mean', 'center'],
-            'slope_ratio': ['mean', 'center'],
-            'template_ratio': ['mean', 'center']}
+dm_tag += '_' + args.dfunc + coord_tag
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r')
-
-day_str = '%ddays' % n_days
+day_str = '7days'
 if not os.path.exists(os.path.join(resPath, 'features', day_str)):
     os.mkdir(os.path.join(resPath, 'features', day_str))
 
-
 dm = np.load(os.path.join(resPath, 'dm', day_str, 'kdigo_dm%s.npy' % dm_tag))
 
-lblPath = os.path.join(resPath, 'clusters', day_str, dm_tag[1:], 'final')
+lblPath = os.path.join(resPath, 'clusters', day_str, dm_tag, '%d_clusters' % args.n_clust)
 
 ids = np.loadtxt(os.path.join(lblPath, 'clusters.csv'), delimiter=',', usecols=0, dtype=int)
 lbls = load_csv(os.path.join(lblPath, 'clusters.csv'), ids, str)
 
-for feature in list(features):
-    try:
-        individual = load_csv(
-            os.path.join(resPath, 'features', 'individual', feature + '.csv'), ids)
-    except ValueError:
-        individual = load_csv(
-            os.path.join(resPath, 'features', 'individual', feature + '.csv'), ids, skip_header=True)
+try:
+    individual = load_csv(
+        os.path.join(resPath, 'features', 'individual', feature + '.csv'), ids)
+except ValueError:
+    individual = load_csv(
+        os.path.join(resPath, 'features', 'individual', feature + '.csv'), ids, skip_header=True)
 
-    fpath = os.path.join(resPath, 'features', day_str, dm_tag[1:])
-    if not os.path.exists(fpath):
-        os.mkdir(fpath)
-    # fpath = os.path.join(fpath, cluster_method)
-    # if not os.path.exists(fpath):
-    #     os.mkdir(fpath)
-    # fpath = os.path.join(fpath, dirname)
-    # if not os.path.exists(fpath):
-    #     os.mkdir(fpath)
-    fpath = os.path.join(fpath, 'final')
-    if not os.path.exists(fpath):
-        os.mkdir(fpath)
-    for op in features[feature]:
-        all_feats, cluster_feats = get_cluster_features(individual, lbls, dm, op=op)
-        fname = feature + '_' + op + '.csv'
-        arr2csv(os.path.join(fpath, fname), all_feats, ids, fmt='%.4f')
+fpath = os.path.join(resPath, 'features', dm_tag, '%d_clusters' % args.n_clust)
+if not os.path.exists(fpath):
+    os.mkdir(fpath)
+
+for op in features[feature]:
+    all_feats, cluster_feats = get_cluster_features(individual, lbls, dm, op=op)
+    fname = feature + '_' + op + '.csv'
+    arr2csv(os.path.join(fpath, fname), all_feats, ids, fmt='%.4f')

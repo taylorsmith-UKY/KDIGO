@@ -22,11 +22,12 @@ from scipy.spatial.distance import squareform, cityblock
 from dtw_distance import dtw_p
 from scipy.stats import sem, t
 import tqdm
+import copy
 
 __author__ ="Francois Petitjean"
 
 
-def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extension=lambda x: 0, extraDesc='', save_every=False, stopThresh=0):
+def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extension=lambda x: 0, extraDesc='', save_every=False, alpha=1.0):
     if dm.ndim == 1:
         sqdm = squareform(dm)
     elif dm.ndim == 2:
@@ -55,16 +56,16 @@ def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extens
         stdout = []
         confout = []
         apaths = []
-    for i in tqdm.trange(0,n_iterations, desc='Performing DBA Iterations' + extraDesc):
+    for i in tqdm.trange(0, n_iterations, desc='Performing DBA Iterations' + extraDesc):
         # print('Iteration %d/%d' % (i+1, n_iterations))
-        temp = center
-        center, stds, confs, paths = DBA_update(center, series, mismatch, extension)
+        temp = copy.deepcopy(center)
+        center, stds, confs, paths = DBA_update(center, series, mismatch, extension, alpha=alpha)
         if save_every:
-            cout.append(center)
+            cout.append(temp)
             stdout.append(stds)
             confout.append(confs)
             apaths.append(paths)
-        if cityblock(temp, center) < stopThresh:
+        if cityblock(temp, center) == 0:
             break
     if not save_every:
         return center, stds, confs
@@ -72,14 +73,14 @@ def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extens
     return cout, stdout, confout, apaths
 
 
-def DBA_update(center, series, mismatch, extension):
+def DBA_update(center, series, mismatch, extension, alpha=1.0):
     updated_center = np.zeros(center.shape)
-    matched_vals = [[] for x in range(len(center))]
+    matched_vals = [[] for _ in range(len(center))]
     n_elements = np.array(np.zeros(center.shape), dtype=int)
     paths = []
     for sidx in range(len(series)):
         s = series[sidx]
-        _, _, _, p, _, _ = dtw_p(center, s, mismatch=mismatch, extension=extension)
+        _, _, _, p, _, _ = dtw_p(center, s, mismatch=mismatch, extension=extension, alpha=alpha)
         pairs = []
         for idx in range(len(p[0])):
             i = p[0][idx]

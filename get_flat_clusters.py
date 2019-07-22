@@ -15,7 +15,7 @@ parser.add_argument('--config_path', action='store', nargs=1, type=str, dest='cf
                     default='')
 parser.add_argument('--dm_tag', action='store', nargs=1, type=str, dest='dm_tag',
                     default='popmismatch_extension_a1E+00_braycurtis_popcoord')
-parser.add_argument(['--interact', '-i'], action='store_true', nargs=1, dest='interact')
+parser.add_argument('--interact', action='store_true', dest='interact')
 parser.add_argument('--n_clust', action='store', nargs=1, type=int, dest='n_clust',
                     default=96)
 parser.add_argument('--meta', action='store', nargs=1, type=str, dest='meta',
@@ -34,7 +34,7 @@ t_lim = conf['analysisDays']
 tRes = conf['timeResolutionHrs']
 v = conf['verbose']
 analyze = conf['analyze']
-meta_grp = args.meta[0]
+meta_grp = args.meta
 
 baseDataPath = os.path.join(basePath, 'DATA', 'all_sheets')
 dataPath = os.path.join(basePath, 'DATA', analyze, cohortName)
@@ -43,7 +43,7 @@ resPath = os.path.join(basePath, 'RESULTS', analyze, cohortName)
 interactive = args.interact
 
 # number of clusters to extract if method is flat
-n_clusters = args.n_clust
+n_clusters = args.n_clust[0]
 
 ########################################################
 f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r')
@@ -62,18 +62,18 @@ if not os.path.exists(os.path.join(resPath, 'clusters')):
 if not os.path.exists(os.path.join(resPath, 'clusters', '%ddays' % t_lim)):
     os.mkdir(os.path.join(resPath, 'clusters', '%ddays' % t_lim))
 
-dm_tag = args.dm_tag[0]
+dm_tag = args.dm_tag
 save_path = os.path.join(resPath, 'clusters', '%ddays' % t_lim, dm_tag)
 if not os.path.exists(save_path):
     os.mkdir(save_path)
 
-if os.path.isfile(resPath + 'dm/%ddays/kdigo_dm_%s.npy' % (t_lim, dm_tag)):
+if os.path.isfile(os.path.join(resPath, 'dm', '%ddays' % t_lim, 'kdigo_dm_%s.npy' % dm_tag)):
     try:
-        dm = np.load(resPath + 'dm/%ddays/kdigo_dm_%s.npy' % (t_lim, dm_tag))[:, 2]
+        dm = np.load(os.path.join(resPath, 'dm', '%ddays' % t_lim, 'kdigo_dm_%s.npy' % dm_tag))[:, 2]
     except IndexError:
-        dm = np.load(resPath + 'dm/%ddays/kdigo_dm_%s.npy' % (t_lim, dm_tag))
+        dm = np.load(os.path.join(resPath, 'dm', '%ddays' % t_lim, 'kdigo_dm_%s.npy' % dm_tag))
 else:
-    dm = np.loadtxt(resPath + 'dm/%ddays/kdigo_dm_%s.csv' % (t_lim, dm_tag), delimiter=',', usecols=2)
+    dm = np.loadtxt(os.path.join(resPath, 'dm', '%ddays' % t_lim, 'kdigo_dm_%s.csv' % dm_tag), delimiter=',', usecols=2)
 sqdm = squareform(dm)
 tpath = save_path
 eps = cluster_trajectories(f, ids, max_kdigo, sqdm, n_clusters=n_clusters, data_path=dataPath, save=tpath,

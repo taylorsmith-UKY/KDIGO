@@ -1,6 +1,6 @@
 {
   "basePath" : "/Volumes/GoogleDrive/My Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/",
-  "cohortName" : "071719_",
+  "cohortName" : "071519",
   "analyze" : "icu",
   "analysisDays": 7,
   "timeResolutionHrs": 6,

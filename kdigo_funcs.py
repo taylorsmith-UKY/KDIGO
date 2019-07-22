@@ -219,7 +219,12 @@ def extract_masked_data(data_list, masks, sel=1):
         for j in range(len(data)):
             mask = masks[j]
             vec = np.array(data[j])
-            idx = np.where(mask == sel)[0]
+            if hasattr(sel, '__len__'):
+                idx = np.where(mask == sel[0])[0]
+                for tsel in sel[1:]:
+                    idx = np.union1d(idx, np.where(mask == tsel)[0])
+            else:
+                idx = np.where(mask == sel)[0]
             if idx.size > 0:
                 out_d.append(vec[idx])
             else:

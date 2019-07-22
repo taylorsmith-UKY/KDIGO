@@ -456,6 +456,7 @@ def get_uky_mortality(ids, hosp_windows, icu_windows, dataPath=''):
         disch_disp = 'nan'
         didx = np.where(date_m['STUDY_PATIENT_ID'].values == tid)[0]
         if didx.size > 0:
+            didx = didx[0]
             disch_disp = date_m['DISCHARGE_DISPOSITION'][didx]
             try:
                 disch_disp = disch_disp.upper()
