@@ -11,18 +11,25 @@ from utility_funcs import get_date, get_array_dates, arr2csv, cartesian, load_cs
 
 # %%
 def get_dialysis_mask(dataPath='', scr_fname='SCR_ALL_VALUES.csv', rrt_fname='RENAL_REPLACE_THERAPY.csv',
-                      scr_dcol='SCR_ENTERED', id_col='STUDY_PATIENT_ID', rrtSep='col', v=True):
+                      scr_dcol='SCR_ENTERED', id_col='STUDY_PATIENT_ID', rrtSep='col'):
     '''
     Returns a mask for all records in scr_m indicating whether the corresponding patient was on dialysis at the time
     that the record was taken
-    :return mask: vector with 0 indicating no dialysis, 1 = HD, 2 = CRRT, 3 = PD
+    :param dataPath: str; path to original data
+    :param scr_fname: str; filename containing all SCr data
+    :param rrt_fname: str; filename containing RRT dates
+    :param scr_dcol: str; name of column containing SCr date
+    :param id_col: str; name of column containing patient IDs
+    :param rrtSep: 'col'/'row'
+        'col' - each RRT modality has it's own column - 1 row per patient
+        'row' - each patient may have multiple rows, 1 for each modality
+    :return mask: vector with 0 indicating no dialysis, 1 = HD, 2 = CRRT, 4 = PD (so 1+2=3 is HD + CRRT)
     '''
-    # mask is same length as number of SCr records
     scr_m = pd.read_csv(os.path.join(dataPath, scr_fname))
     scr_m.sort_values(by=['STUDY_PATIENT_ID', 'SCR_ENTERED'], inplace=True)
     rrt_m = pd.read_csv(os.path.join(dataPath, rrt_fname))
     mask = np.zeros(len(scr_m))
-    # Get column indices corresponding to different types of RRT
+    # Get column indices corresponding to different types of RRT based on the file structure, e.g. rrtSep
     if rrtSep == 'col':
         for k in list(rrt_m):
             kv = k.lower()
@@ -48,48 +55,77 @@ def get_dialysis_mask(dataPath='', scr_fname='SCR_ALL_VALUES.csv', rrt_fname='RE
                 stop_col = k
             elif 'type' in kv:
                 type_col = k
+    hleft = hright = cleft = cright = pleft = pright = 'nan'
+    found = False
+    cur_id = None
     for i in range(len(mask)):
         # ID of the current patient
         this_id = scr_m[id_col][i]
+        if cur_id != this_id:
+            hleft = hright = cleft = cright = pleft = pright = 'nan'
+            found = False
+            cur_id = this_id
+        # Current date
         this_date = get_date(str(scr_m[scr_dcol][i]).lower())
         if this_date == 'nan' or this_date == 'nat':
             continue
         rows = np.where(rrt_m[id_col].values == this_id)[0]
-        # check dialysis dates for this patient and assign mask value if current value was recorded during dialysis
-        for row in rows:
-            if rrtSep == 'col':
-                left = get_date(str(rrt_m[hd_start][row]).split('.')[0])
-                right = get_date(str(rrt_m[hd_stop][row]).split('.')[0])
-                if left != 'nan' and right != 'nan':
-                    if left < this_date < right + datetime.timedelta(2):
-                        mask[i] = 1
-                left = get_date(str(rrt_m[crrt_start][row]).split('.')[0])
-                right = get_date(str(rrt_m[crrt_stop][row]).split('.')[0])
-                if left != 'nan' and right != 'nan':
-                    if left < this_date < right + datetime.timedelta(2):
-                        mask[i] = 2
-                left = get_date(str(rrt_m[pd_start][row]).split('.')[0])
-                right = get_date(str(rrt_m[pd_stop][row]).split('.')[0])
-                if left != 'nan' and right != 'nan':
-                    if left < this_date < right + datetime.timedelta(2):
-                        mask[i] = 3
-            elif rrtSep == 'row':
-                left = get_date(str(rrt_m[start_col][row]).split('.')[0])
-                right = get_date(str(rrt_m[stop_col][row]).split('.')[0])
-                if left != 'nan' and right != 'nan':
-                    if left < this_date < right + datetime.timedelta(2):
-                        if 'hd' in rrt_m[type_col][row].lower():
-                            mask[i] = 1
-                        elif 'crrt' in rrt_m[type_col][row].lower():
-                            mask[i] = 2
-                        elif 'pd' in rrt_m[type_col][row].lower():
-                            mask[i] = 3
+        if not found:
+            # check dialysis dates for this patient and assign mask value if current value was recorded during dialysis
+            for row in rows:
+                if rrtSep == 'col':
+                    hleft = get_date(str(rrt_m[hd_start][row]).split('.')[0])
+                    hright = get_date(str(rrt_m[hd_stop][row]).split('.')[0])
+                    cleft = get_date(str(rrt_m[crrt_start][row]).split('.')[0])
+                    cright = get_date(str(rrt_m[crrt_stop][row]).split('.')[0])
+                    pleft = get_date(str(rrt_m[pd_start][row]).split('.')[0])
+                    pright = get_date(str(rrt_m[pd_stop][row]).split('.')[0])
+                elif rrtSep == 'row':
+                    left = get_date(str(rrt_m[start_col][row]).split('.')[0])
+                    right = get_date(str(rrt_m[stop_col][row]).split('.')[0])
+                    if left != 'nan' and right != 'nan':
+                        if left < this_date < right + datetime.timedelta(2):
+                            if 'hd' in rrt_m[type_col][row].lower():
+                                hleft = left
+                                hright = right
+                            elif 'crrt' in rrt_m[type_col][row].lower():
+                                cleft = left
+                                cright = right
+                            elif 'pd' in rrt_m[type_col][row].lower():
+                                pleft = left
+                                pright = right
+            found = True
+        # Mask any values within 48 hours after the stop of dialysis
+        if hleft != 'nan' and hright != 'nan':
+            if hleft < this_date < hright + datetime.timedelta(2):
+                mask[i] += 1
+        if cleft != 'nan' and cright != 'nan':
+            if cleft < this_date < cright + datetime.timedelta(2):
+                mask[i] += 2
+        if pleft != 'nan' and pright != 'nan':
+            if pleft < this_date < pright + datetime.timedelta(2):
+                mask[i] += 4
     return mask
 
 
 # %%
 def extract_scr_data(icu_windows, hosp_windows, dataPath='', scr_fname='SCR_ALL_VALUES.csv', rrt_fname='RENAL_REPLACE_THERAPY.csv',
-                      scr_dcol='SCR_ENTERED', scr_vcol='SCR_VALUE', id_col='STUDY_PATIENT_ID', rrtSep='col'):
+                      scr_dcol='SCR_ENTERED', scr_vcol='SCR_VALUE', id_col='STUDY_PATIENT_ID', rrtSep='col', v=False):
+    '''
+    Extract SCr data for individual patients
+    :param icu_windows: dict, icu admit/discharge for all patients
+    :param hosp_windows: dict, hospital admit/discharge for all patients
+    :param dataPath: str, path to original raw data files
+    :param scr_fname: str, name of file with all scr data
+    :param rrt_fname: str, name of file with RRT dates
+    :param scr_dcol: str, name of column with SCr recorded date
+    :param scr_vcol: str, name of column with SCr values
+    :param id_col: str, name of column with patient ID
+    :param rrtSep: 'col'/'row'
+        'col' - each RRT modality has it's own column - 1 row per patient
+        'row' - each patient may have multiple rows, 1 for each modality
+    :return: scrs, dates, tmasks, hd_masks, crrt_masks, pd_masks, rrt_masks
+    '''
     scr_m = pd.read_csv(os.path.join(dataPath, 'SCR_ALL_VALUES.csv'))
     scr_m.sort_values(by=['STUDY_PATIENT_ID', 'SCR_ENTERED'], inplace=True)
     rrt_m = pd.read_csv(os.path.join(dataPath, 'RENAL_REPLACE_THERAPY.csv'))
@@ -101,6 +137,7 @@ def extract_scr_data(icu_windows, hosp_windows, dataPath='', scr_fname='SCR_ALL_
     rrt_masks = []
     tmasks = []
     ids = list(hosp_windows)
+    # Get the start/stop columns for different RRT modalities given rrtSep
     if rrtSep == 'col':
         for k in list(rrt_m):
             kv = k.lower()
@@ -126,10 +163,11 @@ def extract_scr_data(icu_windows, hosp_windows, dataPath='', scr_fname='SCR_ALL_
                 stop_col = k
             elif 'type' in kv:
                 type_col = k
+    # For each patient
     for i in range(len(ids)):
         tid = ids[i]
-        sidx = np.where(scr_m[id_col].values == tid)[0]
-        didx = np.where(rrt_m[id_col].values == tid)[0]
+        sidx = np.where(scr_m[id_col].values == tid)[0]     # rows of SCr data
+        didx = np.where(rrt_m[id_col].values == tid)[0]     # rows in RRT data
         hosp_admit, hosp_disch = hosp_windows[tid]
         icu_admit, icu_disch = icu_windows[tid]
         crrt_start = crrt_stop = hd_start = hd_stop = pd_start = pd_stop = None
@@ -184,17 +222,17 @@ def extract_scr_data(icu_windows, hosp_windows, dataPath='', scr_fname='SCR_ALL_
             else:
                 tmask.append(0)
             dval = 0
-            if hd_start is not None and hd_start <= tdate <= hd_stop:
+            if hd_start is not None and hd_start <= tdate <= hd_stop + datetime.timedelta(2):
                 hd_mask.append(1)
                 dval = 1
             else:
                 hd_mask.append(0)
-            if crrt_start is not None and crrt_start <= tdate <= crrt_stop:
+            if crrt_start is not None and crrt_start <= tdate <= crrt_stop + datetime.timedelta(2):
                 crrt_mask.append(1)
                 dval = 1
             else:
                 crrt_mask.append(0)
-            if pd_start is not None and pd_start <= tdate <= pd_stop:
+            if pd_start is not None and pd_start <= tdate <= pd_stop + datetime.timedelta(2):
                 pd_mask.append(1)
                 dval = 1
             else:
@@ -211,6 +249,15 @@ def extract_scr_data(icu_windows, hosp_windows, dataPath='', scr_fname='SCR_ALL_
 
 
 def extract_masked_data(data_list, masks, sel=1):
+    '''
+    Given a list of different datasets (may be arrays, other lists, etc.) and extracts the data
+    corresponding to masks=sel
+    :param data_list: list; Collection of datasets, where
+            len(data[0][x]) == len(data[1][x]) == ... len(data[-1][x]) for x in range(len(masks[1]))
+    :param masks:
+    :param sel:
+    :return:
+    '''
     out = []
     for i in range(len(data_list)):
         out_d = []
@@ -233,7 +280,7 @@ def extract_masked_data(data_list, masks, sel=1):
     return out
 
 # %%
-def get_t_mask(dataPath='', scr_fname='SCR_ALL_VALUES.csv', date_fname = 'ADMISSION_INDX.csv', scr_dcol='SCR_ENTERED', id_col='STUDY_PATIENT_ID'):
+def get_admit_disch(dataPath='', scr_fname='SCR_ALL_VALUES.csv', date_fname = 'ADMISSION_INDX.csv', scr_dcol='SCR_ENTERED', id_col='STUDY_PATIENT_ID'):
     '''
     Returns a mask indicating whether each SCr value was recorded prior to admission, in the hospital, or in the ICU
     :return:
@@ -347,11 +394,10 @@ def get_t_mask(dataPath='', scr_fname='SCR_ALL_VALUES.csv', date_fname = 'ADMISS
             no_admit_info.append(this_id)
     hosp_windows[current_id] = cur_hosp_window
     icu_windows[current_id] = cur_icu_window
-    return mask, hosp_windows, icu_windows
+    return hosp_windows, icu_windows
 
 
-def get_exclusion_criteria(ids, mask, icu_windows, genders, races, ages, dataPath='', id_col='STUDY_PATIENT_ID'):
-    scr_all_m = pd.read_csv(os.path.join(dataPath, 'SCR_ALL_VALUES.csv'))
+def get_exclusion_criteria(ids, dates, icu_windows, genders, races, ages, dataPath='', id_col='STUDY_PATIENT_ID'):
     diag_m = pd.read_csv(os.path.join(dataPath, 'DIAGNOSIS.csv'))
     scm_esrd_m = pd.read_csv(os.path.join(dataPath, 'ESRD_STATUS.csv'))
     usrds_esrd_m = pd.read_csv(os.path.join(dataPath, 'USRDS_ESRD.csv'))
@@ -378,22 +424,15 @@ def get_exclusion_criteria(ids, mask, icu_windows, genders, races, ages, dataPat
     exclusions = np.zeros((len(ids), 12))
     for i in tqdm(range(len(ids)), desc='Getting Exclusion Criteria'):
         tid = ids[i]
-        exc = np.zeros(12, dtype=int)
-        exc_name = ''
-        all_rows = np.where(scr_all_m[id_col].values == tid)[0]
-        sel = np.where(mask[all_rows] == 2)[0]
-        keep = all_rows[sel]
-        if len(sel) > 1:
-            first_date = get_date(scr_all_m['SCR_ENTERED'][keep[0]])
-            last_date = get_date(scr_all_m['SCR_ENTERED'][keep[-1]])
-            dif = (last_date - first_date).total_seconds() / (60 * 60)
         # Ensure this patient has values in time period of interest
-        if len(sel) == 0:
+        if len(dates[i]) == 0:
             exclusions[i][NO_VALS_ICU] = 1
-        elif len(sel) == 1:
+        elif len(dates[i]) == 1:
             exclusions[i][ONLY_1VAL] = 1
-        elif dif < 6:
-            exclusions[i][TOO_SHORT] = 1
+        else:
+            dif = (dates[i][-1] - dates[i][0]).total_seconds() / (60 * 60)
+            if dif < 6:
+                exclusions[i][TOO_SHORT] = 1
 
         sex = genders[i]
         race = races[i]
@@ -406,16 +445,10 @@ def get_exclusion_criteria(ids, mask, icu_windows, genders, races, ages, dataPat
         age = ages[i]
         if np.isnan(age):
             exclusions[i][NO_DOB] = 1
-            dob = 'nan'
 
         # Get Baseline or remove if no admit dates provided
         bsln_idx = np.where(bsln_m[id_col].values == tid)[0]
         bsln = bsln_m['bsln_val'][bsln_idx[0]]
-        btype = bsln_m['bsln_type'][bsln_idx[0]]
-        if btype == 'mdrd':
-            btype = 'imputed'
-        else:
-            btype = 'measured'
         if np.isnan(bsln):
             exclusions[i][NO_ADMIT] = 1
         if bsln >= 4.0:
@@ -425,11 +458,9 @@ def get_exclusion_criteria(ids, mask, icu_windows, genders, races, ages, dataPat
             icu_admit, icu_disch = icu_windows[tid]
             if type(icu_admit) != datetime.datetime:
                 icu_admit = get_date(icu_admit)
-                icu_disch = get_date(icu_disch)
         except KeyError:
             exclusions[i][NO_ADMIT] = 1
             icu_admit = 'nan'
-            icu_disch = 'nan'
 
         # get age and remove if less than 18
         if age != 'nan':
@@ -451,8 +482,6 @@ def get_exclusion_criteria(ids, mask, icu_windows, genders, races, ages, dataPat
             death_dur = (mort_date - icu_admit).total_seconds() / (60 * 60 * 24)
             if death_dur < 2:
                 exclusions[i][DIED_LT48] = 1
-        else:
-            death_dur = np.nan
 
         # Check scm flags
         esrd_idx = np.where(scm_esrd_m['STUDY_PATIENT_ID'].values == tid)[0]
@@ -461,7 +490,7 @@ def get_exclusion_criteria(ids, mask, icu_windows, genders, races, ages, dataPat
             esrd_idx = esrd_idx[0]
             if scm_esrd_m['BEFORE_INDEXED_INDICATOR'][esrd_idx] == 'Y' or scm_esrd_m['AT_ADMISSION_INDICATOR'][esrd_idx] == 'Y':
                 scm = 1
-                # exclusions[i][ESRD] = 1
+                exclusions[i][ESRD] = 1
         # Check USRDS
         esrd_idx = np.where(usrds_esrd_m['STUDY_PATIENT_ID'].values == tid)[0]
         usrds = 0
@@ -482,6 +511,10 @@ def get_exclusion_criteria(ids, mask, icu_windows, genders, races, ages, dataPat
                 esrd_idx = esrd_idx[0]
                 if esrd_man_rev['before'][esrd_idx]:
                     exclusions[i][ESRD] = 1
+            else:
+                if v:
+                    print('Patient %d\'s scm and USRDS data did not match and this \n'
+                          'patient is not included in the manual revision.')
         else:
             exclusions[i][ESRD] = scm
 

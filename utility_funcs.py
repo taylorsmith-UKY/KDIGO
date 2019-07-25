@@ -322,3 +322,26 @@ def plot_confusion_matrix(cm,
                 accuracy, misclass, sens, spec), fontsize=18)
     if show:
         plt.show()
+
+
+def get_dm_tag(mismatch, extension, alpha, aggext, popcoords, dfunc, lf_type='none'):
+    if mismatch:
+        dm_tag = 'popMismatch'
+    else:
+        dm_tag = 'absMismatch'
+    if extension:
+        dm_tag += '_extension_a%.0E' % alpha
+    if aggext:
+        dm_tag += '_agg'
+    dtw_tag = dm_tag
+    dm_tag += '_' + dfunc
+    if popcoords:
+        dm_tag += '_popCoords'
+    else:
+        dm_tag += '_absCoords'
+    if lf_type != 'none':
+        if lf_type == 'individual':
+            dm_tag += '_indLap'
+        elif lf_type == 'aggregated':
+            dm_tag += '_aggLap'
+    return dm_tag, dtw_tag

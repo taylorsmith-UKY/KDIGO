@@ -743,23 +743,32 @@ def countCategories(lbls):
     return counts
 
 
-def merge_clusters(ids, kdigos, max_kdigos, days, dm, lblPath, meta, mismatch=lambda x,y: abs(x-y), extension=lambda x:0, dist=braycurtis, t_lim=7, mergeType='dba', folderName='merged', normalDTW=False, alpha=1.0):
+def merge_clusters(ids, kdigos, max_kdigos, days, dm, lblPath, meta, mismatch=lambda x,y: abs(x-y), extension=lambda x:0, dist=braycurtis, t_lim=7, mergeType='dba', folderName='merged', normalDTW=False, alpha=1.0, category='all', aggExt=False, plot_centers=False):
     ids = np.loadtxt(os.path.join(lblPath, 'clusters.csv'), delimiter=',', usecols=0, dtype=int)
     assert len(ids) == len(kdigos)
     lbls = load_csv(os.path.join(lblPath, 'clusters.csv'), ids, str)
     lbls = np.array(lbls, dtype='|S100').astype(str)
     catLbls, lblNames = clusterCategorizer(max_kdigos, kdigos, days, lbls)
     centers = {}
-    if not os.path.exists(os.path.join(lblPath, 'centers.csv')):
+    centerName = 'centers'
+    if normalDTW:
+        centerName += '_normDTW'
+    else:
+        centerName += '_popDTW'
+        centerName += '_alpha%.0E' % alpha
+        if aggExt:
+            centerName += '_aggExt'
+
+    if not os.path.exists(os.path.join(lblPath, centerName + '.csv')):
         for i in range(len(kdigos)):
             kdigos[i] = kdigos[i][np.where(days[i] <= t_lim)]
-        with PdfPages(os.path.join(lblPath, 'centers.pdf')) as pdf:
+        with PdfPages(os.path.join(lblPath, centerName + '.pdf')) as pdf:
             for lbl in np.unique(lbls):
                 idx = np.where(lbls == lbl)[0]
                 dm_sel = np.ix_(idx, idx)
                 tkdigos = [kdigos[x] for x in idx]
                 tdm = squareform(squareform(dm)[dm_sel])
-                center, stds, confs = performDBA(tkdigos, tdm, mismatch=mismatch, extension=extension, extraDesc=' for cluster ' + lbl, alpha=alpha)
+                center, stds, confs = performDBA(tkdigos, tdm, mismatch=mismatch, extension=extension, extraDesc=' for cluster ' + lbl, alpha=alpha, aggExt=aggExt)
                 centers[lbl] = center
                 plt.figure()
                 plt.plot(center)
@@ -777,22 +786,51 @@ def merge_clusters(ids, kdigos, max_kdigos, days, dm, lblPath, meta, mismatch=la
     if not os.path.exists(os.path.join(lblPath, folderName)):
         os.mkdir(os.path.join(lblPath, folderName))
 
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-Im', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-St', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-Ws', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-Im', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-St', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-Ws', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-Im', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-St', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-Ws', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-Im', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-St', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
-    merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-Ws', mismatch=mismatch, extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW, alpha=alpha)
+    if category == 'all':
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-Im', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-St', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-Ws', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-Im', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-St', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-Ws', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-Im', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-St', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-Ws', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-Im', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-St', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-Ws', mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+    else:
+        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat=category, mismatch=mismatch,
+                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
+                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
 
 
 def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-Im',
-                mismatch=lambda x,y: abs(x-y), extension=lambda x:0, dist=braycurtis, mergeType='dba', folderName='merged', extWeight=1, normalDTW=False, alpha=1):
+                mismatch=lambda x,y: abs(x-y), extension=lambda x:0, dist=braycurtis, mergeType='dba', folderName='merged', extWeight=1, normalDTW=False, alpha=1, aggExt=False, plot_centers=False):
     lblgrp = [x for x in np.unique(lbls) if cat in lblNames[x]]
     if len(lblgrp) < 2:
         return
@@ -804,7 +842,6 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
     dmidx = np.ix_(idx, idx)
     grpLbls = lbls[idx]
     grpCenters = {}
-
     for lbl in lblgrp:
         grpCenters[lbl] = centers[lbl]
 
@@ -906,7 +943,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
                             for yi in range(1, len(yidx)):
                                 yext += (yi) * extension(c2[pi])
                     else:
-                       _, _, _, paths, xext, yext = dtw_p(c1, c2, mismatch=mismatch, extension=extension, alpha=alpha)
+                       _, _, _, paths, xext, yext = dtw_p(c1, c2, mismatch=mismatch, extension=extension, alpha=alpha, aggExt=aggExt)
                     mism = np.sum([np.abs(c1[paths[0][x]] - c2[paths[1][x]]) for x in range(len(paths[0]))])
                     imismatches.append(mism)
                     xipenalties.append(xext)
@@ -974,7 +1011,13 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
             if mergeType == 'dba':
                 center, stds, confs = performDBA(tkdigos, tdm, mismatch=mismatch, extension=extension, n_iterations=10, alpha=alpha)
             elif 'mean' in mergeType:
-                _, _, _, path, xext, yext = dtw_p(c1, c2, mismatch=mismatch, extension=extension, alpha=alpha)
+                if normalDTW:
+                    _, paths = dtw(c1, c2, dist=mismatch)
+                    path1 = np.array(paths)[:, 0]
+                    path2 = np.array(paths)[:, 1]
+                    path = [path1, path2]
+                else:
+                    _, _, _, path, xext, yext = dtw_p(c1, c2, mismatch=mismatch, extension=extension, alpha=alpha)
                 c1p = c1[path[0]]
                 c2p = c2[path[1]]
                 if 'weighted' in mergeType:
@@ -1111,18 +1154,19 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
             plt.tight_layout()
             pdf.savefig(dpi=600)
             plt.close(fig)
-            with PdfPages(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'centers.pdf')) as pdf1:
-                for i in range(len(lblgrp)):
-                    tlbl = lblgrp[i]
-                    fig = plt.figure()
-                    plt.plot(grpCenters[tlbl])
-                    plt.xticks(range(0, len(grpCenters[tlbl]), 4), ['%d' % x for x in range(len(grpCenters[tlbl]))])
-                    plt.ylim((-0.2, 4.2))
-                    plt.xlabel('Days')
-                    plt.ylabel('KDIGO')
-                    plt.title('Cluster ' + tlbl, wrap=True)
-                    pdf1.savefig(dpi=600)
-                    plt.close(fig)
+            if plot_centers:
+                with PdfPages(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'centers.pdf')) as pdf1:
+                    for i in range(len(lblgrp)):
+                        tlbl = lblgrp[i]
+                        fig = plt.figure()
+                        plt.plot(grpCenters[tlbl])
+                        plt.xticks(range(0, len(grpCenters[tlbl]), 4), ['%d' % x for x in range(len(grpCenters[tlbl]))])
+                        plt.ylim((-0.2, 4.2))
+                        plt.xlabel('Days')
+                        plt.ylabel('KDIGO')
+                        plt.title('Cluster ' + tlbl, wrap=True)
+                        pdf1.savefig(dpi=600)
+                        plt.close(fig)
         fig = plt.figure()
         plt.plot(mergeDist)
         plt.xticks(range(len(mergeDist)), ['%d' % (x + 1) for x in range(len(mergeDist))])

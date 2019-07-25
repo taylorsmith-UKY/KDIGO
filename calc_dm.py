@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from utility_funcs import load_csv
+from utility_funcs import load_csv, get_dm_tag
 from dtw_distance import extension_penalty_func, mismatch_penalty_func, pairwise_dtw_dist, get_custom_distance_discrete
 import h5py
 import argparse
@@ -14,9 +14,12 @@ parser.add_argument('--config_path', action='store', nargs=1, type=str, dest='cf
                     default='')
 parser.add_argument('--use_extension', '-ext', action='store_true', dest='ext')
 parser.add_argument('--use_mismatch', '-mism', action='store_true', dest='mism')
+parser.add_argument('--aggregate_extension', '-agg', action='store_true', dest='aggext')
 parser.add_argument('--ext_alpha', '-alpha', action='store', type=float, dest='alpha', default=1.0)
+parser.add_argument('--laplacian_type', '-lt', action='store', type=str, dest='lap', default='none', choices=['none', 'individual', 'aggregated'])
 parser.add_argument('--distance_function', '-dfunc', '-d', action='store', type=str, dest='dfunc', default='braycurtis')
 parser.add_argument('--pop_coords', '-pcoords', '-pc', action='store_true', dest='popcoords')
+parser.add_argument('--overwrite', action='store_true', dest='overwrite')
 args = parser.parse_args()
 
 configurationFileName = os.path.join(args.cfpath, args.cfname)
@@ -39,6 +42,7 @@ resPath = os.path.join(basePath, 'RESULTS', analyze, cohortName)
 transition_costs = np.loadtxt(os.path.join(dataPath, tcost_fname), delimiter=',', usecols=1)
 
 # -----------------------------------------------------------------------------#
+# Use population derived coordinates from transition weights, otherwise use raw KDIGO scores
 if args.popcoords:
     coords = np.array([np.sum(transition_costs[:i]) for i in range(len(transition_costs) + 1)], dtype=float)
     coord_tag = '_popcoord'
@@ -82,23 +86,25 @@ else:
 if args.ext:
     # mismatch penalty derived from population dynamics
     extension = extension_penalty_func(*transition_costs)
-    dm_tag += '_extension'
+    dm_tag += '_extension_a%.0E' % args.alpha[0]
 else:
     # no extension penalty
     extension = lambda x: 0
 
-dtw_tag = dm_tag
-dist = get_custom_distance_discrete(coords, args.dfunc)
-dm_tag += '_' + args.dfunc + coord_tag
+# Construct the tags for distance matrix and DTW files
+dm_tag, dtw_tag = get_dm_tag(args.mism, args.ext, args.alpha[0], args.aggext, args.popcoords, args.dfunc, args.lap)
 
-if not os.path.exists(os.path.join(dm_path, '/kdigo_dm' + dm_tag + '.npy')):
-    # if dfunc == 'braycurtis':
+# Load the appropriate distance function
+dist = get_custom_distance_discrete(coords, args.dfunc)
+
+# Don't overwrite existing data unless specified
+if not os.path.exists(os.path.join(dm_path, '/kdigo_dm' + dm_tag + '.npy')) or args.overwrite:
     dm = pairwise_dtw_dist(kdigos, days, ids, os.path.join(dm_path, 'kdigo_dm' + dm_tag + '.csv'),
                            os.path.join(dtw_path, 'kdigo_dtwlog' + dtw_tag + '.csv'),
                            mismatch=mismatch,
                            extension=extension,
                            dist=dist,
-                           alpha=args.alpha, t_lim=t_lim)
+                           alpha=args.alpha[0], t_lim=t_lim, aggext=args.aggext)
     np.save(os.path.join(dm_path, 'kdigo_dm' + dm_tag), dm)
 else:
     print(dm_tag + ' already completed.')

@@ -24,7 +24,7 @@ def pairwise_dtw_dist(patients, days, ids, dm_fname, dtw_name, v=True,
                       mismatch=lambda y, yy: abs(y-yy),
                       extension=lambda y: 0,
                       dist=braycurtis,
-                      alpha=1.0, t_lim=7):
+                      alpha=1.0, t_lim=7, aggext=False):
     '''
     For each pair of arrays in patients, this function first applies dynamic time warping to
     align the arrays to the same length and then computes the distance between the aligned arrays.
@@ -61,7 +61,7 @@ def pairwise_dtw_dist(patients, days, ids, dm_fname, dtw_name, v=True,
                     dlist.append(0)
                 else:
                     if len(patient1) > 1 and len(patient2) > 1:
-                        d, _, _, path, xext, yext = dtw_p(patient1, patient2, mismatch=mismatch, extension=extension, alpha=alpha)
+                        d, _, _, path, xext, yext = dtw_p(patient1, patient2, mismatch=mismatch, extension=extension, alpha=alpha, aggExt=aggext)
                         p1_path = path[0]
                         p2_path = path[1]
                         p1 = np.array([patient1[p1_path[x]] for x in range(len(p1_path))])
@@ -104,7 +104,7 @@ def pairwise_dtw_dist(patients, days, ids, dm_fname, dtw_name, v=True,
 # %%
 def dtw_p(x, y, mismatch=lambda y, yy: abs(y-yy),
                 extension=lambda y: 0,
-                alpha=1.0):
+                alpha=1.0, aggExt=False):
     """
     Computes Dynamic Time Warping (DTW) of two sequences with weighted penalty exponentiation.
     Designed for sequences of distinct integer values in the set [0, 1, 2, 3, 4]
@@ -120,7 +120,7 @@ def dtw_p(x, y, mismatch=lambda y, yy: abs(y-yy),
     assert len(x)
     assert len(y)
     r, c = len(x), len(y)
-    D0 = np.zeros((r + 1, c + 1))  # distance matrix
+    D0 = np.zeros((r + 1, c + 1), dtype=float)  # distance matrix
     D0[0, 1:] = np.inf
     D0[1:, 0] = np.inf
     D1 = D0[1:, 1:]  # view
@@ -128,42 +128,68 @@ def dtw_p(x, y, mismatch=lambda y, yy: abs(y-yy),
         for j in range(c):
             D1[i, j] = mismatch(x[i], y[j])
     C = D1.copy()
-    ext_y = np.zeros((r + 1, c + 1))
-    ext_x = np.zeros((r + 1, c + 1))
-    x_dup = np.zeros((r + 1, c + 1))
-    y_dup = np.zeros((r + 1, c + 1))
+    ext_y = np.zeros((r + 1, c + 1), dtype=float)
+    ext_x = np.zeros((r + 1, c + 1), dtype=float)
+    x_dup = np.zeros((r + 1, c + 1), dtype=float)
+    y_dup = np.zeros((r + 1, c + 1), dtype=float)
     for i in range(r):
         for j in range(c):
             diag = D0[i, j]
-            sel = np.argmin((D0[i, j] + ext_x[i, j] + ext_y[i, j],                                         # 0: diagonal
-                             D0[i, j + 1] + ext_x[i, j + 1] + ext_y[i, j + 1] + alpha * ((y_dup[i, j + 1] + 1) * extension(y[j])),   # 1: repeat y
-                             D0[i + 1, j] + ext_x[i + 1, j] + ext_y[i + 1, j] + alpha * ((x_dup[i + 1, j] + 1) * extension(x[i]))))  # 2: repeat x
-            if sel == 1:
-                ext_y[i + 1, j + 1] = ext_y[i, j + 1] + alpha * ((y_dup[i, j + 1] + 1) * extension(y[j]))
-                ext_x[i + 1, j + 1] = ext_x[i, j + 1]
-                D1[i, j] += D0[i, j + 1]
-                y_dup[i + 1, j + 1] = y_dup[i, j + 1] + 1
-                x_dup[i + 1, j + 1] = 0
-            elif sel == 2:
-                ext_x[i + 1, j + 1] = ext_x[i + 1, j] + alpha * ((x_dup[i + 1, j] + 1) * extension(x[i]))
-                ext_y[i + 1, j + 1] = ext_y[i + 1, j]
-                D1[i, j] += D0[i + 1, j]
-                x_dup[i + 1, j + 1] = x_dup[i + 1, j] + 1
-                y_dup[i + 1, j + 1] = 0
+            if aggExt:
+                sel = np.argmin((D0[i, j] + ext_x[i, j] + ext_y[i, j],                                         # 0: diagonal
+                                 D0[i, j + 1] + ext_x[i, j + 1] + ext_y[i, j + 1] + alpha * ((y_dup[i, j + 1] + 1) * extension(y[j])),   # 1: repeat y
+                                 D0[i + 1, j] + ext_x[i + 1, j] + ext_y[i + 1, j] + alpha * ((x_dup[i + 1, j] + 1) * extension(x[i]))))  # 2: repeat x
+                if sel == 1:
+                    ext_y[i + 1, j + 1] = ext_y[i, j + 1] + alpha * ((y_dup[i, j + 1] + 1) * extension(y[j]))
+                    ext_x[i + 1, j + 1] = ext_x[i, j + 1]
+                    D1[i, j] += D0[i, j + 1]
+                    y_dup[i + 1, j + 1] = y_dup[i, j + 1] + 1
+                    x_dup[i + 1, j + 1] = 0
+                elif sel == 2:
+                    ext_x[i + 1, j + 1] = ext_x[i + 1, j] + alpha * ((x_dup[i + 1, j] + 1) * extension(x[i]))
+                    ext_y[i + 1, j + 1] = ext_y[i + 1, j]
+                    D1[i, j] += D0[i + 1, j]
+                    x_dup[i + 1, j + 1] = x_dup[i + 1, j] + 1
+                    y_dup[i + 1, j + 1] = 0
+                else:
+                    D1[i, j] += diag
+                    ext_x[i + 1, j + 1] = ext_x[i, j]
+                    ext_y[i + 1, j + 1] = ext_y[i, j]
+                    x_dup[i + 1, j + 1] = 0
+                    y_dup[i + 1, j + 1] = 0
+                D1[i, j] += ext_x[i + 1, j + 1] + ext_y[i + 1, j + 1]
             else:
-                D1[i, j] += diag
-                ext_x[i + 1, j + 1] = ext_x[i, j]
-                ext_y[i + 1, j + 1] = ext_y[i, j]
-                x_dup[i + 1, j + 1] = 0
-                y_dup[i + 1, j + 1] = 0
-            D1[i, j] += ext_x[i + 1, j + 1] + ext_y[i + 1, j + 1]
+                sel = np.argmin((D0[i, j],                                         # 0: diagonal
+                                 D0[i, j + 1] + alpha * ((y_dup[i, j + 1] + 1) * extension(y[j])),   # 1: repeat y
+                                 D0[i + 1, j] + alpha * ((x_dup[i + 1, j] + 1) * extension(x[i]))))  # 2: repeat x
+                if sel == 1:
+                    D1[i, j] += D0[i, j + 1] + alpha * ((y_dup[i, j + 1] + 1) * extension(y[j]))
+                    y_dup[i + 1, j + 1] = y_dup[i, j + 1] + 1
+                    x_dup[i + 1, j + 1] = 0
+                elif sel == 2:
+                    D1[i, j] += D0[i + 1, j] + alpha * ((x_dup[i + 1, j] + 1) * extension(x[i]))
+                    x_dup[i + 1, j + 1] = x_dup[i + 1, j] + 1
+                    y_dup[i + 1, j + 1] = 0
+                else:
+                    D1[i, j] += diag
+                    x_dup[i + 1, j + 1] = 0
+                    y_dup[i + 1, j + 1] = 0
     if len(x) == 1:
         path = np.zeros(len(y))
     elif len(y) == 1:
         path = np.zeros(len(x))
     else:
         path = _traceback(D0)
-    return D1[-1, -1] / sum(D1.shape), C, D1, path, ext_x[-1, -1], ext_y[-1, -1]
+    xext = 0
+    yext = 0
+    for pi in range(len(path[0])):
+        xidx = np.where(path[0] == pi)[0]
+        yidx = np.where(path[1] == pi)[0]
+        for xi in range(1, len(xidx)):
+            xext += xi * extension(x[pi])
+        for yi in range(1, len(yidx)):
+            yext += yi * extension(y[pi])
+    return D1[-1, -1] / sum(D1.shape), C, D1, path, xext, yext
 
 
 def _traceback(D):
@@ -230,7 +256,7 @@ def continuous_mismatch(discrete):
 
 
 def extension_penalty_func(*tcosts):
-    costs = {0: 0}
+    costs = {0: 0.}
     for i in range(len(tcosts)):
         costs[i + 1] = tcosts[i]
 
@@ -244,7 +270,7 @@ def extension_penalty_func(*tcosts):
 
 def continuous_extension(discrete):
     nvals = discrete.nvals
-    cm = np.zeros(nvals)
+    cm = np.zeros(nvals, dtype=float)
     for i in range(1, nvals):
         cm[i] = discrete(i)
     x = np.arange(nvals)

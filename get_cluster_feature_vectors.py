@@ -1,6 +1,4 @@
 import numpy as np
-import h5py
-from cluster_funcs import assign_feature_vectors
 from kdigo_funcs import assign_cluster_features, load_csv, arr2csv, get_cluster_features
 import os
 import argparse

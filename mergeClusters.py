@@ -8,6 +8,7 @@ import argparse
 from cluster_funcs import merge_clusters
 import json
 from scipy.spatial.distance import braycurtis as bc
+from utility_funcs import get_dm_tag
 
 # --------------------- Parser Arguments
 parser = argparse.ArgumentParser(description='Merge clusters.')
@@ -17,20 +18,21 @@ parser.add_argument('--config_path', action='store', nargs=1, type=str, dest='cf
                     default='')
 parser.add_argument('--use_extension', '-ext', action='store_true', dest='ext')
 parser.add_argument('--use_mismatch', '-mism', action='store_true', dest='mism')
+parser.add_argument('--plot_centers', '-plot_c', action='store_true', dest='plot_centers')
+parser.add_argument('--agg_ext', '-agg', action='store_true', dest='aggext')
 parser.add_argument('--distance_function', '-dfunc', '-d', action='store', type=str, dest='dfunc', default='braycurtis')
 parser.add_argument('--pop_coords', '-pcoords', '-pc', action='store_true', dest='popcoords')
 parser.add_argument('--normalDTW', '-normDTW', action='store_true', dest='normDTW')
 parser.add_argument('--baseClustNum', action='store', nargs=1, type=int, dest='baseClustNum',
                     required=True)
-parser.add_argument('--laplacianFactor', '-lf', '-lap', action='store', nargs=1, type=float, dest='lap',
-                    default=0)
-parser.add_argument('--extensionWeight', '-alpha', action='store', nargs=1, type=float, dest='alpha',
-                    default=1)
-parser.add_argument('--aggregateLaplacian', '-agglap', action='store_true', dest='agglap')
+parser.add_argument('--laplacian_type', '-lt', action='store', type=str, dest='lap', default='none', choices=['none', 'individual', 'aggregated'])
+parser.add_argument('--ext_alpha', '-alpha', action='store', type=float, dest='alpha', default=1.0)
 parser.add_argument('--meta_group', '-meta', action='store', nargs=1, type=str, dest='meta',
                     default='meta')
 parser.add_argument('--folder_name', '-fname', action='store', nargs=1, type=str, dest='fname',
                     default='merged')
+parser.add_argument('--category', '-cat', action='store', nargs=1, type=str, dest='cat',
+                    default='all')
 args = parser.parse_args()
 
 configurationFileName = os.path.join(args.cfpath, args.cfname)
@@ -68,23 +70,20 @@ if args.mism:
     # mismatch penalty derived from population dynamics
     mismatch = mismatch_penalty_func(*transition_costs)
     mismatch = continuous_mismatch(mismatch)
-    dm_tag = 'popmismatch'
 else:
     # absolute difference in KDIGO scores
     def mismatch(x, y):
         return abs(x - y)
-    dm_tag = 'absmismatch'
 if args.ext:
     # mismatch penalty derived from population dynamics
     extension = extension_penalty_func(*transition_costs)
     extension = continuous_extension(extension)
-    dm_tag += '_extension'
 else:
     # no extension penalty
     def extension(_):
         return 0
 
-dm_tag += '_' + args.dfunc + coord_tag
+dm_tag, dtw_tag = get_dm_tag(args.mism, args.ext, args.alpha[0], args.aggext, args.popcoords, args.dfunc, args.lap)
 
 # Load patient data
 f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r')
@@ -105,5 +104,9 @@ if args.dfunc[0] == 'braycurtis':
 elif args.dfunc[0] == 'cityblock':
     dist = get_custom_cityblock_continuous(coords)
 
+if hasattr(args.alpha, '__len__'):
+    alpha = args.alpha[0]
+else:
+    alpha = args.alpha
 merge_clusters(ids, kdigos, max_kdigos, days, dm, lblPath, f['meta'], mismatch=mismatch, extension=extension, dist=dist,
-               t_lim=7, mergeType='mean', folderName=folderName, normalDTW=args.normDTW, alpha=args.alpha)
+               t_lim=7, mergeType='mean', folderName=folderName, normalDTW=args.normDTW, alpha=alpha, category=args.cat[0], plot_centers=args.plot_centers)

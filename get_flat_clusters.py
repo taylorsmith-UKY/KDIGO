@@ -6,6 +6,7 @@ import os
 from scipy.spatial.distance import squareform
 import argparse
 import json
+from utility_funcs import get_dm_tag
 
 # PARAMETERS
 parser = argparse.ArgumentParser(description='Preprocess Data and Construct KDIGO Vectors.')
@@ -13,10 +14,15 @@ parser.add_argument('--config_file', action='store', nargs=1, type=str, dest='cf
                     default='kdigo_conf.json')
 parser.add_argument('--config_path', action='store', nargs=1, type=str, dest='cfpath',
                     default='')
-parser.add_argument('--dm_tag', action='store', nargs=1, type=str, dest='dm_tag',
-                    default='popmismatch_extension_a1E+00_braycurtis_popcoord')
+parser.add_argument('--use_extension', '-ext', action='store_true', dest='ext')
+parser.add_argument('--use_mismatch', '-mism', action='store_true', dest='mism')
+parser.add_argument('--aggregate_extension', '-agg', action='store_true', dest='aggext')
+parser.add_argument('--ext_alpha', '-alpha', action='store', type=float, dest='alpha', default=1.0)
+parser.add_argument('--laplacian_type', '-lt', action='store', type=str, dest='lap', default='none', choices=['none', 'individual', 'aggregated'])
+parser.add_argument('--distance_function', '-dfunc', '-d', action='store', type=str, dest='dfunc', default='braycurtis')
+parser.add_argument('--pop_coords', '-pcoords', '-pc', action='store_true', dest='popcoords')
 parser.add_argument('--interact', action='store_true', dest='interact')
-parser.add_argument('--n_clust', action='store', nargs=1, type=int, dest='n_clust',
+parser.add_argument('--n_clust', '-n', action='store', nargs=1, type=int, dest='n_clust',
                     default=96)
 parser.add_argument('--meta', action='store', nargs=1, type=str, dest='meta',
                     default='meta')
@@ -62,7 +68,7 @@ if not os.path.exists(os.path.join(resPath, 'clusters')):
 if not os.path.exists(os.path.join(resPath, 'clusters', '%ddays' % t_lim)):
     os.mkdir(os.path.join(resPath, 'clusters', '%ddays' % t_lim))
 
-dm_tag = args.dm_tag
+dm_tag, dtw_tag = get_dm_tag(args.mism, args.ext, args.alpha[0], args.aggext, args.popcoords, args.dfunc, args.lap)
 save_path = os.path.join(resPath, 'clusters', '%ddays' % t_lim, dm_tag)
 if not os.path.exists(save_path):
     os.mkdir(save_path)

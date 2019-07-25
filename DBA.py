@@ -27,7 +27,7 @@ import copy
 __author__ ="Francois Petitjean"
 
 
-def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extension=lambda x: 0, extraDesc='', save_every=False, alpha=1.0):
+def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extension=lambda x: 0, extraDesc='', save_every=False, alpha=1.0, aggExt=False):
     if dm.ndim == 1:
         sqdm = squareform(dm)
     elif dm.ndim == 2:
@@ -59,7 +59,7 @@ def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extens
     for i in tqdm.trange(0, n_iterations, desc='Performing DBA Iterations' + extraDesc):
         # print('Iteration %d/%d' % (i+1, n_iterations))
         temp = copy.deepcopy(center)
-        center, stds, confs, paths = DBA_update(center, series, mismatch, extension, alpha=alpha)
+        center, stds, confs, paths = DBA_update(center, series, mismatch, extension, alpha=alpha, aggExt=aggExt)
         if save_every:
             cout.append(temp)
             stdout.append(stds)
@@ -73,14 +73,14 @@ def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extens
     return cout, stdout, confout, apaths
 
 
-def DBA_update(center, series, mismatch, extension, alpha=1.0):
+def DBA_update(center, series, mismatch, extension, alpha=1.0, aggExt=False):
     updated_center = np.zeros(center.shape)
     matched_vals = [[] for _ in range(len(center))]
     n_elements = np.array(np.zeros(center.shape), dtype=int)
     paths = []
     for sidx in range(len(series)):
         s = series[sidx]
-        _, _, _, p, _, _ = dtw_p(center, s, mismatch=mismatch, extension=extension, alpha=alpha)
+        _, _, _, p, _, _ = dtw_p(center, s, mismatch=mismatch, extension=extension, alpha=alpha, aggExt=aggExt)
         pairs = []
         for idx in range(len(p[0])):
             i = p[0][idx]
