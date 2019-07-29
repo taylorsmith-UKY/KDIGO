@@ -7,7 +7,7 @@
 #include <mpi.h>
 #include <math.h>
 
-#define MAXLEN 256
+#define MAXLEN 512
 
 using namespace std;
 
@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
     vector<double> dist;
     vector<vector<int> > alignments;
     int myid, size, val, idx1, idx2, nIterations, myStart, myStop, number;
-    int msg[256];
+    int msg[MAXLEN];
     MPI_Status status;
     stringstream ss;
     string line;
@@ -34,14 +34,14 @@ int main(int argc, char **argv) {
             coords[i] += tweights[j];
         }
     }
-//
-//
-//    MPI_Init(&argc, &argv);
-//
-//    MPI_Comm_size(MPI_COMM_WORLD, &size);
-//    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
-    myid = 0;
-    size = 4;
+
+
+    MPI_Init(&argc, &argv);
+
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
+//    myid = 0;
+//    size = 1;
     bool popDTW = 0;
     bool popDist = 0;
     int laplacian = 0;
@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
         }
         number = seqs.size();
     }
-//    MPI_Bcast(&number, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&number, 1, MPI_INT, 0, MPI_COMM_WORLD);
     vector<vector<int> > pairs;
     vector<int> pair(2);
     for (int i = 0; i < number; i++) {
@@ -106,30 +106,30 @@ int main(int argc, char **argv) {
         }
     }
 
-//
-//    if (myid == 0) {
-//        for (int i = 0; i < number; i++) {
-//            msg[0] = ids[i];
-//            msg[1] = seqs[i].size();
-//            copy(seqs[i].begin(), seqs[i].end(), &msg[2]);
-//            for (int j = 0; j < size; j++) {
-//                MPI_Send(&msg, msg[1]+2, MPI_INT, j, i, MPI_COMM_WORLD);
-//            }
-//
-//        }
-//    } else {
-//        for (int i = 0; i < number; i++) {
-//            MPI_Recv(&msg, MAXLEN, MPI_INT, 0, i, MPI_COMM_WORLD, &status);
-//            ids.push_back(msg[0]);
-//            val = msg[1];
-//            vector<int> seq;
-//            for (int j = 2; j < val+2; j++) {
-//                seq.push_back(msg[j]);
-//            }
-//            seqs.push_back(seq);
-//            seq.clear();
-//        }
-//    }
+
+    if (myid == 0) {
+        for (int i = 0; i < number; i++) {
+            msg[0] = ids[i];
+            msg[1] = seqs[i].size();
+            copy(seqs[i].begin(), seqs[i].end(), &msg[2]);
+            for (int j = 0; j < size; j++) {
+                MPI_Send(&msg, msg[1]+2, MPI_INT, j, i, MPI_COMM_WORLD);
+            }
+
+        }
+    } else {
+        for (int i = 0; i < number; i++) {
+            MPI_Recv(&msg, MAXLEN, MPI_INT, 0, i, MPI_COMM_WORLD, &status);
+            ids.push_back(msg[0]);
+            val = msg[1];
+            vector<int> seq;
+            for (int j = 2; j < val+2; j++) {
+                seq.push_back(msg[j]);
+            }
+            seqs.push_back(seq);
+            seq.clear();
+        }
+    }
 
     nIterations = ceil((float) pairs.size() / size);
     myStart = myid * nIterations;
@@ -145,70 +145,73 @@ int main(int argc, char **argv) {
         allPaths.push_back(ret[1]);
         ret.clear();
     }
-//    if (myid == 0) {
-//        int stopIdx, startIdx;
-//        for (int i = 1; i < size; i++) {
-//            startIdx = i*nIterations;
-//            stopIdx = min(startIdx + nIterations, (int) pairs.size());
-//            for (int j = startIdx; j < stopIdx; j++) {
-//                seq.clear();
-//                MPI_Recv(&msg, MAXLEN, MPI_INT, i, 2*j, MPI_COMM_WORLD, &status);
-//                for (int k = 1; k < msg[0]+1; k++)
-//                    seq.push_back(msg[k]);
-//                allPaths.push_back(seq);
-//                MPI_Recv(&msg, MAXLEN, MPI_INT, i, 2*j+1, MPI_COMM_WORLD, &status);
-//                seq.clear();
-//                for (int k = 1; k < msg[0]+1; k++)
-//                    seq.push_back(msg[k]);
-//                allPaths.push_back(seq);
-//            }
-//        }
-//        if (allPaths.size() != 2*pairs.size()) {
-//            cout << "Mismatch between ID pairs and aligned sequences" << endl;
-//            cout << "Number of alignments: " << allPaths.size() << endl;
-//            cout << "Number of pairs of IDs: " << pairs.size() << endl;
-//            return 0;
-//        } else {
-//            cout << "Alignments and pairs match.";
-//        }
-//        ofstream f("dtw_alignment.csv");
-//        for (int i = 0; i < pairs.size(); i++) {
-//            f << ids[pairs[i][0]];
-//            for (int j = 0; j < allPaths[2*i].size(); j++) {
-//                f << "," << allPaths[2*i][j];
-//            }
-//            f << endl;
-//            f << ids[pairs[i][1]];
-//            for (int j = 0; j < allPaths[2*i+1].size(); j++) {
-//                f << "," << allPaths[2*i+1][j];
-//            }
-//            f << endl;
-//            f << endl;
-//        }
-//    } else {
-//        int stopIdx, startIdx;
-//        startIdx = myid*nIterations;
-//        for (int i = 0; i < (allPaths.size() / 2); i++) {
-//            msg[0] = allPaths[2*i].size();
-//            copy(allPaths[2*i].begin(), allPaths[2*i].end(), &msg[1]);
-//            MPI_Send(&msg, msg[0]+1, MPI_INT, 0, (startIdx + i)*2, MPI_COMM_WORLD);
-//            msg[0] = allPaths[2*i+1].size();
-//            copy(allPaths[2*i+1].begin(), allPaths[2*i+1].end(), &msg[1]);
-//            MPI_Send(&msg, msg[0]+1, MPI_INT, 0, (startIdx + i)*2+1, MPI_COMM_WORLD);
-//        }
-//    }
-//    MPI_Finalize();
+    if (myid == 0) {
+        cout << "Combining alignments" << endl;
+        int stopIdx, startIdx;
+        for (int i = 1; i < size; i++) {
+            startIdx = i*nIterations;
+            stopIdx = min(startIdx + nIterations, (int) pairs.size());
+            cout << "Receiving alignments from processor " << i;
+            for (int j = startIdx; j < stopIdx; j++) {
+                cout << "," << j;
+                seq.clear();
+                MPI_Recv(&msg, MAXLEN, MPI_INT, i, 2*j, MPI_COMM_WORLD, &status);
+                for (int k = 1; k < msg[0]+1; k++)
+                    seq.push_back(msg[k]);
+                allPaths.push_back(seq);
+                MPI_Recv(&msg, MAXLEN, MPI_INT, i, 2*j+1, MPI_COMM_WORLD, &status);
+                seq.clear();
+                for (int k = 1; k < msg[0]+1; k++)
+                    seq.push_back(msg[k]);
+                allPaths.push_back(seq);
+            }
+            cout << endl;
+        }
+        if (allPaths.size() != 2*pairs.size()) {
+            cout << "Mismatch between ID pairs and aligned sequences" << endl;
+            cout << "Number of alignments: " << allPaths.size() << endl;
+            cout << "Number of pairs of IDs: " << pairs.size() << endl;
+            return 0;
+        } else {
+            cout << "Alignments and pairs match.";
+        }
+        ofstream f("dtw_alignment.csv");
+        for (int i = 0; i < pairs.size(); i++) {
+            f << ids[pairs[i][0]];
+            for (int j = 0; j < allPaths[2*i].size(); j++) {
+                f << "," << allPaths[2*i][j];
+            }
+            f << endl;
+            f << ids[pairs[i][1]];
+            for (int j = 0; j < allPaths[2*i+1].size(); j++) {
+                f << "," << allPaths[2*i+1][j];
+            }
+            f << endl;
+            f << endl;
+        }
+    } else {
+        int stopIdx, startIdx;
+        startIdx = myid*nIterations;
+        for (int i = 0; i < (allPaths.size() / 2); i++) {
+            msg[0] = allPaths[2*i].size();
+            copy(allPaths[2*i].begin(), allPaths[2*i].end(), &msg[1]);
+            MPI_Send(&msg, msg[0]+1, MPI_INT, 0, (startIdx + i)*2, MPI_COMM_WORLD);
+            msg[0] = allPaths[2*i+1].size();
+            copy(allPaths[2*i+1].begin(), allPaths[2*i+1].end(), &msg[1]);
+            MPI_Send(&msg, msg[0]+1, MPI_INT, 0, (startIdx + i)*2+1, MPI_COMM_WORLD);
+        }
+    }
+    MPI_Finalize();
 }
 
 vector<vector<int> > dtw(vector<int> X, vector<int> Y, double mismatch[5][5], double extension[5], bool aggExt, double alpha) {
     int r = X.size();
     int c = Y.size();
-    double D0[r+1][c+1];
-    double ext_x[r+1][c+1];
-    double dup_x[r+1][c+1];
-    double ext_y[r+1][c+1];
-    double dup_y[r+1][c+1];
-    cout << r << "," << c << endl;
+    double D0[r+1][c+1] = {{0, 0}, {0, 0}};
+    double ext_x[r+1][c+1] = {{0, 0}, {0, 0}};
+    double dup_x[r+1][c+1] = {{0, 0}, {0, 0}};
+    double ext_y[r+1][c+1] = {{0, 0}, {0, 0}};
+    double dup_y[r+1][c+1] = {{0, 0}, {0, 0}};
 
     for (int i = 1; i < r+1; i++) {
         D0[i][0] = 100000;
@@ -289,7 +292,6 @@ vector<vector<int> > dtw(vector<int> X, vector<int> Y, double mismatch[5][5], do
     vector<int> q;
     p.push_back(i);
     q.push_back(j);
-    cout << i << "," << j << endl;
     while(i > 0 || j > 0) {
         v1 = D0[i][j];
         v2 = D0[i][j+1];
@@ -309,14 +311,14 @@ vector<vector<int> > dtw(vector<int> X, vector<int> Y, double mismatch[5][5], do
     }
     paths.push_back(q);
     paths.push_back(p);
-    cout << q[0];
-    for (int i = 1; i < q.size(); i++)
-        cout << "," << q[i];
-    cout << endl;
-    cout << p[0];
-    for (int i = 1; i < p.size(); i++)
-        cout << "," << p[i];
-    cout << endl;
+//    cout << q[0];
+//    for (int i = 1; i < q.size(); i++)
+//        cout << "," << q[i];
+//    cout << endl;
+//    cout << p[0];
+//    for (int i = 1; i < p.size(); i++)
+//        cout << "," << p[i];
+//    cout << endl;
     return paths;
 }
 
