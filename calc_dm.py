@@ -12,13 +12,16 @@ parser.add_argument('--config_file', action='store', nargs=1, type=str, dest='cf
                     default='kdigo_conf.json')
 parser.add_argument('--config_path', action='store', nargs=1, type=str, dest='cfpath',
                     default='')
-parser.add_argument('--use_extension', '-ext', action='store_true', dest='ext')
-parser.add_argument('--use_mismatch', '-mism', action='store_true', dest='mism')
+parser.add_argument('--popDTW', '-pdtw', action='store_true', dest='pdtw')
+parser.add_argument('--meta_group', '-meta', action='store', type=str, dest='meta', default='meta')
+parser.add_argument('--sequence_file', '-sf', action='store', type=str, dest='sf', default='kdigo_icu.csv')
+parser.add_argument('--day_file', '-df', action='store', type=str, dest='df', default='days_interp_icu.csv')
 parser.add_argument('--aggregate_extension', '-agg', action='store_true', dest='aggext')
 parser.add_argument('--ext_alpha', '-alpha', action='store', type=float, dest='alpha', default=1.0)
-parser.add_argument('--laplacian_type', '-lt', action='store', type=str, dest='lap', default='none', choices=['none', 'individual', 'aggregated'])
 parser.add_argument('--distance_function', '-dfunc', '-d', action='store', type=str, dest='dfunc', default='braycurtis')
 parser.add_argument('--pop_coords', '-pcoords', '-pc', action='store_true', dest='popcoords')
+parser.add_argument('--laplacian_value', '-lv', action='store', type=float, dest='lapVal', default=1.0)
+parser.add_argument('--laplacian_type', '-lt', action='store', type=str, dest='lapType', default='none', choices=['none', 'individual', 'aggregated'])
 parser.add_argument('--overwrite', action='store_true', dest='overwrite')
 args = parser.parse_args()
 
@@ -39,22 +42,7 @@ baseDataPath = os.path.join(basePath, 'DATA', 'all_sheets')
 dataPath = os.path.join(basePath, 'DATA', analyze, cohortName)
 resPath = os.path.join(basePath, 'RESULTS', analyze, cohortName)
 
-transition_costs = np.loadtxt(os.path.join(dataPath, tcost_fname), delimiter=',', usecols=1)
-
 # -----------------------------------------------------------------------------#
-# Use population derived coordinates from transition weights, otherwise use raw KDIGO scores
-if args.popcoords:
-    coords = np.array([np.sum(transition_costs[:i]) for i in range(len(transition_costs) + 1)], dtype=float)
-    coord_tag = '_popcoord'
-else:
-    coords = np.array([x for x in range(len(transition_costs) + 1)], dtype=float)
-    coord_tag = '_abscoord'
-
-# Load patient IDs
-f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r')
-ids = f['meta']['ids'][:]
-f.close()
-
 dm_path = os.path.join(resPath, 'dm')
 dtw_path = os.path.join(resPath, 'dtw')
 if not os.path.exists(dm_path):
@@ -68,43 +56,61 @@ if not os.path.exists(dm_path):
     os.mkdir(dm_path)
 if not os.path.exists(dtw_path):
     os.mkdir(dtw_path)
+dm_tag, dtw_tag = get_dm_tag(args.pdtw, args.alpha, args.aggext, args.popcoords, args.dfunc, args.lapVal, args.lapType)
+
+folderName = args.sf.split('.')[0]
+folderName += "_" + dtw_tag
+dm_path = os.path.join(dm_path, folderName)
+dtw_path = os.path.join(dtw_path, folderName)
+if not os.path.exists(dm_path):
+    os.mkdir(dm_path)
+if not os.path.exists(dtw_path):
+    os.mkdir(dtw_path)
+
+tcost_fname = "%s_transition_weights.csv" % args.sf.split('.')[0]
+transition_costs = np.loadtxt(os.path.join(dataPath, tcost_fname), delimiter=',', usecols=1, skiprows=1)
+
+# Use population derived coordinates from transition weights, otherwise use raw KDIGO scores
+if args.popcoords:
+    coords = np.array([np.sum(transition_costs[:i]) for i in range(len(transition_costs) + 1)], dtype=float)
+else:
+    coords = np.array([x for x in range(len(transition_costs) + 1)], dtype=float)
+
+# Load patient IDs
+f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r')
+ids = f[args.meta]['ids'][:]
+f.close()
 
 # load corresponding KDIGO scores and their associated days post admission
-kdigos = load_csv(os.path.join(dataPath, 'kdigo.csv'), ids, int)
-days = load_csv(os.path.join(dataPath, 'days_interp.csv'), ids, int)
+kdigos = load_csv(os.path.join(dataPath, args.sf), ids, int)
+days = load_csv(os.path.join(dataPath, args.df), ids, int)
+for i in range(len(kdigos)):
+    kdigos[i] = kdigos[i][np.where(days[i] <= 7)]
+    days[i] = days[i][np.where(days[i] <= 7)]
 
 # Build filename to distinguish different matrices and specify the
 # mismatch and extension penalties
-if args.mism:
+if args.pdtw:
     # mismatch penalty derived from population dynamics
     mismatch = mismatch_penalty_func(*transition_costs)
-    dm_tag = '_popmismatch'
+    extension = extension_penalty_func(*transition_costs)
 else:
     # absolute difference in KDIGO scores
     mismatch = lambda x, y: abs(x - y)
-    dm_tag = '_absmismatch'
-if args.ext:
-    # mismatch penalty derived from population dynamics
-    extension = extension_penalty_func(*transition_costs)
-    dm_tag += '_extension_a%.0E' % args.alpha[0]
-else:
     # no extension penalty
     extension = lambda x: 0
 
-# Construct the tags for distance matrix and DTW files
-dm_tag, dtw_tag = get_dm_tag(args.mism, args.ext, args.alpha[0], args.aggext, args.popcoords, args.dfunc, args.lap)
-
 # Load the appropriate distance function
-dist = get_custom_distance_discrete(coords, args.dfunc)
+dist = get_custom_distance_discrete(coords, dfunc=args.dfunc, lapVal=args.lapVal, lapType=args.lapType)
 
 # Don't overwrite existing data unless specified
-if not os.path.exists(os.path.join(dm_path, '/kdigo_dm' + dm_tag + '.npy')) or args.overwrite:
-    dm = pairwise_dtw_dist(kdigos, days, ids, os.path.join(dm_path, 'kdigo_dm' + dm_tag + '.csv'),
-                           os.path.join(dtw_path, 'kdigo_dtwlog' + dtw_tag + '.csv'),
+if not os.path.exists(os.path.join(dm_path, 'kdigo_dm_' + dm_tag + '.npy')) or args.overwrite:
+    dm = pairwise_dtw_dist(kdigos, days, ids, os.path.join(dm_path, 'kdigo_dm_' + dm_tag + '.csv'),
+                           os.path.join(dtw_path, 'dtw_alignment.csv'),
                            mismatch=mismatch,
                            extension=extension,
                            dist=dist,
-                           alpha=args.alpha[0], t_lim=t_lim, aggext=args.aggext)
-    np.save(os.path.join(dm_path, 'kdigo_dm' + dm_tag), dm)
+                           alpha=args.alpha, t_lim=t_lim, aggext=args.aggext)
+    np.save(os.path.join(dm_path, 'kdigo_dm_' + dm_tag), dm)
 else:
     print(dm_tag + ' already completed.')

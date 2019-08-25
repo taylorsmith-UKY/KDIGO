@@ -51,12 +51,12 @@ def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extens
 
     center = series[medoid_ind]
 
+    apaths = []
     if save_every:
         cout = []
         stdout = []
         confout = []
-        apaths = []
-    for i in tqdm.trange(0, n_iterations, desc='Performing DBA Iterations' + extraDesc):
+    for i in tqdm.trange(0, n_iterations, desc='DBA Iterations' + extraDesc):
         # print('Iteration %d/%d' % (i+1, n_iterations))
         temp = copy.deepcopy(center)
         center, stds, confs, paths = DBA_update(center, series, mismatch, extension, alpha=alpha, aggExt=aggExt)
@@ -68,7 +68,7 @@ def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extens
         if cityblock(temp, center) == 0:
             break
     if not save_every:
-        return center, stds, confs
+        return center, stds, confs, paths
 
     return cout, stdout, confout, apaths
 

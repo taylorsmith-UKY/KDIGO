@@ -126,9 +126,9 @@ def extract_scr_data(icu_windows, hosp_windows, dataPath='', scr_fname='SCR_ALL_
         'row' - each patient may have multiple rows, 1 for each modality
     :return: scrs, dates, tmasks, hd_masks, crrt_masks, pd_masks, rrt_masks
     '''
-    scr_m = pd.read_csv(os.path.join(dataPath, 'SCR_ALL_VALUES.csv'))
-    scr_m.sort_values(by=['STUDY_PATIENT_ID', 'SCR_ENTERED'], inplace=True)
-    rrt_m = pd.read_csv(os.path.join(dataPath, 'RENAL_REPLACE_THERAPY.csv'))
+    scr_m = pd.read_csv(os.path.join(dataPath, scr_fname))
+    scr_m.sort_values(by=[id_col, scr_dcol], inplace=True)
+    rrt_m = pd.read_csv(os.path.join(dataPath, rrt_fname))
     scrs = []
     dates = []
     crrt_masks = []
@@ -159,7 +159,7 @@ def extract_scr_data(icu_windows, hosp_windows, dataPath='', scr_fname='SCR_ALL_
             kv = k.lower()
             if 'start' in kv:
                 start_col = k
-            elif 'stop' in kv:
+            elif 'stop' in kv or 'end' in kv:
                 stop_col = k
             elif 'type' in kv:
                 type_col = k
@@ -286,7 +286,7 @@ def get_admit_disch(dataPath='', scr_fname='SCR_ALL_VALUES.csv', date_fname = 'A
     :return:
     '''
     scr_m = pd.read_csv(os.path.join(dataPath, scr_fname))
-    scr_m.sort_values(by=['STUDY_PATIENT_ID', 'SCR_ENTERED'], inplace=True)
+    scr_m.sort_values(by=[id_col, scr_dcol], inplace=True)
     date_m = pd.read_csv(os.path.join(dataPath, date_fname))
     for k in list(date_m):
         kv = k.lower()
@@ -300,6 +300,7 @@ def get_admit_disch(dataPath='', scr_fname='SCR_ALL_VALUES.csv', date_fname = 'A
                 icu_start = k
             elif 'disch' in kv:
                 icu_stop = k
+
     mask = np.zeros(len(scr_m))
     current_id = 0
     hosp_windows = {}
@@ -555,11 +556,171 @@ def get_exclusion_criteria(ids, dates, icu_windows, genders, races, ages, dataPa
                     exclusions[i][KID_TPLT] = 1
                     break
 
-    del scr_all_m
     del bsln_m
     del diag_m
     del date_m
     del surg_m
+    return exclusions, hdr
+
+
+def get_exclusion_criteria_dallas(ids, dates, icu_windows, genders, races, ages, dataPath='', id_col='PATIENT_NUM'):
+    diag_m = pd.read_csv(os.path.join(dataPath, 'tHospitalFinalDiagnoses.csv'))
+    scm_esrd_m = pd.read_csv(os.path.join(dataPath, 'tESRDSummary.csv'))
+    usrds_m = pd.read_csv(os.path.join(dataPath, 'tUSRDS.csv'))
+    bsln_m = pd.read_csv(os.path.join(dataPath, 'all_baseline_info.csv'))
+    date_m = pd.read_csv(os.path.join(dataPath, 'tIndexedIcuAdmission.csv'))
+    pat_m = pd.read_csv(os.path.join(dataPath, 'tPatients.csv'))
+
+    hdr = 'patientID,No values in first 7 days, Only 1 value, Last SCr - First SCr < 6hrs, Missing Demographics, Missing DOB, Missing Admit Info, Baseline SCr > 4, Age < 18, Died < 48 hrs after ICU admission, ESRD, Baseline eGFR < 15, Kidney Transplant'
+    # NOT_ENOUGH = 0
+    NO_VALS_ICU = 0
+    ONLY_1VAL = 1
+    TOO_SHORT = 2
+    MISSING_DEM = 3
+    NO_DOB = 4
+    NO_ADMIT = 5
+    SCR_GT4 = 6
+    AGE_LT18 = 7
+    DIED_LT48 = 8
+    ESRD = 9
+    GFR_LT15 = 10
+    KID_TPLT = 11
+    exclusions = np.zeros((len(ids), 12))
+    for i in tqdm(range(len(ids)), desc='Getting Exclusion Criteria'):
+        tid = ids[i]
+        # Ensure this patient has values in time period of interest
+        if len(dates[i]) == 0:
+            exclusions[i][NO_VALS_ICU] = 1
+        elif len(dates[i]) == 1:
+            exclusions[i][ONLY_1VAL] = 1
+        else:
+            try:
+                dif = (dates[i][-1] - dates[i][0]).total_seconds() / (60 * 60)
+                if dif < 6:
+                    exclusions[i][TOO_SHORT] = 1
+            except TypeError:
+                if len(dates) > 2:
+                    try:
+                        if dates[i][0] == 'nan':
+                            dif = (dates[i][-1] - dates[i][1]).total_seconds() / (60 * 60)
+                            if dif < 6:
+                                exclusions[i][TOO_SHORT] = 1
+                        else:
+                            dif = (dates[i][-2] - dates[i][0]).total_seconds() / (60 * 60)
+                            if dif < 6:
+                                exclusions[i][TOO_SHORT] = 1
+                    except TypeError:
+                        exclusions[i][TOO_SHORT] = 1
+                else:
+                    exclusions[i][TOO_SHORT] = 1
+
+        sex = genders[i]
+        race = races[i]
+        # get demographics and remove if any required are missing
+        if np.isnan(sex) or np.isnan(race):
+            sex = 'nan'
+            race = 'nan'
+            exclusions[i][MISSING_DEM] = 1
+
+        age = ages[i]
+        if np.isnan(age):
+            exclusions[i][NO_DOB] = 1
+
+        # Get Baseline or remove if no admit dates provided
+        bsln_idx = np.where(bsln_m[id_col].values == tid)[0]
+        bsln = bsln_m['bsln_val'][bsln_idx[0]]
+        if np.isnan(bsln):
+            exclusions[i][NO_ADMIT] = 1
+        if bsln >= 4.0:
+            exclusions[i][SCR_GT4] = 1
+
+        try:
+            icu_admit, icu_disch = icu_windows[tid]
+            if type(icu_admit) != datetime.datetime:
+                icu_admit = get_date(icu_admit)
+        except KeyError:
+            exclusions[i][NO_ADMIT] = 1
+            icu_admit = 'nan'
+
+        # get age and remove if less than 18
+        if age != 'nan':
+            if age < 18:
+                exclusions[i][AGE_LT18] = 1
+        else:
+            age = 'nan'
+
+        # get mortality date if available
+        mort_idx = np.where(pat_m[id_col].values == tid)[0]
+        mort_date = 'nan'
+        scm = 0
+        if mort_idx.size > 0:
+            midx = mort_idx[0]
+            for col in ['DOD_Epic', 'DOD_NDRI', 'DMF_DEATH_DATE']:
+                mort_date = get_date(str(pat_m[col][midx]).split('.')[0])
+                if mort_date != 'nan':
+                    break
+
+        date_idx = np.where(date_m[id_col].values == tid)[0]
+        if date_idx.size > 0:
+            date_idx = date_idx[0]
+            if str(date_m['ESRD_BEFORE_INDEXED_ADT'][date_idx]) == 'BEFORE_INDEXED_ADT':
+                scm = 1
+
+        tdate = 'nan'
+        usrds_idx = np.where(usrds_m[id_col].values == tid)[0]
+        if usrds_idx.size > 0:
+            uidx = usrds_idx[0]
+            if mort_date == 'nan':
+                mort_date = get_date(str(usrds_m['DIED'][uidx]).split('.')[0])
+            tdate = get_date(str(usrds_m['FIRST_SE'][uidx]).split('.')[0])
+
+        if mort_date != 'nan' and icu_admit != 'nan':
+            death_dur = (mort_date - icu_admit).total_seconds() / (60 * 60 * 24)
+            if death_dur < 2:
+                exclusions[i][DIED_LT48] = 1
+
+        # Check scm flags
+        if scm:
+            exclusions[i][ESRD] = 1
+        # Check USRDS
+        usrds = 0
+        if tdate != 'nan':
+            if tdate < icu_admit:  # Before admit
+                exclusions[i][ESRD] = 1
+                usrds = 1
+            elif icu_admit.toordinal() == tdate.toordinal():  # Same day as admit
+                exclusions[i][ESRD] = 1
+                usrds = 1
+        exclusions[i][ESRD] = max(scm, usrds)
+
+        # remove patients with baseline GFR < 15
+        if bsln != 'nan' and age != 'nan':
+            gfr = calc_gfr(bsln, sex, race, age)
+            if gfr < 15:
+                exclusions[i][GFR_LT15] = 1
+
+        # remove patients with kidney transplant
+        diagnosis_rows = np.where(diag_m[id_col].values == tid)[0]
+        for row in diagnosis_rows:
+            str_des = str(diag_m['DX_NAME'][row]).upper()
+            if 'TRANS' in str_des:
+                if 'KID' in str_des or 'RENA' in str_des:
+                    exclusions[i][KID_TPLT] = 1
+                    break
+            icd_code = str(diag_m['CURRENT_ICD9_LIST'][row]).upper()
+            if icd_code in ['V42.0', '996.81']:
+                exclusions[i][KID_TPLT] = 1
+                break
+            icd_code = str(diag_m['CURRENT_ICD10_LIST'][row]).upper()
+            if icd_code in ['Z94.0', 'T86.10', 'T86.11', 'T86.12', 'T86.13', 'T86.19']:
+                exclusions[i][KID_TPLT] = 1
+                break
+
+    del bsln_m
+    del diag_m
+    del date_m
+    del pat_m
+    del usrds_m
     return exclusions, hdr
 
 
@@ -1509,6 +1670,8 @@ def rolling_average(data, masks=[], times=None, window=2, step=1, maxDiff=24, de
         l = int((np.ceil(len(vec) / step) - (window - step)))
         nvec = []
         for ni, oi in enumerate(range(0, len(vec), step)):
+            if t[oi] == 'nan':
+                continue
             tt = datetime.timedelta(0)
             ct = 0
             for j in range(1, min(window, len(t) - oi)):

@@ -4,9 +4,9 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import f1_score, precision_score, recall_score
 from scipy.stats import sem, t
 import itertools
+import os
 
-
-def load_csv(fname, ids=None, dt=float, skip_header=False, idxs=None, targets=None, struct='list', id_dtype=int):
+def load_csv(fname, ids=None, dt=float, skip_header=False, idxs=None, targets=None, struct='list', id_dtype=int, delim=','):
     if struct == 'list':
         res = []
     elif struct == 'dict':
@@ -15,7 +15,7 @@ def load_csv(fname, ids=None, dt=float, skip_header=False, idxs=None, targets=No
     f = open(fname, 'r')
     hdr = None
     if skip_header is not False or targets is not None:
-        hdr = f.readline().rstrip().split(',')[1:]
+        hdr = f.readline().rstrip().split(delim)[1:]
         hdr = np.array(hdr)
     if targets is not None:
         assert hdr is not None
@@ -36,7 +36,7 @@ def load_csv(fname, ids=None, dt=float, skip_header=False, idxs=None, targets=No
                 raise ValueError('%s is not unique in file %s' % (target, fname.split('/')[-1]))
             idxs.append(tidx)
     for line in f:
-        l = np.array(line.rstrip().split(','))
+        l = np.array(line.rstrip().split(delim))
         tid = id_dtype(l[0])
         if ids is None or tid in ids:
             if idxs is None:
@@ -97,10 +97,30 @@ def load_csv(fname, ids=None, dt=float, skip_header=False, idxs=None, targets=No
             return res, rid
 
 
+def savePairwiseAlignment(f, ids, data, id_fmt='%d'):
+    ct = 0
+    for i in range(len(ids)):
+        for j in range(i+1, ids):
+            f.write(id_fmt % ids[i])
+            for k in range(len(data[ct][0])):
+                f.write(',%d' % data[ct][0][k])
+            f.write('\n')
+            f.write(id_fmt % ids[j])
+            for k in range(len(data[ct][1])):
+                f.write(',%d' % data[ct][1][k])
+            f.write('\n')
+            f.write('\n')
+    return
+
+
 # %%
-def dict2csv(fname, inds, fmt='%f', header=False):
+def dict2csv(fname, inds, fmt='%f', header=False, append=False):
     ids = sorted(list(inds))
-    outFile = open(fname, 'w')
+    if append:
+        outFile = open(fname, 'a+')
+        outFile.write("\n")
+    else:
+        outFile = open(fname, 'w')
     if header:
         outFile.write(header)
         outFile.write('\n')
@@ -122,7 +142,7 @@ def dict2csv(fname, inds, fmt='%f', header=False):
 
 
 # %%
-def arr2csv(fname, inds, ids=None, fmt='%f', header=False):
+def arr2csv(fname, inds, ids=None, fmt='%f', header=False, delim=','):
     outFile = open(fname, 'w')
     if ids is None:
         ids = np.arange(len(inds))
@@ -133,14 +153,14 @@ def arr2csv(fname, inds, ids=None, fmt='%f', header=False):
         outFile.write(str(ids[i]))
         if np.size(inds[i]) > 1:
             for j in range(len(inds[i])):
-                outFile.write(',' + fmt % (inds[i][j]))
+                outFile.write(delim + fmt % (inds[i][j]))
         elif np.size(inds[i]) == 1:
             try:
-                outFile.write(',' + fmt % (inds[i]))
+                outFile.write(delim + fmt % (inds[i]))
             except TypeError:
-                outFile.write(',' + fmt % (inds[i][0]))
+                outFile.write(delim + fmt % (inds[i][0]))
         else:
-            outFile.write(',')
+            outFile.write(delim)
         outFile.write('\n')
     outFile.close()
 
@@ -176,10 +196,18 @@ def get_date(date_str, format_str='%Y-%m-%d %H:%M:%S'):
 
 
 def get_array_dates(array, date_fmt='%Y-%m-%d %H:%M:%S'):
-    out = np.zeros(array.shape, dtype=np.object)
-    for i in range(int(np.prod(array.shape))):
-        idx = np.unravel_index(i, array.shape)
-        out[idx] = get_date(array[idx], format_str=date_fmt)
+    if type(array) == np.ndarray:
+        out = np.zeros(array.shape, dtype=np.object)
+        for i in range(int(np.prod(array.shape))):
+            idx = np.unravel_index(i, array.shape)
+            out[idx] = get_date(array[idx], format_str=date_fmt)
+    else:
+        out = []
+        for i in range(len(array)):
+            temp = []
+            for j in range(len(array[i])):
+                temp.append(get_date(array[i][j], format_str=date_fmt))
+            out.append(np.array(temp, dtype=np.object))
     return out
 
 
@@ -324,17 +352,20 @@ def plot_confusion_matrix(cm,
         plt.show()
 
 
-def get_dm_tag(mismatch, extension, alpha, aggext, popcoords, dfunc, lf_type='none'):
-    if mismatch:
-        dm_tag = 'popMismatch'
+def get_dm_tag(popDTW, alpha, aggext, popcoords, dfunc, laplacian=1, lf_type='none'):
+    if popDTW:
+        dtw_tag = 'popDTW'
+        if alpha >= 1:
+            dtw_tag += "_a%.0E" % alpha
+        elif ((alpha * 100) % 10) == 0:
+            dtw_tag += "_a%dE-01" % (alpha * 10)
+        else:
+            dtw_tag += "_a%dE-02" % (alpha * 100)
     else:
-        dm_tag = 'absMismatch'
-    if extension:
-        dm_tag += '_extension_a%.0E' % alpha
+        dtw_tag = 'normDTW'
     if aggext:
-        dm_tag += '_agg'
-    dtw_tag = dm_tag
-    dm_tag += '_' + dfunc
+        dtw_tag += '_aggExt'
+    dm_tag = dfunc
     if popcoords:
         dm_tag += '_popCoords'
     else:
@@ -344,4 +375,61 @@ def get_dm_tag(mismatch, extension, alpha, aggext, popcoords, dfunc, lf_type='no
             dm_tag += '_indLap'
         elif lf_type == 'aggregated':
             dm_tag += '_aggLap'
+        if laplacian >= 1:
+            dm_tag += "_lap%.0E" % laplacian
+        elif ((laplacian * 100) % 10) == 0:
+            dm_tag += "_lap%dE-01" % (laplacian * 10)
+        else:
+            dm_tag += "_lap%dE-02" % (laplacian * 100)
     return dm_tag, dtw_tag
+
+
+def get_alignment(alignmentFile, id1, id2):
+    alignmentFile.seek(0)
+    if int(id1) > int(id2):
+        t = id1
+        id1 = id2
+        id2 = t
+    while True:
+        l1 = alignmentFile.readline().rstrip().split(',')
+        l2 = alignmentFile.readline().rstrip().split(',')
+        if l1[0] == id1 and l2[0] == id2:
+            return l1, l2
+        _ = alignmentFile.readline()
+
+
+def visualize_alignments(id_pairs, ids, kdigos, dtwPath):
+    ids = ids.astype(int).astype(str)
+    dfs = []
+    names = []
+    # for dirpath, dirnames, fnames in os.walk(dtwPath):
+    for dirname in ['popMismatch_extension_a1E+00_normBC',
+                    'popMismatch_extension_a9E-01_normBC',
+                    'popMismatch_extension_a8E-01_normBC',
+                    'popMismatch_extension_a7E-01_normBC',
+                    'popMismatch_extension_a6E-01_normBC',
+                    'popMismatch_extension_a5E-01_normBC',
+                    'popMismatch_extension_a45E-02_normBC',
+                    'popMismatch_extension_a4E-01_normBC',
+                    'popMismatch_extension_a35E-02_normBC',
+                    'popMismatch_extension_a3E-01_normBC',
+                    'popMismatch_extension_a25E-02_normBC',
+                    'popMismatch_extension_a2E-01_normBC',
+                    'popMismatch_extension_a15E-02_normBC',
+                    'popMismatch_extension_a1E-01_normBC',
+                    'popMismatch_extension_a5E-02_normBC']:
+        dfs.append(open(os.path.join(dtwPath, dirname, 'dtw_alignment_proc0.csv'), 'r'))
+        names.append(dirname)
+    for (id1, id2) in id_pairs:
+        of = open(os.path.join(dtwPath, str(id1) + 'vs' + str(id2) + ".csv"), 'w')
+        of.write('Original KDIGO Scores:\n')
+        of.write(str(id1) + ',' + ','.join(kdigos[np.where(ids == id1)[0][0]].astype(str)) + '\n')
+        of.write(str(id2) + ',' + ','.join(kdigos[np.where(ids == id2)[0][0]].astype(str)) + '\n\n')
+        for df, name in zip(dfs, names):
+
+            of.write(name + ':' + '\n')
+            l1, l2 = get_alignment(df, str(id1), str(id2))
+            of.write(','.join(l1) + '\n')
+            of.write(','.join(l2) + '\n')
+        of.close()
+    return

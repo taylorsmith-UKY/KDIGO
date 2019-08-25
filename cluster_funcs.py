@@ -20,12 +20,12 @@ from matplotlib.backends.backend_pdf import PdfPages
 from DBA import performDBA
 import os
 import copy
-from utility_funcs import get_date, load_csv, arr2csv
+from utility_funcs import savePairwiseAlignment, load_csv, arr2csv, dict2csv, get_dm_tag
 from fastdtw import dtw
 
 
 # %%
-def cluster_trajectories(f, ids, mk, dm, eps=0.015, n_clusters=2, data_path=None, interactive=True,
+def cluster_trajectories(f, stats, ids, mk, dm, eps=0.015, n_clusters=2, data_path=None, interactive=True,
                          save=False, plot_daily=False, kdigos=None, days=None):
     '''
     Provided a pre-computed distance matrix, cluster the corresponding trajectories using the specified methods.
@@ -66,6 +66,7 @@ def cluster_trajectories(f, ids, mk, dm, eps=0.015, n_clusters=2, data_path=None
     dendrogram(link, 50, truncate_mode='lastp')
     plt.xlabel('Patients')
     plt.ylabel('Distance')
+    plt.tight_layout()
     if save:
         if not os.path.exists(os.path.join(save, 'flat')):
             os.mkdir(os.path.join(save, 'flat'))
@@ -91,20 +92,20 @@ def cluster_trajectories(f, ids, mk, dm, eps=0.015, n_clusters=2, data_path=None
             save_path = os.path.join(save_path, '%d_clusters' % n_clusters)
             tag = None
             if os.path.exists(save_path):
-                formatted_stats(f['meta'], save_path)
+                formatted_stats(stats, save_path)
                 print('%d clusters has already been saved' % n_clusters)
                 if not interactive:
                     cont = False
                 continue
             os.mkdir(save_path)
             arr2csv(os.path.join(save_path, 'clusters.csv'), lbls_sel, ids, fmt='%d')
-            formatted_stats(f['meta'], save_path)
+            formatted_stats(stats, save_path)
             if not os.path.exists(os.path.join(save_path, 'rename')) and kdigos is not None:
                 os.mkdir(os.path.join(save_path, 'rename'))
             if kdigos is not None:
                 nlbls, clustCats = clusterCategorizer(mk, kdigos, days, lbls_sel)
                 arr2csv(os.path.join(save_path, 'rename', 'clusters.csv'), nlbls, ids, fmt='%s')
-                formatted_stats(f['meta'], os.path.join(save_path, 'rename'))
+                formatted_stats(stats, os.path.join(save_path, 'rename'))
             if data_path is not None and plot_daily:
                 dkpath = os.path.join(save_path, 'daily_kdigo')
                 os.mkdir(dkpath)
@@ -743,99 +744,105 @@ def countCategories(lbls):
     return counts
 
 
-def merge_clusters(ids, kdigos, max_kdigos, days, dm, lblPath, meta, mismatch=lambda x,y: abs(x-y), extension=lambda x:0, dist=braycurtis, t_lim=7, mergeType='dba', folderName='merged', normalDTW=False, alpha=1.0, category='all', aggExt=False, plot_centers=False):
+def merge_clusters(ids, kdigos, max_kdigos, days, dm, lblPath, meta, mismatch=lambda x,y: abs(x-y), extension=lambda x:0, dist=braycurtis, t_lim=7, mergeType='dba', folderName='merged', dbaPopDTW=False, alpha=1.0, category='all', aggExt=False, plot_centers=False, evalExt=None, dbaAlpha=1.0, dbaAggExt=False):
     ids = np.loadtxt(os.path.join(lblPath, 'clusters.csv'), delimiter=',', usecols=0, dtype=int)
     assert len(ids) == len(kdigos)
     lbls = load_csv(os.path.join(lblPath, 'clusters.csv'), ids, str)
     lbls = np.array(lbls, dtype='|S100').astype(str)
     catLbls, lblNames = clusterCategorizer(max_kdigos, kdigos, days, lbls)
-    centers = {}
-    centerName = 'centers'
-    if normalDTW:
-        centerName += '_normDTW'
+    if not dbaPopDTW:
+        centerName = 'normDTW'
     else:
-        centerName += '_popDTW'
-        centerName += '_alpha%.0E' % alpha
+        centerName = 'popDTW'
+        if alpha >= 1:
+            centerName += "_a%.0E" % alpha
+        elif ((alpha * 100) % 10) == 0:
+            centerName += "_a%dE-01" % (alpha * 10)
+        else:
+            centerName += "_a%dE-02" % (alpha * 100)
         if aggExt:
             centerName += '_aggExt'
 
-    if not os.path.exists(os.path.join(lblPath, centerName + '.csv')):
-        for i in range(len(kdigos)):
-            kdigos[i] = kdigos[i][np.where(days[i] <= t_lim)]
-        with PdfPages(os.path.join(lblPath, centerName + '.pdf')) as pdf:
+    lblPath1 = os.path.join(lblPath, "dba_centers")
+    if not os.path.exists(lblPath1):
+        os.mkdir(lblPath1)
+    lblPath1 = os.path.join(lblPath1, folderName)
+    if not os.path.exists(lblPath1):
+        os.mkdir(lblPath1)
+
+    _, dbaTag = get_dm_tag(dbaPopDTW, dbaAlpha, dbaAggExt, True, 'braycurtis', 0.0, 'none')
+
+    centerName = "centers"
+    if os.path.exists(os.path.join(lblPath1, 'centers.csv')):
+        centers = load_csv(os.path.join(lblPath1, 'centers.csv'), np.unique(lbls), struct='dict', id_dtype=str)
+        if len(list(centers)) != len(np.unique(lbls)):
+            centerName += "_a"
+            while os.path.exists(os.path.join(lblPath1, centerName + '.csv')):
+                centerName = centerName[:-1] + chr(ord(centerName[-1]) + 1)
+    else:
+        centers = {}
+        stds = {}
+        confs = {}
+    for i in range(len(kdigos)):
+        kdigos[i] = kdigos[i][np.where(days[i] <= t_lim)]
+
+    if not os.path.exists(os.path.join(lblPath1, centerName + '.pdf')) or centerName != "centers":
+        with PdfPages(os.path.join(lblPath1, centerName + '.pdf')) as pdf:
             for lbl in np.unique(lbls):
+                if lbl in centers.keys():
+                    print('Center for ' + lbl + ' already computed.')
                 idx = np.where(lbls == lbl)[0]
+                tids = ids[idx]
                 dm_sel = np.ix_(idx, idx)
                 tkdigos = [kdigos[x] for x in idx]
                 tdm = squareform(squareform(dm)[dm_sel])
-                center, stds, confs = performDBA(tkdigos, tdm, mismatch=mismatch, extension=extension, extraDesc=' for cluster ' + lbl, alpha=alpha, aggExt=aggExt)
+                center, std, conf, paths = performDBA(tkdigos, tdm, mismatch=mismatch, extension=extension, extraDesc=' for cluster ' + lbl, alpha=alpha, aggExt=aggExt)
                 centers[lbl] = center
+                stds[lbl] = std
+                confs[lbl] = conf
                 plt.figure()
                 plt.plot(center)
-                plt.fill_between(range(len(center)), center-confs, center+confs)
+                plt.fill_between(range(len(center)), center-conf, center+conf)
                 plt.xticks(range(0, len(center), 4), ['%d' % x for x in range(len(center))])
                 plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
                 plt.ylim((-0.5, 4.5))
                 plt.title(lbl)
                 pdf.savefig(dpi=600)
-            arr2csv(os.path.join(lblPath, 'centers.csv'), list(centers.values()), list(centers.keys()))
-    else:
-        center_vecs, centerNames = load_csv(os.path.join(lblPath, 'centers.csv'), None)
-        for tname in list(centerNames):
-            centers[tname] = center_vecs[np.where(centerNames == tname)[0][0]]
-    if not os.path.exists(os.path.join(lblPath, folderName)):
-        os.mkdir(os.path.join(lblPath, folderName))
+                af = open(os.path.join(lblPath, 'individual_center_alignment.csv'), 'w')
+                savePairwiseAlignment(af, tids, paths, id_fmt='%s')
+                af.close()
+            dict2csv(os.path.join(lblPath1, centerName + '.csv'), centers, fmt="%.6g", append=True)
+            dict2csv(os.path.join(lblPath1, centerName + '_confs.csv'), confs, fmt="%.6g", append=True)
+            dict2csv(os.path.join(lblPath1, centerName + '_stds.csv'), stds, fmt="%.6g", append=True)
 
-    if category == 'all':
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-Im', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-St', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-Ws', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-Im', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-St', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='2-Ws', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-Im', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-St', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3-Ws', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-Im', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-St', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='3D-Ws', mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+            center_vecs, centerNames = load_csv(os.path.join(lblPath, centerName + '.csv'), None, struct='dict')
+
+    dbaTag = 'merged_' + dbaTag
+
+    if not os.path.exists(os.path.join(lblPath, dbaTag)):
+        os.mkdir(os.path.join(lblPath, dbaTag))
+
+    if category[0] == 'all':
+        for tcat in ['1-Im', '1-St', '1-Ws', '2-Im', '2-St', '2-Ws', '3-Im', '3-St', '3-Ws', '3D-Im', '3D-St', '3D-Ws']:
+            merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat=tcat, mismatch=mismatch,
+                        extension=extension, mergeType=mergeType, dist=dist, dbaTag=dbaTag, dbaPopDTW=dbaPopDTW,
+                        alpha=alpha, aggExt=aggExt, plot_centers=plot_centers, evalExt=evalExt)
+
     else:
-        merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat=category, mismatch=mismatch,
-                    extension=extension, mergeType=mergeType, dist=dist, folderName=folderName, normalDTW=normalDTW,
-                    alpha=alpha, aggExt=aggExt, plot_centers=plot_centers)
+        if hasattr(category, "__len__"):
+            for tcat in category:
+                merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat=tcat, mismatch=mismatch,
+                            extension=extension, mergeType=mergeType, dist=dist, dbaTag=dbaTag, dbaPopDTW=dbaPopDTW,
+                            alpha=alpha, aggExt=aggExt, plot_centers=plot_centers, evalExt=evalExt)
 
 
 def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-Im',
-                mismatch=lambda x,y: abs(x-y), extension=lambda x:0, dist=braycurtis, mergeType='dba', folderName='merged', extWeight=1, normalDTW=False, alpha=1, aggExt=False, plot_centers=False):
+                mismatch=lambda x,y: abs(x-y), extension=lambda x: 0, dist=braycurtis, mergeType='dba', dbaTag='merged', dbaPopDTW=False, alpha=1.0, aggExt=False, plot_centers=False, evalExt=None):
     lblgrp = [x for x in np.unique(lbls) if cat in lblNames[x]]
     if len(lblgrp) < 2:
         return
-    if not os.path.exists(os.path.join(lblPath, folderName, cat)):
-        os.mkdir(os.path.join(lblPath, folderName, cat))
+    if not os.path.exists(os.path.join(lblPath, dbaTag, cat)):
+        os.mkdir(os.path.join(lblPath, dbaTag, cat))
     idx = np.where(lbls == lblgrp[0])[0]
     for i in range(1, len(lblgrp)):
         idx = np.union1d(idx, np.where(lbls == lblgrp[i])[0])
@@ -849,7 +856,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
     allMorts = []
     for i in range(len(idx)):
         tidx = np.where(meta['ids'][:] == ids[i])[0][0]
-        if meta['max_kdigo'][tidx] > meta['max_kdigo_7d'][tidx]:
+        if meta['max_kdigo'][tidx] > meta['max_kdigo_win'][tidx]:
             allProgs.append(1)
         else:
             allProgs.append(0)
@@ -872,12 +879,12 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
     progScores = []
     mortScores = []
     sils = []
-    with PdfPages(os.path.join(lblPath, folderName, cat, cat + '_merge_visualization.pdf')) as pdf:
-        if not os.path.exists(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust)):
-            os.mkdir(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust))
-            arr2csv(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'clusters.csv'), grpLbls, grpIds, fmt='%s')
-            formatted_stats(meta, os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust))
-            with PdfPages(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'centers.pdf')) as pdf1:
+    with PdfPages(os.path.join(lblPath, dbaTag, cat, cat + '_merge_visualization.pdf')) as pdf:
+        if not os.path.exists(os.path.join(lblPath, dbaTag, cat, '%d_clusters' % nClust)):
+            os.mkdir(os.path.join(lblPath, dbaTag, cat, '%d_clusters' % nClust))
+            arr2csv(os.path.join(lblPath, dbaTag, cat, '%d_clusters' % nClust, 'clusters.csv'), grpLbls, grpIds, fmt='%s')
+            formatted_stats(meta, os.path.join(lblPath, dbaTag, cat, '%d_clusters' % nClust))
+            with PdfPages(os.path.join(lblPath, dbaTag, cat, '%d_clusters' % nClust, 'centers.pdf')) as pdf1:
                 for i in range(len(lblgrp)):
                     tlbl = lblgrp[i]
                     fig = plt.figure()
@@ -914,7 +921,6 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
         xext_cum = 0
         yext_cum = 0
         while len(lblgrp) > 2:
-            minDist = 1000
             mergeGrp = [0, 0]
             tdist = []
             xpenalties = []
@@ -922,29 +928,53 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
             xipenalties = []
             yipenalties = []
             imismatches = []
+            pidx = 0
+            ct = 0
             for i in range(len(lblgrp)):
                 for j in range(i + 1, len(lblgrp)):
                     lbl1 = lblgrp[i]
                     lbl2 = lblgrp[j]
                     c1 = grpCenters[lbl1]
                     c2 = grpCenters[lbl2]
-                    if normalDTW:
-                        _, paths = dtw(c1, c2, dist=mismatch)
+                    if not dbaPopDTW:
+                        _, paths = dtw(c1, c2)
                         path1 = np.array(paths)[:, 0]
                         path2 = np.array(paths)[:, 1]
                         paths = [path1, path2]
                         xext = 0
                         yext = 0
-                        for pi in range(len(paths[0])):
+                        for pi in range(len(path1)):
                             xidx = np.where(path1 == pi)[0]
                             yidx = np.where(path2 == pi)[0]
-                            for xi in range(1, len(xidx)):
-                                xext += (xi) * extension(c1[pi])
-                            for yi in range(1, len(yidx)):
-                                yext += (yi) * extension(c2[pi])
+                            if aggExt:
+                                for xi in range(1, len(xidx)):
+                                    xext += xi * extension(c1[path1[pi]])
+                                for yi in range(1, len(yidx)):
+                                    yext += yi * extension(c2[path2[pi]])
+                            else:
+                                xext += (len(xidx) - 1) * extension(c1[path1[pi]])
+                                yext += (len(yidx) - 1) * extension(c2[path2[pi]])
                     else:
-                       _, _, _, paths, xext, yext = dtw_p(c1, c2, mismatch=mismatch, extension=extension, alpha=alpha, aggExt=aggExt)
-                    mism = np.sum([np.abs(c1[paths[0][x]] - c2[paths[1][x]]) for x in range(len(paths[0]))])
+                        _, _, _, paths, xext, yext = dtw_p(c1, c2, mismatch=mismatch, extension=extension, alpha=alpha, aggExt=aggExt)
+                    if evalExt is not None:
+                        xext = 0
+                        yext = 0
+                        path1 = paths[0]
+                        path2 = paths[1]
+                        for pi in range(len(path1)):
+                            xidx = np.where(path1 == pi)[0]
+                            yidx = np.where(path2 == pi)[0]
+                            if aggExt:
+                                for xi in range(1, len(xidx)):
+                                    xext += xi * evalExt(c1[path1[pi]])
+                                for yi in range(1, len(yidx)):
+                                    yext += yi * evalExt(c2[path2[pi]])
+                            else:
+                                xext += (len(xidx) - 1) * evalExt(c1[path1[pi]])
+                                yext += (len(yidx) - 1) * evalExt(c2[path2[pi]])
+
+                    # mism = np.sum([mismatch(c1[paths[0][x]], c2[paths[1][x]]) for x in range(len(paths[0]))])
+                    mism = np.sum([[mismatch(x, y) for x in c1[paths[0]]] for y in c2[paths[1]]])
                     imismatches.append(mism)
                     xipenalties.append(xext)
                     yipenalties.append(yext)
@@ -958,11 +988,12 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
                     tdist.append(d)
                     xpenalties.append(xext)
                     ypenalties.append(yext)
-                    if d < minDist:
-                        minDist = d
+                    if len(tdist) == 1 or d < np.min(tdist[:-1]):
                         mergeGrp = [i, j]
+                        pidx = ct
+                    ct += 1
             allDist.append(tdist)
-            mergeDist.append(minDist)
+            mergeDist.append(tdist[pidx])
             idx1 = np.where(grpLbls == lblgrp[mergeGrp[0]])[0]
             idx2 = np.where(grpLbls == lblgrp[mergeGrp[1]])[0]
             if lblgrp[mergeGrp[0]] not in grpLbls:
@@ -985,7 +1016,6 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
             dmidx = np.ix_(idx, idx)
             tkdigos = [grpKdigos[x] for x in idx]
             tdm = squareform(squareform(grpDm)[dmidx])
-            pidx = sum([len(lblgrp) - i - 1 for i in range(mergeGrp[0] - 1)]) + (mergeGrp[1] - mergeGrp[0])
             xext_cum = xpenalties[pidx]
             yext_cum = ypenalties[pidx]
             xext_ind = xipenalties[pidx]
@@ -1011,13 +1041,14 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
             if mergeType == 'dba':
                 center, stds, confs = performDBA(tkdigos, tdm, mismatch=mismatch, extension=extension, n_iterations=10, alpha=alpha)
             elif 'mean' in mergeType:
-                if normalDTW:
+                if not dbaPopDTW:
+                    _, _, _, path, xext, yext = dtw_p(c1, c2, mismatch=mismatch, extension=extension, alpha=alpha)
+                else:
                     _, paths = dtw(c1, c2, dist=mismatch)
                     path1 = np.array(paths)[:, 0]
                     path2 = np.array(paths)[:, 1]
                     path = [path1, path2]
-                else:
-                    _, _, _, path, xext, yext = dtw_p(c1, c2, mismatch=mismatch, extension=extension, alpha=alpha)
+
                 c1p = c1[path[0]]
                 c2p = c2[path[1]]
                 if 'weighted' in mergeType:
@@ -1034,10 +1065,10 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
             grpCenters[nlbl] = center
             lblgrp.append(nlbl)
             nClust = len(lblgrp)
-            os.mkdir(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust))
-            arr2csv(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'clusters.csv'), grpLbls, grpIds, fmt='%s')
-            arr2csv(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'centers.csv'), list(grpCenters.values()), list(grpCenters.keys()))
-            formatted_stats(meta, os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust))
+            os.mkdir(os.path.join(lblPath, dbaTag, cat, '%d_clusters' % nClust))
+            arr2csv(os.path.join(lblPath, dbaTag, cat, '%d_clusters' % nClust, 'clusters.csv'), grpLbls, grpIds, fmt='%s')
+            arr2csv(os.path.join(lblPath, dbaTag, cat, '%d_clusters' % nClust, 'centers.csv'), list(grpCenters.values()), list(grpCenters.keys()))
+            formatted_stats(meta, os.path.join(lblPath, dbaTag, cat, '%d_clusters' % nClust))
             mergeCt += 1
             fig = plt.figure(figsize=[16, 8])
             gs = GridSpec(4, 4)
@@ -1155,7 +1186,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
             pdf.savefig(dpi=600)
             plt.close(fig)
             if plot_centers:
-                with PdfPages(os.path.join(lblPath, folderName, cat, '%d_clusters' % nClust, 'centers.pdf')) as pdf1:
+                with PdfPages(os.path.join(lblPath, dbaTag, cat, '%d_clusters' % nClust, 'centers.pdf')) as pdf1:
                     for i in range(len(lblgrp)):
                         tlbl = lblgrp[i]
                         fig = plt.figure()
@@ -1183,17 +1214,17 @@ def merge_group(meta, ids, kdigos, dm, lbls, lblNames, centers, lblPath, cat='1-
         plt.title('Maximum Cumulative Extension Penalty')
         pdf.savefig(dpi=600)
         plt.close(fig)
-    np.savetxt(os.path.join(lblPath, folderName, cat, 'merge_distances.txt'), mergeDist)
-    arr2csv(os.path.join(lblPath, folderName, cat, 'all_distances.csv'), allDist, mergeLabels)
-    arr2csv(os.path.join(lblPath, folderName, cat, 'prog_scores.csv'), progScores, mergeLabels,
+    np.savetxt(os.path.join(lblPath, dbaTag, cat, 'merge_distances.txt'), mergeDist)
+    arr2csv(os.path.join(lblPath, dbaTag, cat, 'all_distances.csv'), allDist, mergeLabels)
+    arr2csv(os.path.join(lblPath, dbaTag, cat, 'prog_scores.csv'), progScores, mergeLabels,
             header='Merge,MinProgDiff,MaxProgDiff,RelProgDiff')
-    arr2csv(os.path.join(lblPath, folderName, cat, 'mort_scores.csv'), mortScores, mergeLabels,
+    arr2csv(os.path.join(lblPath, dbaTag, cat, 'mort_scores.csv'), mortScores, mergeLabels,
             header='Merge,MinMortDiff,MaxMortDiff,RelMortDiff')
-    arr2csv(os.path.join(lblPath, folderName, cat, 'silhouette_scores.csv'), sils, mergeLabels,
+    arr2csv(os.path.join(lblPath, dbaTag, cat, 'silhouette_scores.csv'), sils, mergeLabels,
             header='Merge,Silhouette')
     progScores = np.array(progScores)
     mortScores = np.array(mortScores)
-    with PdfPages(os.path.join(lblPath, folderName, cat, cat + '_merge_evaluation.pdf')) as pdf:
+    with PdfPages(os.path.join(lblPath, dbaTag, cat, cat + '_merge_evaluation.pdf')) as pdf:
         fig = plt.figure()
         plt.plot(progScores[:, 0])
         plt.xlabel('Merge #')

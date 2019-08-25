@@ -53,7 +53,7 @@ def pairwise_dtw_dist(patients, days, ids, dm_fname, dtw_name, v=True,
             dlist = []
             for j in range(i + 1, len(patients)):
                 df.write('%d,%d,' % (ids[i], ids[j]))
-                sel = np.where(days[j] < t_lim)[0]
+                sel = np.where(days[j] <= t_lim)[0]
                 patient2 = np.array(patients[j])[sel]
                 if np.all(patient1 == patient2):
                     df.write('%f\n' % 0)
@@ -92,7 +92,8 @@ def pairwise_dtw_dist(patients, days, ids, dm_fname, dtw_name, v=True,
             for j in range(i+1, len(ids)):
                 p1 = np.array(dtw.readline().rstrip().split(','), dtype=int)
                 p2 = np.array(dtw.readline().rstrip().split(','), dtype=int)
-                d = dist(p1, p2)
+                assert p1[0] == ids[i] and p2[0] == ids[j]
+                d = dist(p1[1:], p2[1:])
                 dis.append(d)
                 df.write('%d,%d,%f\n' % (ids[i], ids[j], d))
                 _ = dtw.readline()
@@ -185,10 +186,14 @@ def dtw_p(x, y, mismatch=lambda y, yy: abs(y-yy),
     for pi in range(len(path[0])):
         xidx = np.where(path[0] == pi)[0]
         yidx = np.where(path[1] == pi)[0]
-        for xi in range(1, len(xidx)):
-            xext += xi * extension(x[pi])
-        for yi in range(1, len(yidx)):
-            yext += yi * extension(y[pi])
+        if aggExt:
+            for xi in range(1, len(xidx)):
+                xext += xi * extension(x[path[0][pi]])
+            for yi in range(1, len(yidx)):
+                yext += yi * extension(y[path[1][pi]])
+        else:
+            xext += (len(xidx) - 1) * extension(x[path[0][pi]])
+            yext += (len(yidx) - 1) * extension(y[path[1][pi]])
     return D1[-1, -1] / sum(D1.shape), C, D1, path, xext, yext
 
 
@@ -320,9 +325,9 @@ def pairwise_zeropad_dist(patients, days, ids, dm_fname, dist=braycurtis, t_lim=
     return dis
 
 
-def get_custom_distance_discrete(coordinates, dfunc='braycurtis', min_weight=0.5):
+def get_custom_distance_discrete(coordinates, dfunc='braycurtis', min_weight=0.5, lapVal=1.0, lapType='individual'):
     if dfunc == 'braycurtis':
-        dist = get_custom_braycurtis(coordinates)
+        dist = get_continuous_laplacian_braycurtis(coordinates, lapVal, lapType)
     elif dfunc == 'braycurtis-weighted':
         dist = get_weighted_braycurtis(coordinates, min_weight)
     elif dfunc == 'euclidean':
@@ -447,3 +452,16 @@ def get_custom_cityblock_continuous(coordinates):
         return n / d
 
     return dist
+
+
+def get_alignment(alignmentFile, id1, id2):
+    if id1 > id2:
+        t = id1
+        id1 = id2
+        id2 = t
+    while True:
+        l1 = alignmentFile.readline().rstrip().split(',')
+        l2 = alignmentFile.readline().rstrip().split(',')
+        if l1[0] == id1 and l2[0] == id2:
+            return l1, l2
+        _ = alignmentFile.readline()
