@@ -4798,7 +4798,7 @@ def get_MAKE90(ids, stats, datapath, out, ref='disch', min_day=7, buffer=0, ct=1
     dods = stats['dod'][:].astype('unicode')
 
     # print('id,died,gfr_drop,new_dialysis')
-    out.write('id,died_inp,died_in_window,esrd_manual_revision,esrd_scm,esrd_usrds,new_dialysis_manual_revision,new_dialysis,gfr_drop_25,gfr_drop_30,gfr_drop_50,n_vals,delta\n')
+    out.write('id,died_inp,died90,died_in_window,esrd_manual_revision,esrd_scm,esrd_usrds,new_dialysis_manual_revision,new_dialysis,gfr_drop_25,gfr_drop_30,gfr_drop_50,n_vals,delta\n')
     scores = []
     out_ids = []
     for i in range(len(ids)):

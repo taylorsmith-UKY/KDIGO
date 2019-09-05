@@ -1,12 +1,11 @@
 import numpy as np
 from cluster_funcs import cluster_trajectories
-from kdigo_funcs import load_csv
 import h5py
 import os
 from scipy.spatial.distance import squareform
 import argparse
 import json
-from utility_funcs import get_dm_tag
+from utility_funcs import get_dm_tag, load_csv
 
 # PARAMETERS
 parser = argparse.ArgumentParser(description='Preprocess Data and Construct KDIGO Vectors.')
@@ -101,3 +100,4 @@ sqdm = squareform(dm)
 tpath = save_path
 eps = cluster_trajectories(f, f[meta_grp], ids, max_kdigo, sqdm, n_clusters=n_clusters, data_path=dataPath, save=tpath,
                            interactive=interactive, kdigos=kdigos, days=days)
+exit()

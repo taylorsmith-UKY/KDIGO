@@ -141,21 +141,27 @@ def dtw_p(x, y, mismatch=lambda y, yy: abs(y-yy),
                                  D0[i, j + 1] + ext_x[i, j + 1] + ext_y[i, j + 1] + alpha * ((y_dup[i, j + 1] + 1) * extension(y[j])),   # 1: repeat y
                                  D0[i + 1, j] + ext_x[i + 1, j] + ext_y[i + 1, j] + alpha * ((x_dup[i + 1, j] + 1) * extension(x[i]))))  # 2: repeat x
                 if sel == 1:
-                    ext_y[i + 1, j + 1] = ext_y[i, j + 1] + alpha * ((y_dup[i, j + 1] + 1) * extension(y[j]))
-                    ext_x[i + 1, j + 1] = ext_x[i, j + 1]
+                    # ext_y[i + 1, j + 1] = ext_y[i, j + 1] + alpha * ((y_dup[i, j + 1] + 1) * extension(y[j]))
+                    ext_y[i + 1, j + 1] = alpha * ((y_dup[i, j + 1] + 1) * extension(y[j]))
+                    # ext_x[i + 1, j + 1] = ext_x[i, j + 1]
+                    ext_x[i + 1, j + 1] = 0
                     D1[i, j] += D0[i, j + 1]
                     y_dup[i + 1, j + 1] = y_dup[i, j + 1] + 1
                     x_dup[i + 1, j + 1] = 0
                 elif sel == 2:
-                    ext_x[i + 1, j + 1] = ext_x[i + 1, j] + alpha * ((x_dup[i + 1, j] + 1) * extension(x[i]))
-                    ext_y[i + 1, j + 1] = ext_y[i + 1, j]
+                    # ext_x[i + 1, j + 1] = ext_x[i + 1, j] + alpha * ((x_dup[i + 1, j] + 1) * extension(x[i]))
+                    # ext_y[i + 1, j + 1] = ext_y[i + 1, j]
+                    ext_x[i + 1, j + 1] = alpha * ((x_dup[i + 1, j] + 1) * extension(x[i]))
+                    ext_y[i + 1, j + 1] = 0
                     D1[i, j] += D0[i + 1, j]
                     x_dup[i + 1, j + 1] = x_dup[i + 1, j] + 1
                     y_dup[i + 1, j + 1] = 0
                 else:
                     D1[i, j] += diag
-                    ext_x[i + 1, j + 1] = ext_x[i, j]
-                    ext_y[i + 1, j + 1] = ext_y[i, j]
+                    # ext_x[i + 1, j + 1] = ext_x[i, j]
+                    # ext_y[i + 1, j + 1] = ext_y[i, j]
+                    ext_x[i + 1, j + 1] = 0
+                    ext_y[i + 1, j + 1] = 0
                     x_dup[i + 1, j + 1] = 0
                     y_dup[i + 1, j + 1] = 0
                 D1[i, j] += ext_x[i + 1, j + 1] + ext_y[i + 1, j + 1]
@@ -188,12 +194,14 @@ def dtw_p(x, y, mismatch=lambda y, yy: abs(y-yy),
         yidx = np.where(path[1] == pi)[0]
         if aggExt:
             for xi in range(1, len(xidx)):
-                xext += xi * extension(x[path[0][pi]])
+                xext += alpha * xi * extension(x[path[0][pi]])
             for yi in range(1, len(yidx)):
-                yext += yi * extension(y[path[1][pi]])
+                yext += alpha * yi * extension(y[path[1][pi]])
         else:
-            xext += (len(xidx) - 1) * extension(x[path[0][pi]])
-            yext += (len(yidx) - 1) * extension(y[path[1][pi]])
+            if xidx.size > 0:
+                xext += alpha * (len(xidx) - 1) * extension(x[pi])
+            if yidx.size > 0:
+                yext += alpha * (len(yidx) - 1) * extension(y[pi])
     return D1[-1, -1] / sum(D1.shape), C, D1, path, xext, yext
 
 

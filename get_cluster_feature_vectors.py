@@ -1,5 +1,6 @@
 import numpy as np
-from kdigo_funcs import assign_cluster_features, load_csv, arr2csv, get_cluster_features
+from utility_funcs import load_csv, arr2csv
+from classification_funcs import assign_cluster_features, get_cluster_features
 import os
 import argparse
 import json
@@ -7,18 +8,22 @@ import json
 # --------------------------------------------------- PARAMETERS ----------------------------------------------------- #
 
 parser = argparse.ArgumentParser(description='Merge clusters.')
-parser.add_argument('--config_file', action='store', nargs=1, type=str, dest='cfname',
+parser.add_argument('--config_file', action='store', type=str, dest='cfname',
                     default='kdigo_conf.json')
-parser.add_argument('--config_path', action='store', nargs=1, type=str, dest='cfpath',
+parser.add_argument('--config_path', action='store', type=str, dest='cfpath',
                     default='')
-parser.add_argument('--n_clust', action='store', nargs=1, type=int, dest='n_clust',
-                    default=96)
-parser.add_argument('--feature', '-f', action='store', type=str, dest='feature', default='descriptive_norm')
-parser.add_argument('--use_extension', '-ext', action='store_true', dest='ext')
-parser.add_argument('--use_mismatch', '-mism', action='store_true', dest='mism')
+parser.add_argument('--sequence_file', '-sf', action='store', type=str, dest='sf', default='kdigo_icu.csv')
+parser.add_argument('--day_file', '-df', action='store', type=str, dest='df', default='days_interp_icu.csv')
+parser.add_argument('--popDTW', '-pdtw', action='store_true', dest='pdtw')
+parser.add_argument('--ext_alpha', '-alpha', action='store', type=float, dest='alpha', default=1.0)
+parser.add_argument('--agg_ext', '-agg', action='store_true', dest='aggExt')
 parser.add_argument('--distance_function', '-dfunc', '-d', action='store', type=str, dest='dfunc', default='braycurtis')
 parser.add_argument('--pop_coords', '-pcoords', '-pc', action='store_true', dest='popcoords')
-parser.add_argument('--aggregate_function', '-afunc', '-d', action='store', type=str, dest='dfunc', default='braycurtis')
+parser.add_argument('--laplacian_type', '-lt', action='store', type=str, dest='lapType', default='none', choices=['none', 'individual', 'aggregated'])
+parser.add_argument('--laplacian_val', '-lv', action='store', type=float, dest='lapVal', default=1.0)
+parser.add_argument('--meta_group', '-meta', action='store', type=str, dest='meta',
+                    default='meta')
+parser.add_argument('--feature', '-f', action='store', type=str, dest='feature', default='descriptive_norm')
 args = parser.parse_args()
 
 configurationFileName = os.path.join(args.cfpath, args.cfname)

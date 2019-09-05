@@ -6,18 +6,18 @@ import json
 import h5py
 from utility_funcs import arr2csv, load_csv, dict2csv, get_array_dates
 from kdigo_funcs import get_admit_disch, extract_scr_data, extract_masked_data, get_baselines, \
-    get_exclusion_criteria, linear_interpo, scr2kdigo, get_transition_weights, rolling_average
+    get_exclusion_criteria, linear_interpo, scr2kdigo, get_transition_weights, rolling_average, extract_window_data
 from classification_funcs import descriptive_trajectory_features
 from stat_funcs import get_uky_demographics, summarize_stats, get_sofa, get_apache, formatted_stats
 from sklearn.preprocessing import MinMaxScaler
 
 # Parser takes command line arguments, in this case the location and name of the configuration file.
 parser = argparse.ArgumentParser(description='Preprocess Data and Construct KDIGO Vectors.')
-parser.add_argument('--config_file', action='store', nargs=1, type=str, dest='cfname',
+parser.add_argument('--config_file', action='store', type=str, dest='cfname',
                     default='kdigo_conf.json')
-parser.add_argument('--config_path', action='store', nargs=1, type=str, dest='cfpath',
+parser.add_argument('--config_path', action='store', type=str, dest='cfpath',
                     default='')
-parser.add_argument('--averagePoints', '-agvPts', action='store', nargs=1, type=int, dest='avgpts',
+parser.add_argument('--averagePoints', '-agvPts', action='store', type=int, dest='avgpts',
                     default=2)
 args = parser.parse_args()
 
@@ -92,9 +92,11 @@ else:
 if not os.path.exists(os.path.join(dataPath, 'scr_raw_%s.csv' % analyze)):
     print('Extracting SCr records in ICU...')
     if analyze == 'icu':
-        (scrs, dates, rrt_masks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=2)
+        # (scrs, dates, rrt_masks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=2)
+        [scrs, dates, rrt_masks] = extract_window_data(ids, [scrs, dates, rrt_masks], dates, icu_windows, 2)
     if analyze == 'hosp':
-        (scrs, dates, rrt_masks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=[1, 2])
+        # (scrs, dates, rrt_masks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=[1, 2])
+        [scrs, dates, rrt_masks] = extract_window_data(ids, [scrs, dates, rrt_masks], dates, hosp_windows, 2)
     arr2csv(os.path.join(dataPath, 'scr_raw_%s.csv' % analyze), scrs, ids, fmt='%.3f')
     arr2csv(os.path.join(dataPath, 'dates_%s.csv' % analyze), dates, ids, fmt='%s')
     arr2csv(os.path.join(dataPath, 'ind_rrt_masks_%s.csv' % analyze), rrt_masks, ids, fmt='%d')
@@ -139,7 +141,7 @@ else:
 if not os.path.exists(os.path.join(dataPath, 'scr_interp_%s.csv' % analyze)):
     # Interpolate missing values
     print('Interpolating missing values')
-    post_interpo, dmasks_interp, days_interp, interp_masks = linear_interpo(scrs, ids, dates, rrt_masks, tRes)
+    post_interpo, dmasks_interp, days_interp, interp_masks = linear_interpo(scrs, ids, dates, rrt_masks, icu_windows, tRes)
     arr2csv(os.path.join(dataPath, 'scr_interp_%s.csv' % analyze), post_interpo, ids)
     arr2csv(os.path.join(dataPath, 'days_interp_%s.csv' % analyze), days_interp, ids, fmt='%d')
     arr2csv(os.path.join(dataPath, 'interp_masks_%s.csv' % analyze), interp_masks, ids, fmt='%d')
@@ -153,7 +155,7 @@ else:
 
 # Interpolate averaged sequence
 if not os.path.exists(os.path.join(dataPath, 'scr_interp_%s_%dptAvg.csv' % (analyze, args.avgpts))) and args.avgpts > 1:
-    apost_interpo, admasks_interp, adays_interp, ainterp_masks = linear_interpo(ascrs, ids, adates, admasks, tRes)
+    apost_interpo, admasks_interp, adays_interp, ainterp_masks = linear_interpo(ascrs, ids, adates, admasks, icu_windows, tRes)
     arr2csv(os.path.join(dataPath, 'scr_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), apost_interpo, ids)
     arr2csv(os.path.join(dataPath, 'days_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), adays_interp, ids, fmt='%d')
     arr2csv(os.path.join(dataPath, 'interp_masks_%s_%dptAvg.csv' % (analyze, args.avgpts)), ainterp_masks, ids, fmt='%d')

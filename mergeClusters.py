@@ -1,13 +1,12 @@
 import h5py
 import numpy as np
-from kdigo_funcs import load_csv
 from dtw_distance import continuous_mismatch, continuous_extension, get_custom_distance_discrete, \
     mismatch_penalty_func, extension_penalty_func
 import os
 import argparse
 from cluster_funcs import merge_clusters
 import json
-from utility_funcs import get_dm_tag
+from utility_funcs import get_dm_tag, load_csv
 
 # --------------------- Parser Arguments
 parser = argparse.ArgumentParser(description='Merge clusters.')
@@ -27,16 +26,14 @@ parser.add_argument('--laplacian_val', '-lv', action='store', type=float, dest='
 parser.add_argument('--meta_group', '-meta', action='store', type=str, dest='meta',
                     default='meta')
 parser.add_argument('--plot_centers', '-plot_c', action='store_true', dest='plot_centers')
-parser.add_argument('--normal_dtw', '-ndtw', action='store_true', dest='normDTW')
 parser.add_argument('--overRidePopExt', '-ovpe', action='store_true', dest='overRidePopExt')
-parser.add_argument('--folder_name', '-fname', action='store', type=str, dest='fname',
-                    default='merged')
 parser.add_argument('--baseClustNum', '-n', action='store', type=int, dest='baseClustNum', default=96)
 parser.add_argument('--category', '-cat', action='store', type=str, dest='cat', nargs='*',
                     default='all')
 parser.add_argument('--DBA_popDTW', '-dbapdtw', action='store_true', dest='dbapdtw')
 parser.add_argument('--DBA_ext_alpha', '-dbaalpha', action='store', type=float, dest='dbaalpha', default=1.0)
 parser.add_argument('--DBA_agg_ext', '-dbaagg', action='store_true', dest='dbaaggExt')
+parser.add_argument('--seedType', '-seed', action='store', type=str, dest='seedType', default='medoid')
 args = parser.parse_args()
 
 configurationFileName = os.path.join(args.cfpath, args.cfname)
@@ -66,24 +63,24 @@ else:
     coords = np.array([x for x in range(len(transition_costs) + 1)], dtype=float)
 
 if args.overRidePopExt:
-    ext = continuous_extension(extension_penalty_func(*transition_costs))
-    def valExtension(x):
-        return ext(x) + 1
+    valExtension = continuous_extension(extension_penalty_func(*transition_costs))
 else:
     valExtension = None
 
-if args.dbapdtw:
-    ext = continuous_extension(extension_penalty_func(*transition_costs))
-    def extension(x):
-        return ext(x) + 1
-    # mismatch penalty derived from population dynamics
-    mismatch = continuous_mismatch(mismatch_penalty_func(*transition_costs))
-    # extension = continuous_extension(extension_penalty_func(*transition_costs))
-else:
-    # absolute difference in KDIGO scores
-    mismatch = lambda x, y: abs(x - y)
-    # no extension penalty
-    extension = lambda x: 0
+# if args.dbapdtw:
+#     extension = continuous_extension(extension_penalty_func(*transition_costs))
+#     # mismatch penalty derived from population dynamics
+#     mismatch = continuous_mismatch(mismatch_penalty_func(*transition_costs))
+#     # extension = continuous_extension(extension_penalty_func(*transition_costs))
+# else:
+#     # absolute difference in KDIGO scores
+#     mismatch = lambda x, y: abs(x - y)
+#     # no extension penalty
+#     extension = lambda x: 0
+
+extension = continuous_extension(extension_penalty_func(*transition_costs))
+# mismatch penalty derived from population dynamics
+mismatch = continuous_mismatch(mismatch_penalty_func(*transition_costs))
 
 # Load patient data
 f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r')
@@ -113,6 +110,10 @@ dist = get_custom_distance_discrete(coords, dfunc=args.dfunc, lapVal=args.lapVal
 folderName = args.sf.split('.')[0]
 folderName += "_" + dtw_tag
 
+max_kdigos = np.zeros(len(kdigos))
+for i in range(len(kdigos)):
+    max_kdigos[i] = np.max(kdigos[i][np.where(days[i] <= t_lim)[0]])
+
 stats = f[meta_grp]
-merge_clusters(ids, kdigos, max_kdigos, days, dm, lblPath, stats, mismatch=mismatch, extension=extension, dist=dist,
-               t_lim=7, mergeType='mean', folderName=dtw_tag, dbaPopDTW=args.dbapdtw, alpha=args.alpha, category=args.cat, plot_centers=args.plot_centers, evalExt=valExtension, dbaAlpha=args.dbaalpha, dbaAggExt=args.dbaaggExt)
+merge_clusters(ids, kdigos, max_kdigos, days, dm, lblPath, stats, pdtw=args.pdtw, mismatch=mismatch, extension=extension, dist=dist,
+               t_lim=t_lim, mergeType='mean', folderName=dtw_tag, dbaPopDTW=args.dbapdtw, alpha=args.alpha, category=args.cat, plot_centers=args.plot_centers, evalExt=valExtension, dbaAlpha=args.dbaalpha, dbaAggExt=args.dbaaggExt, seedType=args.seedType)

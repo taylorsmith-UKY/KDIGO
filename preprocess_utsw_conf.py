@@ -245,7 +245,7 @@ if 'meta_all' not in list(f):
             elif all_stats[name].ndim == 2:
                 stats_avg.create_dataset(name, data=all_stats[name][:][pt_sel_avg, :], dtype=all_stats[name].dtype)
             elif all_stats[name].ndim == 3:
-                stats_avg.create_dataset(name, data=all_stats_avg[name][:][pt_sel_avg, :, :], dtype=all_stats[name].dtype)
+                stats_avg.create_dataset(name, data=all_stats[name][:][pt_sel_avg, :, :], dtype=all_stats[name].dtype)
     finally:
         f.close()
 else:

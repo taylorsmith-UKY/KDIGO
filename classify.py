@@ -25,6 +25,8 @@ parser.add_argument('--selectionModel', '-sel', action='store', nargs=1, type=st
                     default=None, choices=['extratrees', 'svm', 'logreg', 'xbg'])
 parser.add_argument('--classificationModel', '-class', action='store', nargs=1, type=str, dest='classModel',
                     default='log', choices=['log', 'svm', 'rf', 'mvr', 'xbg'])
+parser.add_argument('--meta_group', '-meta', action='store', type=str, dest='meta',
+                    default='meta')
 args = parser.parse_args()
 
 configurationFileName = os.path.join(args.cfpath, args.cfname)
@@ -38,14 +40,14 @@ t_lim = conf['analysisDays']
 tRes = conf['timeResolutionHrs']
 v = conf['verbose']
 analyze = conf['analyze']
-meta_grp = args.meta[0]
+meta_grp = args.meta
 
 baseDataPath = os.path.join(basePath, 'DATA', 'all_sheets')
 dataPath = os.path.join(basePath, 'DATA', analyze, cohortName)
 resPath = os.path.join(basePath, 'RESULTS', analyze, cohortName)
 
 f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r')
-ids = f['meta']['ids'][:]
+ids = f[meta_grp]['ids'][:]
 
 indFeatPath = os.path.join(resPath, 'features', 'individual')
 

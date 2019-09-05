@@ -27,29 +27,39 @@ import copy
 __author__ ="Francois Petitjean"
 
 
-def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extension=lambda x: 0, extraDesc='', save_every=False, alpha=1.0, aggExt=False):
+def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extension=lambda x: 0, extraDesc='', save_every=False, alpha=1.0, aggExt=False, targlen=14, seedType='medoid'):
     if dm.ndim == 1:
         sqdm = squareform(dm)
     elif dm.ndim == 2:
         sqdm = dm
 
     # medoid_ind = np.argmin(np.sum(sqdm, axis=0))
-    o = np.argsort(np.sum(sqdm, axis=0))
-    assert len(o) == len(series)
-    sel = 0
-    maxLen = 0
-    maxIdx = 0
-    while sel < len(o) and len(series[o[sel]]) != 32:
-        if len(series[o[sel]]) > maxLen and len(series[o[sel]]) < 32:
-            maxLen = len(series[o[sel]])
-            maxIdx = sel
-        sel += 1
-    if sel == len(o):
-        sel = maxIdx
+    if seedType == 'medoid':
+        o = np.argsort(np.sum(sqdm, axis=0))
+        assert len(o) == len(series)
+        sel = 0
+        maxLen = 0
+        maxIdx = 0
+        while sel < len(o) and len(series[o[sel]]) != 4*targlen+4:
+            if len(series[o[sel]]) > maxLen and len(series[o[sel]]) < 4*targlen+4:
+                maxLen = len(series[o[sel]])
+                maxIdx = sel
+            sel += 1
+        if sel == len(o):
+            sel = maxIdx
 
-    medoid_ind = o[sel]
+        medoid_ind = o[sel]
 
-    center = series[medoid_ind]
+        center = series[medoid_ind]
+    else:
+        ml = max([len(x) for x in series])
+        vals = np.zeros(ml)
+        cts = np.zeros(ml)
+        for i in range(len(series)):
+            for j in range(len(series[i])):
+                vals[j] += series[i][j]
+                cts[j] += 1
+        center = vals / cts
 
     apaths = []
     if save_every:
@@ -91,7 +101,7 @@ def DBA_update(center, series, mismatch, extension, alpha=1.0, aggExt=False):
             pairs.append([i, j])
         updated_center[i] += s[j]
         n_elements[i] += 1
-        paths.append(pairs)
+        paths.append(p[1])
     means, stds, confs = describe_values(matched_vals)
     return means, stds, confs, paths
 

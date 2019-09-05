@@ -279,6 +279,29 @@ def extract_masked_data(data_list, masks, sel=1):
         out.append(out_d)
     return out
 
+
+def extract_window_data(ids, data_list, dates, windows, preDays=0):
+    out = [[] for _ in range(len(data_list))]
+    for i in range(len(ids)):
+        if type(windows) == dict:
+            admit, disch = windows[ids[i]]
+        else:
+            admit, disch = windows[i]
+        out_d = [[] for _ in range(len(data_list))]
+        for j in range(len(dates[i])):
+            tdate = dates[i][j]
+            if tdate == 'nan':
+                continue
+            if (admit - datetime.timedelta(preDays)) <= tdate <= disch:
+                for k in range(len(data_list)):
+                    out_d[k].append(data_list[k][i][j])
+        for k in range(len(data_list)):
+            out[k].append(np.array(out_d[k]))
+    return out
+
+
+
+
 # %%
 def get_admit_disch(dataPath='', scr_fname='SCR_ALL_VALUES.csv', date_fname = 'ADMISSION_INDX.csv', scr_dcol='SCR_ENTERED', id_col='STUDY_PATIENT_ID'):
     '''
@@ -1027,7 +1050,7 @@ def get_patients_dallas(scr_all_m, scr_val_loc, scr_date_loc,
     return ids_out, scr, dates, days, tmasks, dmasks, bslns, bsln_gfr, btypes, d_disp, t_range, ages
 
 
-def linear_interpo(scrs, ids, dates, dmasks, scale):
+def linear_interpo(scrs, ids, dates, dmasks, windows, scale):
     '''
     For each provided list of SCr values with corresponding dates and dialysis masks, do the following
         1) Fit each record to a fixed grid with resolution defined by scale
@@ -1055,6 +1078,7 @@ def linear_interpo(scrs, ids, dates, dmasks, scale):
         tid = ids[i]                # patient ID
         tdates = dates[i]           # raw SCr dates
         tdmask = dmasks[i]          # indicates dialysis for raw values
+        window = windows[i]
         if len(tscrs) < 2:
             interp_scr = tscrs
             interp_dia = tdmask
@@ -1063,7 +1087,7 @@ def linear_interpo(scrs, ids, dates, dmasks, scale):
             interp_mask = np.ones(len(interp_scr))
 
         else:
-            interp_scr, interp_days, interp_mask, interp_dia = interpolate_scr(tscrs, tdates, tdmask, scale)
+            interp_scr, interp_days, interp_mask, interp_dia = interpolate_scr(tscrs, tdates, tdmask, window, scale)
 
         interp_scr_all.append(interp_scr)
         interp_days_all.append(interp_days)
@@ -1073,7 +1097,7 @@ def linear_interpo(scrs, ids, dates, dmasks, scale):
     return interp_scr_all, interp_rrt_all, interp_days_all, interp_masks_all
 
 
-def interpolate_scr(scrs, dates, dmasks, scale):
+def interpolate_scr(scrs, dates, dmasks, window, scale):
     '''
     Fits SCr values and dialysis masks to a uniform grid defined by scale, where scale is the number of hours in each
     bin. If multiple values provided for the same bin, select the maximum.
@@ -1087,7 +1111,7 @@ def interpolate_scr(scrs, dates, dmasks, scale):
     bins_per_day = int(np.floor(24 / scale))
 
     # Determine the final length of the interpolated records
-    start_date = get_date(dates[0])
+    start_date = dates[0]
     start_bin = int(np.floor(start_date.hour / scale))
     start_bin_time = datetime.datetime(start_date.year, start_date.month, start_date.day, hour=scale*start_bin)
 
@@ -1099,18 +1123,17 @@ def interpolate_scr(scrs, dates, dmasks, scale):
     trueVals = {}
 
     iscr = np.zeros(nbins)
+    idays = np.zeros(nbins, dtype=int)
     idia = np.zeros(nbins, dtype=bool)
     imask = np.zeros(nbins, dtype=bool)
+
+    admit, disch = window
 
     # Assign each individual record to the appropriate bin
     for i in range(len(scrs)):
         current_date = get_date(dates[i])
         hrs = (current_date - start_bin_time).total_seconds() / (60 * 60)
         idx = int(np.floor((hrs / scale)))
-        # idx = (current_date - start_bin_time).total_seconds() / (60 * 60)
-        # current_bin = int(np.floor(current_date.hour / scale))
-        # ndays = (current_date.toordinal() - start_date.toordinal())
-        # idx = (ndays * bins_per_day) + (current_bin - start_bin)
         try:
             trueVals[idx] = max(trueVals[idx], scrs[i])
         except KeyError:
@@ -1134,12 +1157,42 @@ def interpolate_scr(scrs, dates, dmasks, scale):
         for i in range(nbins):
             iscr[i] = interpolator(i)
 
-        idays = list(
-            np.concatenate([[d for _ in range(bins_per_day)] for d in range(int(np.ceil(nbins / bins_per_day)) + 1)]))
+        nd0 = int(np.floor(admit.hour / scale))
 
-        for i in range(start_bin):
-            _ = idays.pop(0)
-        idays = np.array(idays, dtype=int)[:nbins]
+        hrs = (admit - start_bin_time).total_seconds() / (60 * 60)
+        idx = int(np.floor((hrs / scale)))
+        for i in range(nd0):
+            idx += 1
+        cd = 1
+        while idx < nbins:
+            for _ in range(4):
+                if idx == nbins:
+                    break
+                elif idx >= 0:
+                    idays[idx] = cd
+                idx += 1
+            cd += 1
+        if start_bin_time < admit:
+            cd = -1
+            idx = int(np.floor((hrs / scale))) - 1
+            while idx > 0:
+                for _ in range(4):
+                    if idx < 0:
+                        break
+                    elif idx < nbins:
+                        idays[idx] = cd
+                    idx -= 1
+                cd -= 1
+        # #
+        # # idays = list(
+        # #     np.concatenate([[d for _ in range(bins_per_day)] for d in range(int(np.ceil(nbins / bins_per_day)) + 1)]))
+        # #
+        # # for i in range(start_bin):
+        # #     _ = idays.pop(0)
+        # # for i in range(0, nb4, 4):
+        # #     for j in range(4):
+        # #         idays.insert(0, i - 1)
+        # idays = np.array(idays, dtype=int)[:nbins]
     else:
         iscr = scrs
         if len(scrs) > 1:
@@ -1322,33 +1375,39 @@ def baseline_est_gfr_mdrd(gfr, sex, race, age):
 
 
 # %%
-def scr2kdigo(scr, base, masks, days, valid, useAbs=True):
+def scr2kdigo(scr, base, masks, days, valid, onlyAbs=False, onlyRel=False, rolling=False):
     kdigos = []
     for i in range(len(scr)):
         kdigo = np.zeros(len(scr[i]), dtype=int)
         for j in range(len(scr[i])):
+            if days[i][j] < 0:
+                continue
+            if rolling:
+                if j > 7:
+                    bsln = min(scr[i][j-8:j])
+                else:
+                    bsln = min(scr[i][:8])
+            else:
+                bsln = base[i]
             if masks[i][j] > 0:
                 kdigo[j] = 4
                 continue
-            elif scr[i][j] <= (1.5 * base[i]):
-                if j > 7 and useAbs:
+            if not onlyRel:
+                if j > 7:
                     window = np.where(days[i] >= days[i][j] - 2)[0]
                     window = window[np.where(window < j)[0]]
                     window = np.intersect1d(window, np.where(valid[i])[0])
-                    if window.size > 0:
-                        if scr[i][j] >= np.min(scr[i][window]) + 0.3:
-                            kdigo[j] = 1
-                        else:
-                            kdigo[j] = 0
-                    else:
-                        kdigo[j] = 0
                 else:
-                    kdigo[j] = 0
-            elif scr[i][j] < (2 * base[i]):
+                    window = np.array(range(8), dtype=int)
+                    window = np.intersect1d(window, np.where(valid[i])[0])
+                if window.size > 0:
+                    if scr[i][j] >= np.min(scr[i][window]) + 0.3:
+                        kdigo[j] = 1
+            elif scr[i][j] < (2 * bsln) and not onlyAbs:
                 kdigo[j] = 1
-            elif scr[i][j] < (3 * base[i]):
+            elif scr[i][j] < (3 * bsln):
                 kdigo[j] = 2
-            elif (scr[i][j] >= (3 * base[i])) or (scr[i][j] >= 4.0):
+            elif (scr[i][j] >= (3 * bsln)) or (scr[i][j] >= 4.0):
                 kdigo[j] = 3
             elif scr[i][j] >= 4.0:
                 kdigo[j] = 3

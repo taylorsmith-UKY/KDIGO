@@ -34,8 +34,10 @@ parser.add_argument('--optimizer', '-opt', action='store', nargs=1, dest='opt', 
 parser.add_argument('--momentum', '-mom', action='store', nargs=1, dest='momentum', dtype=float, default=0.95)
 parser.add_argument('--max_epoch', '-me', action='store', nargs=1, dest='epoch', dtype=int, default=100)
 parser.add_argument('--folds', '-folds', action='store', nargs=1, dest='folds', dtype=int, default=5)
-parser.add_argument('--feature', '-f', action='store', nargs=1, dest='feat', dtype=str, default='max_kdigo_7d')
+parser.add_argument('--feature', '-f', action='store', nargs='*', dest='feat', dtype=str, default='max_kdigo_7d')
 parser.add_argument('--target', '-t', action='store', nargs=1, dest='targ', dtype=str, default='died_inp')
+parser.add_argument('--meta_group', '-meta', action='store', type=str, dest='meta',
+                    default='meta')
 args = parser.parse_args()
 
 configurationFileName = os.path.join(args.cfpath, args.cfname)
@@ -49,13 +51,14 @@ t_lim = conf['analysisDays']
 tRes = conf['timeResolutionHrs']
 v = conf['verbose']
 analyze = conf['analyze']
+meta_grp = args.meta
 
 baseDataPath = os.path.join(basePath, 'DATA', 'all_sheets')
 dataPath = os.path.join(basePath, 'DATA', analyze, cohortName)
 resPath = os.path.join(basePath, 'RESULTS', analyze, cohortName)
 
 f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r')
-ids = f['meta']['ids'][:]
+ids = f[meta_grp]['ids'][:]
 
 balanceSamples = args.bal_samp
 balanceWeights = args.bal_weight
