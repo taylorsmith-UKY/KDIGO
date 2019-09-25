@@ -12,9 +12,9 @@ from xgboost import XGBClassifier
 from stat_funcs import perf_measure, get_even_pos_neg
 import os
 from scipy import interp
-from utility_funcs import arr2csv, cartesian, get_date
+from utility_funcs import arr2csv, cartesian, get_date, get_array_dates, load_csv
 from scipy.spatial.distance import squareform
-
+from copy import copy
 
 svm_tuned_parameters = [{'kernel': ['rbf', 'linear'],
                          'C': [0.05, 0.1, 0.25, 0.5, 0.75],
@@ -287,6 +287,78 @@ def assign_cluster_features(desc, temp, slope, lbls, dm):
         temp_c_center[i, :] = temp[sel[cidx], :]
         slope_c_center[i, :] = slope[sel[cidx], :]
     return desc_c_bin, desc_c, temp_c, slope_c, desc_c_center, temp_c_center, slope_c_center
+
+
+# %%
+def getStaticFeatures(ids, scrs, kdigos, days, stats, dataPath):
+    header = 'STUDY_PATIENT_ID,AdmitScr,Age,Albumin,Anemia_A,Anemia_B,Anemia_C,Bicarbonate_Low,Bicarbonate_High,Bilirubin,BMI,BUN,Diabetic,' \
+             'Dopamine,Epinephrine,FiO2_Low,FiO2_High,FluidOverload,Gender,GCS,Net_Fluid,Gross_Fluid,' \
+             'HeartRate_Low,HeartRate_High,Hematocrit_low,Hematocrit_high,Hemoglobin_low,Hemoglobin_High,' \
+             'Hypertensive,ECMO,IABP,MechanicalVentilation,VAD,Lactate,MAP_low,MAP_high,AdmitKDIGO,Nephrotox_ct,' \
+             'Vasopress_ct,pCO2_low,pCO2_high,Peak_SCr,pH_low,pH_high,Platelets,pO2_low,pO2_high,Potassium_low,' \
+             'Potassium_high,Race,Respiration_low,Respiration_high,Septic,Smoker,Sodium_low,Sodium_high,' \
+             'Temperature_low,Temperature_high,Urine_flow,Urine_output,WBC_low,WBC_high,Height,Weight,hrsInICU,'
+
+    feats = np.zeros((len(ids), (len(header.split(',')) + 63)))
+    admit_scrs = np.zeros(len(ids))
+    admit_kdigos = np.zeros(len(ids))
+    peak_scrs = np.zeros(len(ids))
+    hrsInIcu = np.zeros(len(ids))
+
+    hosp_admits = get_array_dates(stats['hosp_dates'][:, 0].astype(str))
+    icu_admits = get_array_dates(stats['icu_dates'][:, 0].astype(str))
+
+    for i in range(len(ids)):
+        admit_scrs[i] = scrs[i][0]
+        admit_kdigos[i] = kdigos[i][0]
+        peak_scrs[i] = np.max(scrs[i][np.where(days[i] <= 1)])
+        hrs = (icu_admits[i] - hosp_admits[i]).total_seconds() / (60 * 60)
+        if hrs < 24:
+            hrsInIcu[i] = 24 - hrs
+
+    tstats = {'AdmitScr': admit_scrs, 'AdmitKDIGO': admit_kdigos,
+              'Peak_SCr': peak_scrs, 'Dopamine': stats['dopa'][:],
+              'FluidOverload': stats['fluid_overload'][:], 'GCS': stats['glasgow'][:, 0],
+              'HeartRate_Low': stats['heart_rate'][:, 0], 'HeartRate_High': stats['heart_rate'][:, 1],
+              'MechanicalVentilation': stats['mv_flag_d1'][:], 'Urine_output': stats['urine_out'][:],
+              'hrsInIcu': hrsInIcu, 'VAD': stats['vad_d1'][:],
+              'ECMO': stats['ecmo_d1'], 'IABP': stats['iabp_d1']}
+
+    col = 0
+    ct = 0
+    prev = ''
+    for k in header.split(',')[1:]:
+        if k.split('_')[0].lower() in list(stats):
+            if k.split('_')[0] == prev.split('_')[0]:
+                ct += 1
+            else:
+                ct = 0
+            feats[:, col] = stats[k.split('_')[0].lower()][:, ct]
+            col += 1
+        elif k.lower() in list(stats):
+            feats[:, col] = stats[k.lower()][:]
+
+        prev = copy(k)
+
+    header += ','.join(['SOFA_%d' % x for x in range(6)])
+    header += ',' + ','.join(['APACHE_%d' % x for x in range(13)])
+    header += ',' + ','.join(['Charlson_%d' % x for x in range(14)])
+    header += ',' + ','.join(['Elixhauser_%d' % x for x in range(31)])
+
+    sofa = load_csv(os.path.join(dataPath, 'sofa.csv'), ids, int, skip_header=True)
+    feats[col:col+6] = sofa
+    col += 6
+
+    apache = load_csv(os.path.join(dataPath, 'apache.csv'), ids, int, skip_header=True)
+    feats[col:col + 13] = apache
+    col += 13
+
+    feats[col:col+14] = stats['charlson_components'][:]
+    col += 14
+
+    feats[col:col + 31] = stats['elixhauser_components'][:]
+
+
 
 # %%
 def classify(X, y, classification_model, out_path, feature_name, gridsearch=False, sample_method='under', cv_num=5):

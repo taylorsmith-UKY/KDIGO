@@ -18,7 +18,7 @@ parser.add_argument('--config_file', action='store', nargs=1, type=str, dest='cf
 parser.add_argument('--config_path', action='store', nargs=1, type=str, dest='cfpath',
                     default='')
 parser.add_argument('--averagePoints', '-agvPts', action='store', nargs=1, type=int, dest='avgpts',
-                    default=2)
+                    default=1)
 args = parser.parse_args()
 
 configurationFileName = os.path.join(args.cfpath, args.cfname)
@@ -206,7 +206,7 @@ else:
 if 'meta_all' not in list(f):
     try:
         f = summarize_stats_dallas(ids, akdigos, adays_interp, apost_interpo, icu_windows, hosp_windows, dataPath,
-                                    f, baseDataPath, grp_name='meta_all', tlim=7)
+                                   f, baseDataPath, grp_name='meta_all', tlim=t_lim)
         all_stats = f['meta_all']
         # max_kdigo = all_stats['max_kdigo_win'][:]
         max_kdigo = np.zeros(len(ids))
