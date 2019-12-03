@@ -9,9 +9,9 @@ from utility_funcs import get_dm_tag, load_csv
 
 # PARAMETERS
 parser = argparse.ArgumentParser(description='Preprocess Data and Construct KDIGO Vectors.')
-parser.add_argument('--config_file', action='store', nargs=1, type=str, dest='cfname',
+parser.add_argument('--config_file', action='store', type=str, dest='cfname',
                     default='kdigo_conf.json')
-parser.add_argument('--config_path', action='store', nargs=1, type=str, dest='cfpath',
+parser.add_argument('--config_path', action='store', type=str, dest='cfpath',
                     default='')
 parser.add_argument('--sequence_file', '-sf', action='store', type=str, dest='sf', default='kdigo_icu.csv')
 parser.add_argument('--day_file', '-df', action='store', type=str, dest='df', default='days_interp_icu.csv')
@@ -23,9 +23,9 @@ parser.add_argument('--pop_coords', '-pcoords', '-pc', action='store_true', dest
 parser.add_argument('--laplacian_type', '-lt', action='store', type=str, dest='lapType', default='none', choices=['none', 'individual', 'aggregated'])
 parser.add_argument('--laplacian_val', '-lv', action='store', type=float, dest='lapVal', default=1.0)
 parser.add_argument('--interact', action='store_true', dest='interact')
-parser.add_argument('--n_clust', '-n', action='store', nargs=1, type=int, dest='n_clust',
+parser.add_argument('--n_clust', '-n', action='store', type=int, dest='n_clust',
                     default=96)
-parser.add_argument('--meta_group', '-meta', action='store', nargs=1, type=str, dest='meta',
+parser.add_argument('--meta_group', '-meta', action='store', type=str, dest='meta',
                     default='meta')
 args = parser.parse_args()
 
@@ -48,10 +48,10 @@ resPath = os.path.join(basePath, 'RESULTS', analyze, cohortName)
 
 interactive = args.interact
 
-meta_grp = args.meta[0]
+meta_grp = args.meta
 
 # number of clusters to extract if method is flat
-n_clusters = args.n_clust[0]
+n_clusters = args.n_clust
 
 ########################################################
 f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r')
@@ -62,8 +62,8 @@ max_kdigo = f[meta_grp]['max_kdigo_win'][:]
 kdigos = load_csv(os.path.join(dataPath, args.sf), ids, int)
 days = load_csv(os.path.join(dataPath, args.df), ids, int)
 for i in range(len(kdigos)):
-    kdigos[i] = kdigos[i][np.where(days[i] <= 7)]
-    days[i] = days[i][np.where(days[i] <= 7)]
+    kdigos[i] = kdigos[i][np.where(days[i] <= t_lim)]
+    days[i] = days[i][np.where(days[i] <= t_lim)]
 
 if not os.path.exists(os.path.join(resPath, 'clusters')):
     os.mkdir(os.path.join(resPath, 'clusters'))
@@ -96,6 +96,7 @@ if os.path.isfile(os.path.join(dm_path, 'kdigo_dm_%s.npy' % dm_tag)):
         dm = np.load(os.path.join(dm_path, 'kdigo_dm_%s.npy' % dm_tag))
 else:
     dm = np.loadtxt(os.path.join(dm_path, 'kdigo_dm_%s.csv' % dm_tag), delimiter=',', usecols=2)
+    np.save(os.path.join(dm_path, 'kdigo_dm_%s.npy' % dm_tag), dm)
 sqdm = squareform(dm)
 tpath = save_path
 eps = cluster_trajectories(f, f[meta_grp], ids, max_kdigo, sqdm, n_clusters=n_clusters, data_path=dataPath, save=tpath,

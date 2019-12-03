@@ -69,7 +69,8 @@ def descriptive_trajectory_features(kdigos, ids, days=None, t_lim=None, filename
         features[i, PEAK_KDIGO] = max(kdigo)
         features[i, KDIGO_ADMIT] = kdigo[0]
         features[i, KDIGO_7D] = kdigo[-1]
-        features[i, AKI_FIRST_3D] = max(kdigo[np.where(tdays <= 3)])
+        if min(tdays) <= 3:
+            features[i, AKI_FIRST_3D] = max(kdigo[np.where(tdays <= 3)])
         if max(tdays) > 3:
             features[i, AKI_AFTER_3D] = max(kdigo[np.where(tdays > 3)])
 

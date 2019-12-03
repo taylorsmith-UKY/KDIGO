@@ -85,8 +85,8 @@ f.close()
 kdigos = load_csv(os.path.join(dataPath, args.sf), ids, int)
 days = load_csv(os.path.join(dataPath, args.df), ids, int)
 for i in range(len(kdigos)):
-    kdigos[i] = kdigos[i][np.where(days[i] <= 7)]
-    days[i] = days[i][np.where(days[i] <= 7)]
+    kdigos[i] = kdigos[i][np.where(days[i] <= t_lim)]
+    days[i] = days[i][np.where(days[i] <= t_lim)]
 
 # Build filename to distinguish different matrices and specify the
 # mismatch and extension penalties

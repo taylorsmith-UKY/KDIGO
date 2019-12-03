@@ -151,14 +151,11 @@ def arr2csv(fname, inds, ids=None, fmt='%f', header=False, delim=','):
         outFile.write('\n')
     for i in range(len(inds)):
         outFile.write(str(ids[i]))
-        if np.size(inds[i]) > 1:
+        if hasattr(inds[i], "__len__") and type(inds[i]) != np.str_ and type(inds[i]) != str:
             for j in range(len(inds[i])):
                 outFile.write(delim + fmt % (inds[i][j]))
         elif np.size(inds[i]) == 1:
-            try:
-                outFile.write(delim + fmt % (inds[i]))
-            except TypeError:
-                outFile.write(delim + fmt % (inds[i][0]))
+            outFile.write(delim + fmt % (inds[i]))
         else:
             outFile.write(delim)
         outFile.write('\n')
@@ -228,6 +225,7 @@ def perf_measure(y_actual, y_hat):
     prec = precision_score(y_actual, y_hat)
     rec = recall_score(y_actual, y_hat)
     f1 = f1_score(y_actual, y_hat)
+    sens = float(tp) / np.sum(y_hat)
     return np.array((prec, rec, f1, tp, fp, tn, fn))
 
 

@@ -7,6 +7,7 @@ from joblib import dump
 import argparse
 import json
 from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.feature_selection import SelectFromModel
 
 ##############
 # --------------------- Parser Arguments
@@ -28,6 +29,8 @@ parser.add_argument('--classificationModel', '-class', action='store', type=str,
                     default='log', choices=['log', 'svm', 'rf', 'mvr', 'xbg'])
 parser.add_argument('--meta_group', '-meta', action='store', type=str, dest='meta',
                     default='meta')
+parser.add_argument('--data_file', '-df', action='store', type=str, dest='df',
+                    default='stats.h5')
 args = parser.parse_args()
 
 configurationFileName = os.path.join(args.cfpath, args.cfname)
@@ -47,7 +50,7 @@ baseDataPath = os.path.join(basePath, 'DATA', 'all_sheets')
 dataPath = os.path.join(basePath, 'DATA', analyze, cohortName)
 resPath = os.path.join(basePath, 'RESULTS', analyze, cohortName)
 
-f = h5py.File(os.path.join(resPath, 'stats_new.h5'), 'r')
+f = h5py.File(os.path.join(resPath, args.df), 'r')
 ids = f[meta_grp]['ids'][:]
 
 indFeatPath = os.path.join(resPath, 'features', 'individual')
@@ -117,5 +120,18 @@ np.savetxt(os.path.join(modelPath, 'predicted_probas.txt'), probas)
 arr2csv(os.path.join(modelPath, 'predicted_probas_fold.csv'), fold_probas, None)
 arr2csv(os.path.join(modelPath, 'true_labels_fold.csv'), fold_lbls, None)
 dump(clf, os.path.join(modelPath, 'classifier.joblib'))
+
+model = SelectFromModel(clf, prefit=True)
+selected = model.transform(tX)
+sel_feats = list(np.array(hdr)[model.get_support()])
+sel_header = ','.join(['STUDY_PATIENT_ID', ] + sel_feats)
+arr2csv(os.path.join(modelPath, 'selectedFeatures.csv'), selected, ids, header=sel_header)
+
 if hasattr(clf, "coef_"):
     np.savetxt(os.path.join(modelPath, 'coefficients.csv'), clf.coef_[0])
+    np.savetxt(os.path.join(modelPath, 'odds_ratios.csv'), np.exp(clf.coef_[0]))
+
+elif hasattr(clf, "feature_importances_"):
+    np.savetxt(os.path.join(modelPath, 'feature_importances.csv'), clf.feature_importances_)
+
+

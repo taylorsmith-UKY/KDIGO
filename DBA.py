@@ -27,7 +27,7 @@ import copy
 __author__ ="Francois Petitjean"
 
 
-def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extension=lambda x: 0, extraDesc='', save_every=False, alpha=1.0, aggExt=False, targlen=14, seedType='medoid'):
+def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extension=lambda x: 0, extraDesc='', save_every=False, alpha=1.0, aggExt=False, ptsPerDay=4, targlen=14, seedType='medoid'):
     if dm.ndim == 1:
         sqdm = squareform(dm)
     elif dm.ndim == 2:
@@ -40,8 +40,8 @@ def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extens
         sel = 0
         maxLen = 0
         maxIdx = 0
-        while sel < len(o) and len(series[o[sel]]) != 4*targlen+4:
-            if len(series[o[sel]]) > maxLen and len(series[o[sel]]) < 4*targlen+4:
+        while sel < len(o) and len(series[o[sel]]) != ptsPerDay*targlen+ptsPerDay:
+            if len(series[o[sel]]) > maxLen and len(series[o[sel]]) < ptsPerDay*targlen+ptsPerDay:
                 maxLen = len(series[o[sel]])
                 maxIdx = sel
             sel += 1
@@ -51,7 +51,7 @@ def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extens
         medoid_ind = o[sel]
 
         center = series[medoid_ind]
-    else:
+    elif seedType == 'mean':
         ml = max([len(x) for x in series])
         vals = np.zeros(ml)
         cts = np.zeros(ml)
@@ -60,6 +60,9 @@ def performDBA(series, dm, n_iterations=10, mismatch=lambda x,y:abs(x-y), extens
                 vals[j] += series[i][j]
                 cts[j] += 1
         center = vals / cts
+        center = center[:ptsPerDay*targlen+ptsPerDay]
+    elif seedType == 'zeros':
+        center = np.zeros(ptsPerDay*targlen+ptsPerDay)
 
     apaths = []
     if save_every:

@@ -23,7 +23,7 @@ from sklearn.metrics import roc_auc_score, confusion_matrix, precision_recall_fs
 from tqdm import trange
 from rpy2.robjects.packages import importr
 import rpy2.robjects.numpy2ri as n2r
-
+from warnings import filterwarnings
 
 def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_path, grp_name='meta', tlim=7, maxDay=1):
     try:
@@ -57,8 +57,8 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
     if 'age' not in list(meta):
         print('Getting patient demographics...')
         genders, eths, ages = get_uky_demographics(ids, hosp_windows, data_path)
-        genders = np.array(genders, dtype=bool)
-        eths = np.array(eths, dtype=bool)
+        genders = np.array(genders, dtype=int)
+        eths = np.array(eths, dtype=int)
         ages = np.array(ages, dtype=float)
         meta.create_dataset('age', data=ages, dtype=float)
         meta.create_dataset('gender', data=genders, dtype=int)
@@ -99,7 +99,7 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
         c_scores = np.array(c_scores, dtype=float)  # Float bc posible NaNs
         e_scores = np.array(e_scores, dtype=float)  # Float bc posible NaNs
         smokers = np.array(smokers, dtype=bool)
-        meta.create_dataset('smoker', data=smokers, dtype=bool)
+        meta.create_dataset('smoker', data=smokers, dtype=int)
         meta.create_dataset('charlson', data=c_scores, dtype=int)
         meta.create_dataset('elixhauser', data=e_scores, dtype=int)
         meta.create_dataset('charlson_components', data=charls, dtype=int)
@@ -126,22 +126,23 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
     if 'septic' not in list(meta):
         print('Getting diagnoses...')
         septics, diabetics, hypertensives = get_uky_diagnoses(ids, data_path)
-        septics = np.array(septics, dtype=bool)
-        diabetics = np.array(diabetics, dtype=bool)
-        hypertensives = np.array(hypertensives, bool)
+        septics = np.array(septics, dtype=int)
+        diabetics = np.array(diabetics, dtype=int)
+        hypertensives = np.array(hypertensives, int)
         meta.create_dataset('septic', data=septics, dtype=int)
         meta.create_dataset('diabetic', data=diabetics, dtype=int)
         meta.create_dataset('hypertensive', data=hypertensives, dtype=int)
 
     if 'net_fluid' not in list(meta):
         print('Getting fluid IO...')
-        net_fluids, gros_fluids, fos = get_uky_fluids(ids, weights, data_path)
+        net_fluids, gros_fluids, fos, cfbs = get_uky_fluids(ids, weights, data_path)
         net_fluids = np.array(net_fluids, dtype=float)
         gros_fluids = np.array(gros_fluids, dtype=float)
         fos = np.array(fos, dtype=float)
-        meta.create_dataset('net_fluid', data=net_fluids, dtype=int)
-        meta.create_dataset('gross_fluid', data=gros_fluids, dtype=int)
+        meta.create_dataset('net_fluid', data=net_fluids, dtype=float)
+        meta.create_dataset('gross_fluid', data=gros_fluids, dtype=float)
         meta.create_dataset('fluid_overload', data=fos, dtype=float)
+        meta.create_dataset('cum_fluid_balance', data=cfbs, dtype=float)
 
     if 'died_inp' not in list(meta):
         print('Getting mortalities...')
@@ -160,10 +161,10 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
 
     if 'rrt_flag' not in list(meta):
         print('Getting dialysis...')
-        rrt_flags, hd_days, crrt_days, \
-        hd_frees_7d, hd_frees_28d, hd_trtmts, \
-        crrt_frees_7d, crrt_frees_28d = get_uky_rrt(ids, died_inps, icu_windows, data_path)
-        rrt_flags = np.array(rrt_flags, dtype=bool)
+        rrt_flags, hd_days, crrt_days, hd_dayss_win, \
+        crrt_dayss_win, hd_frees_7d, hd_frees_28d, hd_trtmts, \
+        crrt_frees_7d, crrt_frees_28d, crrt_flags, hd_flags = get_uky_rrt(ids, died_inps, icu_windows, data_path)
+        rrt_flags = np.array(rrt_flags, dtype=int)
         hd_days = np.array(hd_days, dtype=int)
         crrt_days = np.array(crrt_days, dtype=int)
         hd_frees_7d = np.array(hd_frees_7d, dtype=int)
@@ -171,18 +172,20 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
         crrt_frees_7d = np.array(crrt_frees_7d, dtype=int)
         hd_trtmts = np.array(hd_trtmts, dtype=int)
         hd_frees_28d = np.array(hd_frees_28d, dtype=int)
-        meta.create_dataset('rrt_flag', data=rrt_flags, dtype=bool)
-        meta.create_dataset('hd_days', data=hd_days, dtype=int)
-        meta.create_dataset('crrt_days', data=crrt_days, dtype=int)
-        meta.create_dataset('hd_free_7d', data=hd_frees_7d, dtype=int)
-        meta.create_dataset('crrt_free_7d', data=crrt_frees_7d, dtype=int)
-        meta.create_dataset('hd_free_28d', data=hd_frees_28d, dtype=int)
-        meta.create_dataset('crrt_free_28d', data=crrt_frees_28d, dtype=int)
-        meta.create_dataset('hd_treatments', data=hd_trtmts, dtype=int)
+        meta.create_dataset('rrt_flag', data=rrt_flags, dtype=int)
+        meta.create_dataset('crrt_flag', data=crrt_flags, dtype=int)
+        meta.create_dataset('hd_flag', data=hd_flags, dtype=int)
+        meta.create_dataset('hd_days', data=hd_days, dtype=float)
+        meta.create_dataset('crrt_days', data=crrt_days, dtype=float)
+        meta.create_dataset('hd_free_win', data=hd_frees_7d, dtype=float)
+        meta.create_dataset('crrt_free_win', data=crrt_frees_7d, dtype=float)
+        meta.create_dataset('hd_free_28d', data=hd_frees_28d, dtype=float)
+        meta.create_dataset('crrt_free_28d', data=crrt_frees_28d, dtype=float)
+        meta.create_dataset('hd_treatments', data=hd_trtmts, dtype=float)
 
     if 'vad' not in list(meta):
         print('Getting other organ support...')
-        mv_flags, mv_days, mv_frees, ecmos, vads, iabps, mv1d, ecmo1d, vad1d, iabp1d = get_uky_organsupp(ids, died_inps, icu_windows, data_path)
+        mv_flags, mv_days, mv_frees, ecmos, vads, iabps, mhs = get_uky_organsupp(ids, died_inps, icu_windows, data_path)
         mv_flags = np.array(mv_flags, dtype=int)
         mv_days = np.array(mv_days, dtype=float)
         mv_frees = np.array(mv_frees, dtype=float)
@@ -190,21 +193,13 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
         iabps = np.array(iabps, dtype=int)
         vads = np.array(vads, dtype=int)
 
-        mv1d = np.array(ecmo1d, dtype=int)
-        ecmo1d = np.array(ecmo1d, dtype=int)
-        iabp1d = np.array(iabp1d, dtype=int)
-        vad1d = np.array(vad1d, dtype=int)
         meta.create_dataset('mv_flag', data=mv_flags, dtype=int)
         meta.create_dataset('mv_days', data=mv_days, dtype=float)
         meta.create_dataset('mv_free_days', data=mv_frees, dtype=float)
         meta.create_dataset('ecmo', data=ecmos, dtype=int)
         meta.create_dataset('iabp', data=iabps, dtype=int)
         meta.create_dataset('vad', data=vads, dtype=int)
-
-        meta.create_dataset('mv_d1', data=ecmos, dtype=int)
-        meta.create_dataset('ecmo_d1', data=ecmos, dtype=int)
-        meta.create_dataset('iabp_d1', data=iabps, dtype=int)
-        meta.create_dataset('vad_d1', data=vads, dtype=int)
+        meta.create_dataset('mhs', data=mhs, dtype=int)
 
     if 'nephrotox_ct' not in list(meta):
         print('Getting medications...')
@@ -215,8 +210,8 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
         epis = np.array(epis)
         meta.create_dataset('nephrotox_ct', data=nephrotox_cts, dtype=int)
         meta.create_dataset('vasopress_ct', data=vasopres_cts, dtype=int)
-        meta.create_dataset('dopa', data=dopas, dtype=float)
-        meta.create_dataset('epinephrine', data=epis, dtype=float)
+        meta.create_dataset('dopa', data=dopas, dtype=int)
+        meta.create_dataset('epinephrine', data=epis, dtype=int)
 
     if 'anemia' not in list(meta):
         print('Getting labs...')
@@ -224,7 +219,7 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
         hemats, hemos, pltlts, \
         nas, pks, albs, lacs, phs, \
         po2s, pco2s, wbcs, bicarbs = get_uky_labs(ids, genders, data_path)
-        anemics = np.array(anemics, dtype=bool)
+        anemics = np.array(anemics, dtype=int)
         bilis = np.array(bilis, dtype=float)
         buns = np.array(buns, dtype=float)
         hemats = np.array(hemats, dtype=float)
@@ -239,7 +234,7 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
         pco2s = np.array(pco2s, dtype=float)
         wbcs = np.array(wbcs, dtype=float)
         bicarbs = np.array(bicarbs, dtype=float)
-        meta.create_dataset('anemia', data=anemics, dtype=bool)
+        meta.create_dataset('anemia', data=anemics, dtype=int)
         meta.create_dataset('albumin', data=albs, dtype=float)
         meta.create_dataset('lactate', data=lacs, dtype=float)
         meta.create_dataset('bilirubin', data=bilis, dtype=float)
@@ -263,9 +258,13 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
         meta.create_dataset('urine_out', data=urine_outs, dtype=float)
         meta.create_dataset('urine_flow', data=urine_flows, dtype=float)
 
+    if 'unPlannedAdmissions' not in list(meta):
+        unPlannedAdmissions = get_uky_planned_admissions(ids, icu_windows, data_path)
+        meta.create_dataset('unPlannedAdmissions', data=unPlannedAdmissions, dtype=int)
+
     if 'hosp_los' not in list(meta):
-        mks_7d = []
-        mks_w = []
+        mks_win = []
+        mks_whole = []
         neps = []
         hosp_days = []
         hosp_frees = []
@@ -280,17 +279,18 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
             td = np.array(days[i])
             (hosp_admit, hosp_disch) = hosp_windows[tid]
             (icu_admit, icu_disch) = icu_windows[tid]
+            mkwin = 0
+            mk = 0
 
             if len(scrs[i]):
                 mask = np.where(td <= tlim)[0]
-                mkwin = np.max(kdigos[i][mask])
+                if len(mask) > 0:
+                    mkwin = np.max(kdigos[i][mask])
                 mk = np.max(kdigos[i])
 
                 admit_scr = scrs[i][0]
                 peak_scr = np.max(scrs[i])
             else:
-                mkwin = -1
-                mk = -1
                 admit_scr = np.nan
                 peak_scr = np.nan
 
@@ -309,8 +309,8 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
                 hfree = np.nan
                 ifree = np.nan
 
-            mks_7d.append(mkwin)
-            mks_w.append(mk)
+            mks_win.append(mkwin)
+            mks_whole.append(mk)
             hosp_days.append(hlos)
             hosp_frees.append(hfree)
             icu_days.append(ilos)
@@ -318,8 +318,8 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
             admit_scrs.append(admit_scr)
             peak_scrs.append(peak_scr)
 
-        mks_7d = np.array(mks_7d, dtype=int)
-        mks_w = np.array(mks_w, dtype=int)
+        mks_win = np.array(mks_win, dtype=int)
+        mks_whole = np.array(mks_whole, dtype=int)
         hosp_days = np.array(hosp_days, dtype=float)
         hosp_frees = np.array(hosp_frees, dtype=float)
         icu_days = np.array(icu_days, dtype=float)
@@ -333,8 +333,8 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
         meta.create_dataset('icu_free_days', data=icu_frees, dtype=float)
         meta.create_dataset('admit_scr', data=admit_scrs, dtype=float)
         meta.create_dataset('peak_scr', data=peak_scrs, dtype=float)
-        meta.create_dataset('max_kdigo_win', data=mks_7d, dtype=int)
-        meta.create_dataset('max_kdigo', data=mks_w, dtype=int)
+        meta.create_dataset('max_kdigo_win', data=mks_win, dtype=int)
+        meta.create_dataset('max_kdigo', data=mks_whole, dtype=int)
 
     return meta
 
@@ -391,7 +391,11 @@ def get_uky_medications(ids, icu_windows, dataPath='', maxDay=1):
     neph_cts = np.zeros(len(ids))
     vaso_cts = np.zeros(len(ids))
     dopas = np.zeros(len(ids))
+    dobus = np.zeros(len(ids))
+    milris = np.zeros(len(ids))
     epis = np.zeros(len(ids))
+    phenylephs = np.zeros(len(ids))
+    vasopressins = np.zeros(len(ids))
     for i in range(len(ids)):
         tid = ids[i]
         admit = icu_windows[tid][0]
@@ -401,7 +405,11 @@ def get_uky_medications(ids, icu_windows, dataPath='', maxDay=1):
         neph_ct = 0
         vaso_ct = 0
         dopa = 0
+        dobu = 0
+        mili = 0
         epi = 0
+        phenyl = 0
+        vaso = 0
         if med_idx.size > 0:
             for tid in med_idx:
                 tstr = str(med_m['ORDER_ENTERED_DATE'][tid]).split('.')[0]
@@ -413,7 +421,7 @@ def get_uky_medications(ids, icu_windows, dataPath='', maxDay=1):
                     stop = start + datetime.timedelta(dur)
                     if tdate != 'nan':
                         if start <= admit:
-                            if stop > admit:
+                            if stop > admit or ((start.toordinal() - admit.toordinal()) <= maxDay):
                                 # Nephrotoxins
                                 if np.any(
                                         [med_m['MEDICATION_TYPE'][tid].lower() in x for x in ['acei', 'ace inhibitors',
@@ -428,32 +436,29 @@ def get_uky_medications(ids, icu_windows, dataPath='', maxDay=1):
                                                                                                 'presor or inotrope']]):
                                     vaso_ct += 1
 
-                                if 'dopamine' in tname or 'dobutamine' in tname:
+                                if 'dopamine' in tname:
                                     dopa = 1
-                                elif 'epinephrine' in tname:
+                                elif 'dobutamine' in tname:
+                                    dobu = 1
+                                elif 'milrinone' in tname:
+                                    mili = 1
+                                elif 'epinephrine':
                                     epi = 1
-                        elif (start.toordinal() - admit.toordinal()) <= maxDay:
-                            # Nephrotoxins
-                            if np.any([med_m['MEDICATION_TYPE'][tid].lower() in x for x in ['acei', 'ace inhibitors',
-                                                                                   'angiotensin receptor blockers', 'arb',
-                                                                                   'aminoglycosides', 'nsaids']]):
-                                neph_ct += 1
+                                elif 'phenylephrine' in tname:
+                                    phenyl = 1
+                                elif 'vasopressin' in tname:
+                                    vaso = 1
 
-                            # Vasoactive Drugs
-                            if np.any([med_m['MEDICATION_TYPE'][tid].lower() in x for x in ['presor', 'pressor', 'inotrope',
-                                                                                   'pressor or inotrope']]):
-                                vaso_ct += 1
-
-                            if 'dopamine' in tname or 'dobutamine' in tname:
-                                dopa = 1
-                            elif 'epinephrine' in tname:
-                                epi = 1
         neph_cts[i] = neph_ct
         vaso_cts[i] = vaso_ct
         dopas[i] = dopa
+        dobus[i] = dobu
+        milris[i] = mili
         epis[i] = epi
+        phenylephs[i] = phenyl
+        vasopressins[i] = vaso
     del med_m
-    return neph_cts, vaso_cts, dopas, epis
+    return neph_cts, vaso_cts, dopas, dobus, milris, epis, phenylephs, vasopressins
 
 
 def get_uky_mortality(ids, hosp_windows, icu_windows, dataPath=''):
@@ -580,9 +585,10 @@ def get_uky_comorbidities(ids, dataPath=''):
 
 def get_uky_fluids(ids, weights, dataPath='', maxDay=1):
     io_m = pd.read_csv(os.path.join(dataPath, 'IO_TOTALS.csv'))
-    fos = np.full([len(ids),], np.nan)
-    nets = np.full([len(ids),], np.nan)
-    tots = np.full([len(ids),], np.nan)
+    fos = np.full(len(ids), np.nan)
+    nets = np.full(len(ids), np.nan)
+    tots = np.full(len(ids), np.nan)
+    cfbs = np.full(len(ids), np.nan)
     for i in range(len(ids)):
         tid = ids[i]
         weight = weights[i]
@@ -590,73 +596,74 @@ def get_uky_fluids(ids, weights, dataPath='', maxDay=1):
         if io_idx.size > 0:
             net = np.nan
             tot = np.nan
+            cfb = np.nan
             invals = []
             outvals = []
             for tid in io_idx:
                 for j in range(maxDay + 1):
                     inval = io_m['IO_TOTALS_D%d_INVALUE' % j][tid] / 1000
                     outval = io_m['IO_TOTALS_D%d_OUTVALUE' % j][tid] / 1000
-                    if inval > 0 and outval > 0:
+                    if inval > 0 and outval > 0 and not np.isnan(inval) and not np.isnan(outval):
                         invals.append(inval)
                         outvals.append(outval)
                 if len(invals) > 0:
                     invals = np.mean(invals)
                     outvals = np.mean(outvals)
-                    net = invals - outvals
-                    tot = invals + outvals
+                    cfb = np.sum(invals) - np.sum(outvals)
+                    net = np.mean(invals) - np.mean(outvals)
+                    tot = np.mean(invals) + np.mean(outvals)
                 else:
                     net = np.nan
                     tot = np.nan
+                    cfb = np.nan
         else:
             net = np.nan
             tot = np.nan
+            cfb = np.nan
         nets[i] = net
         tots[i] = tot
+        cfbs[i] = cfb
 
         if net != np.nan and weight != np.nan:
-            fo = net / weight
+            fo = (cfb / weight) * 100
         else:
             fo = np.nan
-
-        nets[i] = net
-        tots[i] = tot
         fos[i] = fo
     del io_m
-    return nets, tots, fos
+    return nets, tots, fos, cfbs
 
 
-def get_uky_organsupp(ids, dieds, windows, dataPath=''):
+def get_uky_organsupp(ids, dieds, windows, dataPath='', maxDay=1, tlim=14):
+    # Windows assumed to correspond to ICU, not hospitalization
     organ_sup_mv = pd.read_csv(os.path.join(dataPath, 'ORGANSUPP_VENT.csv'))
     organ_sup_vad = pd.read_csv(os.path.join(dataPath, 'ORGANSUPP_VAD.csv'))
     organ_sup_ecmo = pd.read_csv(os.path.join(dataPath, 'ORGANSUPP_ECMO.csv'))
     organ_sup_iabp = pd.read_csv(os.path.join(dataPath, 'ORGANSUPP_IABP.csv'))
     mech_flags = np.zeros(len(ids))
     mech_days = np.zeros(len(ids))
-    mech_frees = np.zeros(len(ids))
+    mech_frees_28d = np.zeros(len(ids))
+    mech_frees_win = np.zeros(len(ids))
     ecmos = np.zeros(len(ids))
     vads = np.zeros(len(ids))
     iabps = np.zeros(len(ids))
 
-    mech_flags_d1 = np.zeros(len(ids))
-    ecmos_d1 = np.zeros(len(ids))
-    vads_d1 = np.zeros(len(ids))
-    iabps_d1 = np.zeros(len(ids))
     for i in range(len(ids)):
         tid = ids[i]
         died = dieds[i]
         admit = windows[tid][0]
+        disch = windows[tid][1]
         if type(admit) == 'str':
             admit = get_date(admit)
         mech_flag = 0
-        mech_flag_d1 = 0
         mech_day = 0
-        mech_free = 28
+        mech_day_win = 0
         mech_idx = np.where(organ_sup_mv['STUDY_PATIENT_ID'].values == tid)[0]
         if mech_idx.size > 0:
             mech_idx = mech_idx[0]
             try:
                 mech_start = get_date(organ_sup_mv['VENT_START_DATE'][mech_idx])
                 mech_stop = get_date(organ_sup_mv['VENT_STOP_DATE'][mech_idx])
+                maxDate = admit + datetime.timedelta(tlim)
                 if mech_stop < admit:
                     pass
                 elif (mech_start - admit).days > 28:
@@ -664,21 +671,29 @@ def get_uky_organsupp(ids, dieds, windows, dataPath=''):
                 else:
                     if mech_start < admit:
                         mech_day = (mech_stop - admit).days
-                        mech_flag_d1 = 1
+                        mech_flag = 1
                     else:
-                        mech_day = (mech_stop - mech_start).days
-                        if (mech_start.toordinal() - admit.toordinal()) <= 1:
-                            mech_flag_d1 = 1
-
-                    mech_free = 28 - mech_day
-                    mech_flag = 1
+                        if mech_stop < disch:
+                            mech_day = (mech_stop - mech_start).days
+                            mech_day_win = (min(mech_stop, maxDate) - mech_start).days
+                            if (mech_start.toordinal() - admit.toordinal()) <= maxDay:
+                                mech_flag = 1
+                        else:
+                            mech_day = (disch - mech_start).days
+                            mech_day_win = (min(disch, maxDate) - mech_start).days
+                            if (mech_start.toordinal() - admit.toordinal()) <= maxDay:
+                                mech_flag = 1
             except ValueError:
                 pass
-        if mech_free < 0 or (mech_flag and died):
-            mech_free = 0
+
+        if died:
+            mech_free_28d = 0
+            mech_free_win = 0
+        else:
+            mech_free_28d = max(0, 28 - mech_day)
+            mech_free_win = max(0, tlim - mech_day_win)
 
         ecmo = 0
-        ecmo_d1 = 0
         ecmo_idx = np.where(organ_sup_ecmo['STUDY_PATIENT_ID'].values == tid)[0]
         if ecmo_idx.size > 0:
             ecmo_idx = ecmo_idx[0]
@@ -687,17 +702,12 @@ def get_uky_organsupp(ids, dieds, windows, dataPath=''):
                 ecmo_stop = get_date(organ_sup_ecmo['ECMO_STOP_DATE'][ecmo_idx])
                 if ecmo_stop < admit:
                     pass
-                elif (ecmo_start - admit).days > 28:
-                    pass
-                else:
+                elif ecmo_start.toordinal() - admit.toordinal() <= maxDay:
                     ecmo = 1
-                    if (ecmo_start.toordinal()- admit.toordinal()) <= 1:
-                        ecmo_d1 = 1
             except ValueError:
                 pass
 
         iabp = 0
-        iabp_d1 = 0
         iabp_idx = np.where(organ_sup_iabp['STUDY_PATIENT_ID'].values == tid)[0]
         if iabp_idx.size > 0:
             iabp_idx = iabp_idx[0]
@@ -706,12 +716,8 @@ def get_uky_organsupp(ids, dieds, windows, dataPath=''):
                 iabp_stop = get_date(organ_sup_iabp['IABP_STOP_DATE'][iabp_idx])
                 if iabp_stop < admit:
                     pass
-                elif (iabp_start - admit).days > 28:
-                    pass
-                else:
+                elif iabp_start.toordinal() - admit.toordinal() <= maxDay:
                     iabp = 1
-                    if (iabp_start.toordinal()- admit.toordinal()) <= 1:
-                        iabp_d1 = 1
             except ValueError:
                 pass
 
@@ -725,32 +731,22 @@ def get_uky_organsupp(ids, dieds, windows, dataPath=''):
                 vad_stop = get_date(organ_sup_vad['VAD_STOP_DATE'][vad_idx])
                 if vad_stop < admit:
                     pass
-                elif (vad_start - admit).days > 28:
-                    pass
-                else:
+                elif vad_start.toordinal() - admit.toordinal() <= maxDay:
                     vad = 1
-                    if (vad_start.toordinal()- admit.toordinal()) <= 1:
-                        vad_d1 = 1
             except ValueError:
                 pass
 
-        if mech_day > 0:
-            if died or mech_free < 28:
-                mech_free = 0
-
         mech_flags[i] = mech_flag
         mech_days[i] = mech_day
-        mech_frees[i] = mech_free
+        mech_frees_win[i] = mech_free_win
+        mech_frees_28d[i] = mech_free_28d
         ecmos[i] = ecmo
         vads[i] = vad
         iabps[i] = iabp
 
-        mech_flags_d1[i] = mech_flag_d1
-        ecmos_d1[i] = ecmo_d1
-        vads_d1[i] = vad_d1
-        iabps_d1[i] = iabp_d1
+    mhs = np.max(np.vstack((ecmos, vads, iabps)), axis=0).T
     del organ_sup_mv, organ_sup_iabp, organ_sup_vad, organ_sup_ecmo
-    return mech_flags, mech_days, mech_frees, ecmos, vads, iabps, mech_flags_d1, ecmos_d1, vads_d1, iabps_d1
+    return mech_flags, mech_days, mech_frees_win, ecmos, vads, iabps, mhs
 
 
 def get_uky_clinical_others(ids, dataPath=''):
@@ -795,7 +791,28 @@ def get_uky_clinical_others(ids, dataPath=''):
         fio2s[i] = fio2
         resps[i] = resp
         gcss[i] = gcs
+
     return bmis, weights, heights, fio2s, resps, gcss
+
+
+def get_uky_planned_admissions(ids, icu_windows, dataPath=''):
+    surg_m = pd.read_csv(os.path.join(dataPath, 'SURGERY_INDX.csv'))
+    unPlannedAdmissions = np.ones(len(ids), dtype=int)
+
+    for i, tid in enumerate(ids):
+        if type(icu_windows) == dict:
+            admit = icu_windows[tid][0]
+        else:
+            admit = icu_windows[i][0]
+
+        surg_rows = np.where(surg_m['STUDY_PATIENT_ID'].values == tid)[0]
+        for row in surg_rows:
+            tdate = get_date(surg_m['SURGERY_PERFORMED_DATE'][row])
+            if tdate != 'nan':
+                if abs((tdate - admit).total_seconds() / (60 * 60)) < 24:
+                    unPlannedAdmissions[i] = 0
+
+    return unPlannedAdmissions
 
 
 def get_uky_demographics(ids, hosp_windows, dataPath=''):
@@ -831,16 +848,20 @@ def get_uky_demographics(ids, hosp_windows, dataPath=''):
     return males, races, ages
 
 
-def get_uky_rrt(ids, dieds, windows, dataPath=''):
+def get_uky_rrt(ids, dieds, windows, dataPath='', t_lim=7):
     rrt_m = pd.read_csv(os.path.join(dataPath, 'RENAL_REPLACE_THERAPY.csv'))
     hd_dayss = np.zeros(len(ids))
     crrt_dayss = np.zeros(len(ids))
+    hd_dayss_win = np.zeros(len(ids))
+    crrt_dayss_win = np.zeros(len(ids))
     hd_frees_7d = np.zeros(len(ids))
     hd_frees_28d = np.zeros(len(ids))
     crrt_frees_7d = np.zeros(len(ids))
     crrt_frees_28d = np.zeros(len(ids))
     rrt_flags = np.zeros(len(ids))
     hd_trtmts = np.zeros(len(ids))
+    crrt_flags = np.zeros(len(ids))
+    hd_flags = np.zeros(len(ids))
     for i in range(len(ids)):
         tid = ids[i]
         admit = windows[tid][0]
@@ -849,16 +870,16 @@ def get_uky_rrt(ids, dieds, windows, dataPath=''):
         if type(admit) == str:
             admit = get_date(admit)
             disch = get_date(disch)
-        end7d = admit + datetime.timedelta(7)
+        endwin = admit + datetime.timedelta(t_lim)
         end28d = admit + datetime.timedelta(28)
         hd_days = 0
+        hd_days_win = 0
         crrt_days = 0
+        crrt_days_win = 0
         rrt_flag = 0
         hd_trtmt = 0
-        hd_free_7d = np.ones(7)
-        hd_free_28d = np.ones(28)
-        crrt_free_7d = np.ones(7)
-        crrt_free_28d = np.ones(28)
+        crrt_flag = 0
+        hd_flag = 0
         dia_ids = np.where(rrt_m['STUDY_PATIENT_ID'].values == tid)[0]
         if np.size(dia_ids) > 0:
             for row in dia_ids:
@@ -868,76 +889,52 @@ def get_uky_rrt(ids, dieds, windows, dataPath=''):
                 if start != 'nan' and stop != 'nan':
                     wstart = max(admit, start)
                     wstop = min(disch, stop)
-                    crrt_days += (wstop - wstop).total_seconds() / (60 * 60 * 24)
-                    if wstart < end7d:
-                        if wstop < end7d:
-                            ts = (start - admit).days
-                            te = (wstop - admit).days
-                            crrt_free_7d[ts:te] = 0
-                        else:
-                            ts = (start - admit).days
-                            te = (end7d - admit).days
-                            crrt_free_7d[ts:te] = 0
-                        if wstop < end28d:
-                            ts = (start - admit).days
-                            te = (wstop - admit).days
-                            crrt_free_28d[ts:te] = 0
-                        else:
-                            ts = (start - admit).days
-                            te = (end28d - admit).days
-                            crrt_free_28d[ts:te] = 0
+                    if wstop > wstart and wstart < endwin:
+                        rrt_flag = 1
+                        crrt_flag = 1
+                        crrt_days_win += (wstop - wstart).total_seconds() / (60 * 60 * 24)
+                    if wstart < end28d:
+                        crrt_days += (wstop - wstart).total_seconds() / (60 * 60 * 24)
                 # hd
                 start = get_date(rrt_m['HD_START_DATE'][row])
                 stop = get_date(rrt_m['HD_STOP_DATE'][row])
                 if start != 'nan' and stop != 'nan':
                     wstart = max(admit, start)
                     wstop = min(disch, stop)
-                    hd_days += (wstop - wstop).total_seconds() / (60 * 60 * 24)
-                    hd_trtmt += rrt_m['HD_TREATMENTS'][row]
-                    if wstart < end7d:
-                        if wstop < end7d:
-                            ts = (start - admit).days
-                            te = (wstop - admit).days
-                            hd_free_7d[ts:te] = 0
-                        else:
-                            ts = (start - admit).days
-                            te = (end7d - admit).days
-                            hd_free_7d[ts:te] = 0
-                        if wstop < end28d:
-                            ts = (start - admit).days
-                            te = (wstop - admit).days
-                            hd_free_28d[ts:te] = 0
-                        else:
-                            ts = (start - admit).days
-                            te = (end28d - admit).days
-                            hd_free_28d[ts:te] = 0
+                    if wstop > wstart and wstart < endwin:
+                        rrt_flag = 1
+                        hd_flag = 1
+                        hd_days_win += (wstop - wstart).total_seconds() / (60 * 60 * 24)
+                        hd_trtmt += rrt_m['HD_TREATMENTS'][row]
+                    if wstart < end28d:
+                        hd_days += (wstop - wstart).total_seconds() / (60 * 60 * 24)
     
-        hd_free_7d = np.sum(hd_free_7d)
-        hd_free_28d = np.sum(hd_free_28d)
-        crrt_free_7d = np.sum(crrt_free_7d)
-        crrt_free_28d = np.sum(crrt_free_28d)
-
-        crrt_days = 28 - crrt_free_28d
-        hd_days = 28 - hd_free_28d
+        hd_free_win = min(0, t_lim - hd_days_win)
+        hd_free_28d = min(0, 28 - hd_days)
+        crrt_free_win = min(0, t_lim - crrt_days_win)
+        crrt_free_28d = min(0, 28 - crrt_days)
         
         if hd_days or crrt_days:
-            rrt_flag = 1
             if died:
-                hd_free_7d = 0
+                hd_free_win = 0
                 hd_free_28d = 0
-                crrt_free_7d = 0
+                crrt_free_win = 0
                 crrt_free_28d = 0
         
         hd_dayss[i] = hd_days
         crrt_dayss[i] = crrt_days
-        hd_frees_7d[i] = hd_free_7d
+        hd_dayss_win[i] = hd_days_win
+        crrt_dayss_win[i] = crrt_days_win
+        hd_frees_7d[i] = hd_free_win
         hd_frees_28d[i] = hd_free_28d
-        crrt_frees_7d[i] = crrt_free_7d
+        crrt_frees_7d[i] = crrt_free_win
         crrt_frees_28d[i] = crrt_free_28d
         rrt_flags[i] = rrt_flag
         hd_trtmts[i] = hd_trtmt
+        crrt_flags[i] = crrt_flag
+        hd_flags[i] = hd_flag
     del rrt_m
-    return rrt_flags, hd_dayss, crrt_dayss, hd_frees_7d, hd_frees_28d, hd_trtmts, crrt_frees_7d, crrt_frees_28d
+    return rrt_flags, hd_dayss, crrt_dayss, hd_dayss_win, crrt_dayss_win, hd_frees_7d, hd_frees_28d, hd_trtmts, crrt_frees_7d, crrt_frees_28d, crrt_flags, hd_flags
 
 
 def get_uky_diagnoses(ids, dataPath=''):
@@ -1070,7 +1067,104 @@ def get_uky_labs(ids, males, dataPath='', maxDay=1):
     return anemics, bilis, buns, hemats, hemos, pltlts, nas, pks, albs, lacs, phs, po2s, pco2s, wbcs, bicarbs
 
 
-def summarize_stats_dallas(ids, kdigos, days, scrs, icu_windows, hosp_windows, dataPath,
+def get_uky_labs_V2(mrns, males, dataPath='', maxDay=3):
+    labs_m = pd.read_csv(os.path.join(dataPath, 'new', 'EX706_GRP2_LABS.csv'))
+    anemics = np.full((len(mrns), 3), np.nan)
+    bilis = np.full(len(mrns), np.nan)
+    buns = np.full((len(mrns), min(maxDay + 1, 4)), np.nan)
+    hemats = np.full((len(mrns), 2), np.nan)
+    hemos = np.full((len(mrns), 2), np.nan)
+    pltlts = np.full(len(mrns), np.nan)
+    nas = np.full((len(mrns), 2), np.nan)
+    pks = np.full((len(mrns), 2), np.nan)
+    albs = np.full(len(mrns), np.nan)
+    lacs = np.full(len(mrns), np.nan)
+    phs = np.full((len(mrns), 2), np.nan)
+    po2s = np.full((len(mrns), 2), np.nan)
+    pco2s = np.full((len(mrns), 2), np.nan)
+    wbcs = np.full((len(mrns), 2), np.nan)
+    bicarbs = np.full((len(mrns), 2), np.nan)
+    for i in range(len(mrns)):
+        tid = mrns[i]
+        male = males[i]
+        # Anemia, bilirubin, and BUN (labs set 1)
+        anemic = np.zeros(3)
+        bili = np.nan
+        bun = np.array((np.nan, np.nan, np.nan, np.nan))
+        hemat = np.array((np.nan, np.nan))
+        hemo = np.array((np.nan, np.nan))
+        pltlt = np.nan
+        na = np.array((np.nan, np.nan))
+        pk = np.array((np.nan, np.nan))
+        wbc = np.array((np.nan, np.nan))
+        bicarb = np.array((np.nan, np.nan))
+        lab_idx = np.where(labs_m['STUDY_PATIENT_ID'].values == tid)[0]
+        if lab_idx.size > 0:
+            lab_idx = lab_idx[0]
+            bili = labs_m['BILIRUBIN_D1_HIGH_VALUE'][lab_idx]
+            bun = [labs_m['BUN_D%d_HIGH_VALUE' % x][lab_idx] for x in range(maxDay+1)]
+            hemat = [labs_m['HEMATOCRIT_D1_LOW_VALUE'][lab_idx], labs_m['HEMATOCRIT_D1_HIGH_VALUE'][lab_idx]]
+            hemo = [labs_m['HEMOGLOBIN_D1_LOW_VALUE'][lab_idx], labs_m['HEMOGLOBIN_D1_HIGH_VALUE'][lab_idx]]
+            pltlt = labs_m['PLATELETS_D1_LOW_VALUE'][lab_idx]
+            na = [labs_m['SODIUM_D1_LOW_VALUE'][lab_idx], labs_m['SODIUM_D1_HIGH_VALUE'][lab_idx]]
+            pk = [labs_m['POTASSIUM_D1_LOW_VALUE'][lab_idx], labs_m['POTASSIUM_D1_HIGH_VALUE'][lab_idx]]
+            wbc = [labs_m['WBC_D1_LOW_VALUE'][lab_idx], labs_m['WBC_D1_HIGH_VALUE'][lab_idx]]
+            bicarb = [labs_m['CO2_D1_LOW_VALUE'][lab_idx], labs_m['CO2_D1_HIGH_VALUE'][lab_idx]]
+            # definition A
+            if male:
+                if hemat[0] < 39 or hemo[0] < 18:
+                    anemic[0] = 1
+            else:
+                if hemat[0] < 36 or hemo[0] < 12:
+                    anemic[0] = 1
+            # definition B
+            if hemat[0] < 30 or hemo[0] < 10:
+                anemic[1] = 1
+            # definition C
+            if hemat[0] < 27 or hemo[0] < 9:
+                anemic[2] = 1
+
+        # Labs set 2
+        lab_idx = np.where(labs2_m['STUDY_PATIENT_ID'].values == tid)[0]
+        alb = np.nan
+        lac = np.nan
+        if lab_idx.size > 0:
+            lab_idx = lab_idx[0]
+            alb = labs2_m['ALBUMIN_VALUE'][lab_idx]
+            lac = labs2_m['LACTATE_SYRINGE_ION_VALUE'][lab_idx]
+
+        anemics[i] = anemic
+        bilis[i] = bili
+        buns[i] = bun
+        hemats[i] = hemat
+        hemos[i] = hemo
+        pltlts[i] = pltlt
+        nas[i] = na
+        pks[i] = pk
+        albs[i] = alb
+        lacs[i] = lac
+        wbcs[i] = wbc
+        bicarbs[i] = bicarb
+
+        # ph_loc, po2_loc, pco2_loc,
+        # Blood gas
+        blood_idx = np.where(blood_m['STUDY_PATIENT_ID'].values == tid)[0]
+        ph = np.array((np.nan, np.nan))
+        po2 = np.array((np.nan, np.nan))
+        pco2 = np.array((np.nan, np.nan))
+        if blood_idx.size > 0:
+            blood_idx = blood_idx[0]
+            ph = [blood_m['PH_D1_LOW_VALUE'][blood_idx], blood_m['PH_D1_HIGH_VALUE'][blood_idx]]
+            po2 = [blood_m['PO2_D1_LOW_VALUE'][blood_idx], blood_m['PO2_D1_HIGH_VALUE'][blood_idx]]
+            pco2 = [blood_m['PCO2_D1_LOW_VALUE'][blood_idx], blood_m['PCO2_D1_HIGH_VALUE'][blood_idx]]
+        phs[i] = ph
+        po2s[i] = po2
+        pco2s[i] = pco2
+    del labs_m, labs2_m, blood_m
+    return anemics, bilis, buns, hemats, hemos, pltlts, nas, pks, albs, lacs, phs, po2s, pco2s, wbcs, bicarbs
+
+
+def summarize_stats_dallas(ids, kdigos, days, scrs, icu_windows, hosp_windows,
                            f, base_path, grp_name='meta', tlim=7, v=False):
 
     n_eps = []
@@ -1085,233 +1179,270 @@ def summarize_stats_dallas(ids, kdigos, days, scrs, icu_windows, hosp_windows, d
     bsln_scrs = load_csv(os.path.join(base_path, 'all_baseline_info.csv'), ids, float, idxs=[1], skip_header=True)
     bsln_types = load_csv(os.path.join(base_path, 'all_baseline_info.csv'), ids, str, idxs=[2], skip_header=True)
 
-    admits = []
-    discharges = []
-
+    genders = None
     mk_wins = []
     mks = []
     dieds = []
     neps = []
     hosp_days = []
-    hosp_frees_7d = []
+    hosp_frees_win = []
     hosp_frees_28d = []
     icu_days = []
-    icu_frees_7d = []
+    icu_frees_win = []
     icu_frees_28d = []
 
-    print('Getting dialysis information...')
     admit_scrs = np.zeros(len(ids))
     peak_scrs = np.zeros(len(ids))
 
-    print("Getting general patient info...")
-    genders, races, ages, dods, dtds = get_utsw_demographics(ids, hosp_windows, base_path)
-
-    print("Getting dialysis info...")
-    hd_days, crrt_days, hd_free_7d, hd_free_28d, crrt_free_7d, crrt_free_28d = get_utsw_rrt(ids, icu_windows, base_path)
-
-    print ('Getting edications...')
-    neph_cts, vaso_cts = get_utsw_medications(ids, base_path)
-
-    print('Getting diagnoses...')
-    septics, diabetics, hypertensives = get_utsw_diagnoses(ids, base_path)
-
-    print('Getting mortality...')
-    died_inps, died_90d_admit, died_90d_disch, died_120d_admit, died_120d_disch, dods, dtds = get_utsw_mortality(ids, icu_windows, hosp_windows, base_path)
-
-    # tAOS table
-    mech_flags, mech_days, ecmos, iabps, vads, mv_frees_7d, mv_frees_28d = get_utsw_organsupp(ids, icu_windows, dtds, died_inps, base_path)
-
-    print('Getting clinical others...')
-    heights, weights, bmis, temps, net_fluids, gros_fluids, glasgows, resps, hrs, maps, fos, urine_outs, urine_flows = get_utsw_flw(ids, base_path)
-
-    print('Getting labs...')
-    albs, bilis, bicarbs, buns, chlorides, fio2s, hemats, hemos, phs, pco2s, po2s, pots, pltlts, sods, wbcs, anemics = get_utsw_labs(ids, genders, base_path)
-
-    bsln_gfrs = np.zeros(len(ids))
-    for i in range(len(ids)):
-        tid = ids[i]
-        if v:
-            print('Summarizing Patient #%d (%d/%d)' % (tid, i+1, len(ids)))
-        if len(kdigos[i]) > 1:
-            td = days[i]
-            mask = np.where(td <= tlim)[0]
-            mkwin = int(np.max(np.array(kdigos[i])[mask]))
-            mk = int(np.max(kdigos[i]))
-
-            eps = n_eps[i]
-
-            gfr = calc_gfr(bsln_scrs[i], genders[i], races[i], ages[i])
-
-            admit_scrs[i] = scrs[i][0]
-            peak_scrs[i] = np.max(scrs[i][np.where(days[i] <= tlim)])
-        elif len(kdigos[i]) == 1:
-            mkwin = kdigos[i][0]
-            mk = kdigos[i][0]
-            eps = 1
-            gfr = calc_gfr(bsln_scrs[i], genders[i], races[i], ages[i])
-            admit_scrs[i] = scrs[i][0]
-            peak_scrs[i] = scrs[i][0]
-
-        else:
-            mkwin = 0
-            mk = 0
-
-            gfr = np.nan
-            admit_scrs[i] = np.nan
-            peak_scrs[i] = np.nan
-
-
-        if type(icu_windows) == dict:
-            icu_admit = get_date(icu_windows[tid][0])
-            icu_discharge = get_date(icu_windows[tid][1])
-        else:
-            icu_admit = get_date(icu_windows[i][0])
-            icu_discharge = get_date(icu_windows[i][1])
-
-        if type(hosp_windows) == dict:
-            hosp_admit = get_date(hosp_windows[tid][0])
-            hosp_disch = get_date(hosp_windows[tid][1])
-        else:
-            hosp_admit = get_date(hosp_windows[i][0])
-            hosp_disch = get_date(hosp_windows[i][1])
-
-        hlos, ilos = get_los(tid, date_m, hosp_locs, icu_locs)
-        hfree_7d = 7 - hlos
-        ifree_7d = 7 - ilos
-        hfree_28d = 28 - hlos
-        ifree_28d = 28 - ilos
-
-        if died_inps[i]:
-            if dtds[i] <= 7:
-                hfree_7d = 0
-                hfree_28d = 0
-                ifree_7d = 0
-                ifree_28d = 0
-            elif dtds[i] <= 28:
-                hfree_28d = 0
-                ifree_28d = 0
-
-        if hfree_7d < 0:
-            hfree_7d = 0
-        if ifree_7d < 0:
-            ifree_7d = 0
-        if hfree_28d < 0:
-            hfree_28d = 0
-        if ifree_28d < 0:
-            ifree_28d = 0
-
-        admits.append(str(icu_admit))
-        discharges.append(str(icu_discharge))
-
-        bsln_gfrs[i] = gfr
-
-        mk_wins.append(mkwin)
-        mks.append(mk)
-        neps.append(eps)
-        hosp_days.append(hlos)
-        hosp_frees_7d.append(hfree_7d)
-        hosp_frees_28d.append(hfree_28d)
-        icu_days.append(ilos)
-        icu_frees_7d.append(ifree_7d)
-        icu_frees_28d.append(ifree_28d)
-    #
-    # try:
-    #     f = h5py.File(out_name, 'r+')
-    # except:
-    #     f = h5py.File(out_name, 'w')
+    assert type(icu_windows) == type(hosp_windows)
+    if type(icu_windows) == dict:
+        icu_windows_save = []
+        hosp_windows_save = []
+    else:
+        icu_windows_save = icu_windows
+        hosp_windows_save = hosp_windows
 
     try:
         meta = f[grp_name]
     except:
         meta = f.create_group(grp_name)
+        meta.create_dataset('ids', data=ids, dtype=int)
 
-    admits = np.array(admits, dtype=str)
-    discharges = np.array(discharges, dtype=str)
-    meta.create_dataset('ids', data=ids, dtype=int)
-    meta.create_dataset('admit', data=admits.astype(bytes), dtype='|S20')
-    meta.create_dataset('discharge', data=discharges.astype(bytes), dtype='|S20')
-    meta.create_dataset('age', data=ages, dtype=float)
-    meta.create_dataset('gender', data=genders, dtype=int)
-    meta.create_dataset('race', data=races, dtype=int)
-    meta.create_dataset('bmi', data=bmis, dtype=float)
-    meta.create_dataset('weight', data=weights, dtype=float)
-    meta.create_dataset('charlson', data=np.zeros(len(ids)), dtype=int)
-    meta.create_dataset('elixhauser', data=np.zeros(len(ids)), dtype=int)
-    meta.create_dataset('diabetic', data=diabetics, dtype=int)
-    meta.create_dataset('hypertensive', data=hypertensives, dtype=int)
-    meta.create_dataset('hosp_los', data=hosp_days, dtype=float)
-    meta.create_dataset('hosp_free_days_7d', data=hosp_frees_7d, dtype=float)
-    meta.create_dataset('hosp_free_days_28d', data=hosp_frees_28d, dtype=float)
-    meta.create_dataset('icu_los', data=icu_days, dtype=float)
-    meta.create_dataset('icu_free_days_7d', data=icu_frees_7d, dtype=float)
-    meta.create_dataset('icu_free_days_28d', data=icu_frees_28d, dtype=float)
-    meta.create_dataset('mv_flag', data=mech_flags, dtype=int)
-    meta.create_dataset('mv_days', data=mech_days, dtype=float)
-    meta.create_dataset('mv_free_days_7d', data=mv_frees_7d, dtype=float)
-    meta.create_dataset('mv_free_days_28d', data=mv_frees_28d, dtype=float)
-    meta.create_dataset('ecmo', data=ecmos, dtype=int)
-    meta.create_dataset('iabp', data=iabps, dtype=int)
-    meta.create_dataset('vad', data=vads, dtype=int)
-    meta.create_dataset('septic', data=septics, dtype=int)
-    # meta.create_dataset('died_inp', data=dieds, dtype=int)
-    meta.create_dataset('baseline_scr', data=bsln_scrs, dtype=float)
-    meta.create_dataset('baseline_gfr', data=bsln_gfrs, dtype=float)
-    meta.create_dataset('baseline_type', data=bsln_types.astype(bytes), dtype='|S8')
-    meta.create_dataset('admit_scr', data=admit_scrs, dtype=float)
-    meta.create_dataset('peak_scr', data=peak_scrs, dtype=float)
-    meta.create_dataset('net_fluid', data=net_fluids, dtype=int)
-    meta.create_dataset('gross_fluid', data=gros_fluids, dtype=int)
-    meta.create_dataset('fluid_overload', data=fos, dtype=float)
-    meta.create_dataset('hd_days', data=hd_days, dtype=int)
-    meta.create_dataset('crrt_days', data=crrt_days, dtype=int)
-    meta.create_dataset('hd_free_7d', data=hd_free_7d, dtype=int)
-    meta.create_dataset('crrt_free_7d', data=crrt_free_7d, dtype=int)
-    meta.create_dataset('hd_free_28d', data=hd_free_28d, dtype=int)
-    meta.create_dataset('crrt_free_28d', data=crrt_free_28d, dtype=int)
-    meta.create_dataset('hd_treatments', data=np.zeros(len(ids), dtype=int), dtype=int)
+    if 'age' not in list(meta):
+        print("Getting general patient info...")
+        genders, races, ages, _, _ = get_utsw_demographics(ids, hosp_windows, base_path)
+        meta.create_dataset('age', data=ages, dtype=float)
+        meta.create_dataset('gender', data=genders, dtype=int)
+        meta.create_dataset('race', data=races, dtype=int)
+        # meta.create_dataset('dod', data=dods.astype(bytes), dtype='S20')
+        # meta.create_dataset('dtd', data=dtds, dtype=float)
 
-    meta.create_dataset('max_kdigo_win', data=mk_wins, dtype=int)
-    meta.create_dataset('max_kdigo', data=mks, dtype=int)
-    meta.create_dataset('n_episodes', data=neps, dtype=int)
-    meta.create_dataset('days_to_death', data=dtds, dtype=float)
+    if 'died_inp' not in list(meta):
+        died_inps, died_90d_admit, died_90d_disch, \
+        died_120d_admit, died_120d_disch, dods, dtds = get_utsw_mortality(ids, icu_windows, hosp_windows, base_path)
+        meta.create_dataset('died_inp', data=died_inps, dtype=int)
+        meta.create_dataset('died_90d_admit', data=died_90d_admit, dtype=int)
+        meta.create_dataset('died_90d_disch', data=died_90d_disch, dtype=int)
+        meta.create_dataset('died_120d_admit', data=died_120d_admit, dtype=int)
+        meta.create_dataset('died_120d_disch', data=died_120d_disch, dtype=int)
+        meta.create_dataset('dod', data=dods.astype(bytes), dtype='|S20')
+        meta.create_dataset('dtd', data=dtds, dtype=float)
+    else:
+        died_inps = meta['died_inp']
 
-    meta.create_dataset('nephrotox_ct', data=neph_cts, dtype=int)
-    meta.create_dataset('vasopress_ct', data=vaso_cts, dtype=int)
-    meta.create_dataset('anemia', data=anemics, dtype=int)
-    meta.create_dataset('urine_out', data=urine_outs, dtype=float)
-    meta.create_dataset('urine_flow', data=urine_flows, dtype=float)
-    meta.create_dataset('smoker', data=np.zeros(len(ids)), dtype=int)
+    if 'rrt_flag' not in list(meta):
+        print("Getting dialysis info...")
+        # hd_days, crrt_days, hd_free_win,\
+        # hd_free_28d, crrt_free_win, crrt_free_28d = get_utsw_rrt(ids, icu_windows, base_path)
+        rrt_flags, hd_days, crrt_days, hd_dayss_win, \
+        crrt_dayss_win, hd_frees_win, hd_frees_28d, hd_trtmts, \
+        crrt_frees_win, crrt_frees_28d, crrt_flags, hd_flags = get_utsw_rrt_v2(ids, died_inps, icu_windows, base_path)
+        rrt_flags = np.array(rrt_flags, dtype=int)
+        hd_days = np.array(hd_days, dtype=int)
+        crrt_days = np.array(crrt_days, dtype=int)
+        hd_frees_win = np.array(hd_frees_win, dtype=int)
+        hd_frees_28d = np.array(hd_frees_28d, dtype=int)
+        crrt_frees_win = np.array(crrt_frees_win, dtype=int)
+        hd_trtmts = np.array(hd_trtmts, dtype=int)
+        hd_frees_28d = np.array(hd_frees_28d, dtype=int)
+        meta.create_dataset('rrt_flag', data=rrt_flags, dtype=int)
+        meta.create_dataset('crrt_flag', data=crrt_flags, dtype=int)
+        meta.create_dataset('hd_flag', data=hd_flags, dtype=int)
+        meta.create_dataset('hd_days', data=hd_days, dtype=float)
+        meta.create_dataset('crrt_days', data=crrt_days, dtype=float)
+        meta.create_dataset('hd_free_win', data=hd_frees_win, dtype=float)
+        meta.create_dataset('crrt_free_win', data=crrt_frees_win, dtype=float)
+        meta.create_dataset('hd_free_28d', data=hd_frees_28d, dtype=float)
+        meta.create_dataset('crrt_free_28d', data=crrt_frees_28d, dtype=float)
+        meta.create_dataset('hd_treatments', data=hd_trtmts, dtype=float)
 
-    meta.create_dataset('ph', data=phs, dtype=float)
-    meta.create_dataset('map', data=maps, dtype=float)
-    meta.create_dataset('albumin', data=albs, dtype=float)
-    meta.create_dataset('lactate', data=np.zeros(len(ids)), dtype=float)
-    meta.create_dataset('bilirubin', data=bilis, dtype=float)
-    meta.create_dataset('bun', data=buns, dtype=float)
-    meta.create_dataset('potassium', data=pots, dtype=float)
-    meta.create_dataset('pco2', data=pco2s, dtype=float)
-    meta.create_dataset('po2', data=po2s, dtype=float)
+    if 'nephrotox_ct' not in list(meta):
+        print ('Getting medications...')
+        neph_cts, vaso_cts = get_utsw_medications(ids, base_path)
+        meta.create_dataset('nephrotox_ct', data=neph_cts, dtype=int)
+        meta.create_dataset('vasopress_ct', data=vaso_cts, dtype=int)
 
-    meta.create_dataset('chloride', data=chlorides, dtype=float)
-    meta.create_dataset('hematocrit', data=hemats, dtype=float)
-    meta.create_dataset('hemoglobin', data=hemos, dtype=float)
-    meta.create_dataset('platelets', data=pltlts, dtype=float)
-    meta.create_dataset('sodium', data=sods, dtype=float)
-    meta.create_dataset('wbc', data=wbcs, dtype=float)
-    meta.create_dataset('temperature', data=temps, dtype=float)
-    meta.create_dataset('hr', data=hrs, dtype=float)
-    meta.create_dataset('glasgow', data=glasgows, dtype=float)
-    meta.create_dataset('fio2', data=fio2s, dtype=float)
-    meta.create_dataset('respiration', data=resps, dtype=float)
+    if 'septic' not in list(meta):
+        print('Getting diagnoses...')
+        septics, diabetics, hypertensives = get_utsw_diagnoses(ids, base_path)
+        meta.create_dataset('septic', data=septics, dtype=int)
+        meta.create_dataset('diabetic', data=diabetics, dtype=int)
+        meta.create_dataset('hypertensive', data=hypertensives, dtype=int)
 
-    died_inps, died_90d_admit, died_90d_disch, died_120d_admit, died_120d_disch, dods, dtds
-    meta.create_dataset('died_inp', data=died_inps, dtype=int)
-    meta.create_dataset('died_90d_admit', data=died_90d_admit, dtype=int)
-    meta.create_dataset('died_90d_disch', data=died_90d_disch, dtype=int)
-    meta.create_dataset('died_120d_admit', data=died_120d_admit, dtype=int)
-    meta.create_dataset('died_120d_disch', data=died_120d_disch, dtype=int)
-    meta.create_dataset('dod', data=dods, dtype='|S20')
-    meta.create_dataset('dtd', data=dtds, dtype=float)
+    # tAOS table
+    if 'mv_flag' not in list(meta):
+        print('Getting organ support...')
+        mech_flags, mech_days, ecmos, iabps, vads,\
+        mv_frees_win, mv_frees_28d = get_utsw_organsupp(ids, icu_windows, dtds, died_inps, base_path)
+
+        meta.create_dataset('mv_flag', data=mech_flags, dtype=int)
+        meta.create_dataset('mv_days', data=mech_days, dtype=float)
+        meta.create_dataset('mv_free_days_win', data=mv_frees_win, dtype=float)
+        meta.create_dataset('mv_free_days_28d', data=mv_frees_28d, dtype=float)
+        meta.create_dataset('ecmo', data=ecmos, dtype=int)
+        meta.create_dataset('iabp', data=iabps, dtype=int)
+        meta.create_dataset('vad', data=vads, dtype=int)
+
+    if 'weight' not in list(meta):
+        print('Getting clinical others...')
+        heights, weights, bmis, temps, net_fluids, gros_fluids, cfbs, glasgows, resps, hrs, maps, fos, urine_outs, urine_flows = get_utsw_flw(ids, base_path)
+        meta.create_dataset('bmi', data=bmis, dtype=float)
+        meta.create_dataset('weight', data=weights, dtype=float)
+        meta.create_dataset('height', data=heights, dtype=float)
+        meta.create_dataset('temperature', data=temps, dtype=float)
+        meta.create_dataset('hr', data=hrs, dtype=float)
+        meta.create_dataset('glasgow', data=glasgows, dtype=float)
+        meta.create_dataset('respiration', data=resps, dtype=float)
+        meta.create_dataset('map', data=maps, dtype=float)
+        meta.create_dataset('net_fluid', data=net_fluids, dtype=float)
+        meta.create_dataset('gross_fluid', data=gros_fluids, dtype=float)
+        meta.create_dataset('cum_fluid_balance', data=cfbs, dtype=float)
+        meta.create_dataset('fluid_overload', data=fos, dtype=float)
+        meta.create_dataset('urine_out', data=urine_outs, dtype=float)
+        meta.create_dataset('urine_flow', data=urine_flows, dtype=float)
+
+    if 'anemia' not in list(meta):
+        print('Getting labs...')
+        if genders is None:
+            genders = meta['gender'][:]
+        albs, bilis, bicarbs, buns, chlorides, fio2s, \
+        hemats, hemos, phs, pco2s, po2s, pots, pltlts, sods, wbcs, anemics = get_utsw_labs(ids, genders, base_path)
+        meta.create_dataset('anemia', data=anemics, dtype=int)
+        meta.create_dataset('ph', data=phs, dtype=float)
+        meta.create_dataset('albumin', data=albs, dtype=float)
+        meta.create_dataset('lactate', data=np.zeros(len(ids)), dtype=float)
+        meta.create_dataset('bilirubin', data=bilis, dtype=float)
+        meta.create_dataset('bun', data=buns, dtype=float)
+        meta.create_dataset('potassium', data=pots, dtype=float)
+        meta.create_dataset('pco2', data=pco2s, dtype=float)
+        meta.create_dataset('po2', data=po2s, dtype=float)
+
+        meta.create_dataset('chloride', data=chlorides, dtype=float)
+        meta.create_dataset('hematocrit', data=hemats, dtype=float)
+        meta.create_dataset('hemoglobin', data=hemos, dtype=float)
+        meta.create_dataset('platelets', data=pltlts, dtype=float)
+        meta.create_dataset('sodium', data=sods, dtype=float)
+        meta.create_dataset('wbc', data=wbcs, dtype=float)
+        meta.create_dataset('fio2', data=fio2s, dtype=float)
+
+    if 'icu_admit_discharge' not in list(meta):
+        bsln_gfrs = np.zeros(len(ids))
+        for i in range(len(ids)):
+            tid = ids[i]
+            if v:
+                print('Summarizing Patient #%d (%d/%d)' % (tid, i+1, len(ids)))
+            if len(kdigos[i]) > 1:
+                td = days[i]
+                mask = np.where(td <= tlim)[0]
+                mkwin = int(np.max(np.array(kdigos[i])[mask]))
+                mk = int(np.max(kdigos[i]))
+
+                eps = n_eps[i]
+
+                gfr = calc_gfr(bsln_scrs[i], genders[i], races[i], ages[i])
+
+                admit_scrs[i] = scrs[i][0]
+                peak_scrs[i] = np.max(scrs[i][np.where(days[i] <= tlim)])
+            elif len(kdigos[i]) == 1:
+                mkwin = kdigos[i][0]
+                mk = kdigos[i][0]
+                eps = 1
+                gfr = calc_gfr(bsln_scrs[i], genders[i], races[i], ages[i])
+                admit_scrs[i] = scrs[i][0]
+                peak_scrs[i] = scrs[i][0]
+
+            else:
+                mkwin = 0
+                mk = 0
+
+                gfr = np.nan
+                admit_scrs[i] = np.nan
+                peak_scrs[i] = np.nan
+
+
+            if type(icu_windows) == dict:
+                icu_admit = get_date(icu_windows[tid][0])
+                icu_disch = get_date(icu_windows[tid][1])
+            else:
+                icu_admit = get_date(icu_windows[i][0])
+                icu_disch = get_date(icu_windows[i][1])
+
+            if type(hosp_windows) == dict:
+                hosp_admit = get_date(hosp_windows[tid][0])
+                hosp_disch = get_date(hosp_windows[tid][1])
+            else:
+                hosp_admit = get_date(hosp_windows[i][0])
+                hosp_disch = get_date(hosp_windows[i][1])
+
+            hlos, ilos = get_los(tid, date_m, hosp_locs, icu_locs)
+            hfree_win = 7 - hlos
+            ifree_win = 7 - ilos
+            hfree_28d = 28 - hlos
+            ifree_28d = 28 - ilos
+
+            if died_inps[i]:
+                if dtds[i] <= 7:
+                    hfree_win = 0
+                    hfree_28d = 0
+                    ifree_win = 0
+                    ifree_28d = 0
+                elif dtds[i] <= 28:
+                    hfree_28d = 0
+                    ifree_28d = 0
+
+            if hfree_win < 0:
+                hfree_win = 0
+            if ifree_win < 0:
+                ifree_win = 0
+            if hfree_28d < 0:
+                hfree_28d = 0
+            if ifree_28d < 0:
+                ifree_28d = 0
+
+            if type(icu_windows) == dict:
+                icu_windows_save.append([str(icu_admit), str(icu_disch)])
+                hosp_windows_save.append([str(hosp_admit), str(hosp_disch)])
+
+            bsln_gfrs[i] = gfr
+
+            mk_wins.append(mkwin)
+            mks.append(mk)
+            neps.append(eps)
+            hosp_days.append(hlos)
+            hosp_frees_win.append(hfree_win)
+            hosp_frees_28d.append(hfree_28d)
+            icu_days.append(ilos)
+            icu_frees_win.append(ifree_win)
+            icu_frees_28d.append(ifree_28d)
+
+        icu_windows_save = np.array(icu_windows_save, dtype=str)
+        hosp_windows_save = np.array(hosp_windows_save, dtype=str)
+        meta.create_dataset('icu_admit_discharge', data=icu_windows_save.astype(bytes), dtype='|S20')
+        meta.create_dataset('hosp_admit_discharge', data=hosp_windows_save.astype(bytes), dtype='|S20')
+
+        meta.create_dataset('hosp_los', data=hosp_days, dtype=float)
+        meta.create_dataset('hosp_free_days_win', data=hosp_frees_win, dtype=float)
+        meta.create_dataset('hosp_free_days_28d', data=hosp_frees_28d, dtype=float)
+        meta.create_dataset('icu_los', data=icu_days, dtype=float)
+        meta.create_dataset('icu_free_days_win', data=icu_frees_win, dtype=float)
+        meta.create_dataset('icu_free_days_28d', data=icu_frees_28d, dtype=float)
+
+        # meta.create_dataset('died_inp', data=dieds, dtype=int)
+        meta.create_dataset('baseline_scr', data=bsln_scrs, dtype=float)
+        meta.create_dataset('baseline_gfr', data=bsln_gfrs, dtype=float)
+        meta.create_dataset('baseline_type', data=bsln_types.astype(bytes), dtype='|S8')
+        meta.create_dataset('admit_scr', data=admit_scrs, dtype=float)
+        meta.create_dataset('peak_scr', data=peak_scrs, dtype=float)
+
+        meta.create_dataset('max_kdigo_win', data=mk_wins, dtype=int)
+        meta.create_dataset('max_kdigo', data=mks, dtype=int)
+        meta.create_dataset('n_episodes', data=neps, dtype=int)
+        meta.create_dataset('days_to_death', data=dtds, dtype=float)
+
+    if 'charlson' not in list(meta):
+        meta.create_dataset('charlson', data=np.zeros(len(ids)), dtype=int)
+        meta.create_dataset('elixhauser', data=np.zeros(len(ids)), dtype=int)
+        meta.create_dataset('smoker', data=np.zeros(len(ids)), dtype=int)
 
     return f
 
@@ -1664,6 +1795,7 @@ def get_utsw_flw(ids, dataPath):
 
     net_fluids = np.full(len(ids), np.nan)
     gros_fluids = np.full(len(ids), np.nan)
+    cum_fluid_bals = np.full(len(ids), np.nan)
     glasgows = np.full((len(ids), 3, 2), np.nan)
     resps = np.full((len(ids), 3, 2), np.nan)
     hrs = np.full((len(ids), 3, 2), np.nan)
@@ -1843,9 +1975,14 @@ def get_utsw_flw(ids, dataPath):
             net2 = np.nan
 
         try:
-            net = float(np.nansum((net0, net1, net2)))
+            net = float(np.nanmean((net0, net1, net2)))
         except:
             net = np.nan
+
+        try:
+            cfb = float(np.nansum((net0, net1, net2)))
+        except:
+            cfb = np.nan
 
         try:
             tot0 = float(flw_m['D_SUM_VAL'][d0_in_idx] + flw_m['D_SUM_VAL'][d0_out_idx])
@@ -1880,6 +2017,7 @@ def get_utsw_flw(ids, dataPath):
         temps[i] = temp
         net_fluids[i] = net
         gros_fluids[i] = tot
+        cum_fluid_bals[i] = cfb
         glasgows[i] = glasgow
         resps[i] = resp
         hrs[i] = hr
@@ -1887,7 +2025,95 @@ def get_utsw_flw(ids, dataPath):
         fos[i] = fo
         uops[i] = urine_out
         uflows[i] = urine_flow
-    return heights, weights, bmis, temps, net_fluids, gros_fluids, glasgows, resps, hrs, maps, fos, uops, uflows
+    return heights, weights, bmis, temps, net_fluids, gros_fluids, cum_fluid_bals, glasgows, resps, hrs, maps, fos, uops, uflows
+
+
+def get_utsw_rrt_v2(ids, dieds, windows, dataPath='', t_lim=7):
+    rrt_m = pd.read_csv(os.path.join(dataPath, 'tDialysis.csv'))
+    hd_dayss = np.zeros(len(ids))
+    crrt_dayss = np.zeros(len(ids))
+    hd_dayss_win = np.zeros(len(ids))
+    crrt_dayss_win = np.zeros(len(ids))
+    hd_frees_7d = np.zeros(len(ids))
+    hd_frees_28d = np.zeros(len(ids))
+    crrt_frees_7d = np.zeros(len(ids))
+    crrt_frees_28d = np.zeros(len(ids))
+    rrt_flags = np.zeros(len(ids))
+    hd_trtmts = np.zeros(len(ids))
+    crrt_flags = np.zeros(len(ids))
+    hd_flags = np.zeros(len(ids))
+    for i in range(len(ids)):
+        tid = ids[i]
+        admit = windows[tid][0]
+        disch = windows[tid][1]
+        died = dieds[i]
+        if type(admit) == str:
+            admit = get_date(admit)
+            disch = get_date(disch)
+        endwin = admit + datetime.timedelta(t_lim)
+        end28d = admit + datetime.timedelta(28)
+        hd_days = 0
+        hd_days_win = 0
+        crrt_days = 0
+        crrt_days_win = 0
+        rrt_flag = 0
+        hd_trtmt = 0
+        crrt_flag = 0
+        hd_flag = 0
+        dia_ids = np.where(rrt_m['PATIENT_NUM'].values == tid)[0]
+        if np.size(dia_ids) > 0:
+            for row in dia_ids:
+                start = get_date(rrt_m['START_DATE'][row])
+                stop = get_date(rrt_m['END_DATE'][row])
+                if start != 'nan' and stop != 'nan':
+                    wstart = max(admit, start)
+                    wstop = min(disch, stop)
+                    tdays_win = 0
+                    tdays = 0
+                    tflag = 0
+                    if wstop > wstart and wstart < endwin:
+                        tflag = 1
+                        tdays_win = (wstop - wstart).total_seconds() / (60 * 60 * 24)
+                    if wstart < end28d:
+                        tdays = (wstop - wstart).total_seconds() / (60 * 60 * 24)
+
+                    if str(rrt_m['DIALYSIS_TYPE'][row]).lower() == 'crrt':
+                        crrt_days_win += tdays_win
+                        crrt_days += tdays
+                        crrt_flag = tflag
+                        rrt_flag = tflag
+                    elif str(rrt_m['DIALYSIS_TYPE'][row]).lower() == 'hd':
+                        hd_days_win += tdays_win
+                        hd_days += tdays
+                        hd_flag = tflag
+                        rrt_flag = tflag
+
+        hd_free_win = min(0, t_lim - hd_days_win)
+        hd_free_28d = min(0, 28 - hd_days)
+        crrt_free_win = min(0, t_lim - crrt_days_win)
+        crrt_free_28d = min(0, 28 - crrt_days)
+
+        if hd_days or crrt_days:
+            if died:
+                hd_free_win = 0
+                hd_free_28d = 0
+                crrt_free_win = 0
+                crrt_free_28d = 0
+
+        hd_dayss[i] = hd_days
+        crrt_dayss[i] = crrt_days
+        hd_dayss_win[i] = hd_days_win
+        crrt_dayss_win[i] = crrt_days_win
+        hd_frees_7d[i] = hd_free_win
+        hd_frees_28d[i] = hd_free_28d
+        crrt_frees_7d[i] = crrt_free_win
+        crrt_frees_28d[i] = crrt_free_28d
+        rrt_flags[i] = rrt_flag
+        hd_trtmts[i] = hd_trtmt
+        crrt_flags[i] = crrt_flag
+        hd_flags[i] = hd_flag
+    del rrt_m
+    return rrt_flags, hd_dayss, crrt_dayss, hd_dayss_win, crrt_dayss_win, hd_frees_7d, hd_frees_28d, hd_trtmts, crrt_frees_7d, crrt_frees_28d, crrt_flags, hd_flags
 
 
 def get_utsw_rrt(ids, icu_windows, dataPath):
@@ -2977,7 +3203,7 @@ def build_str(all_data, lbls, summary_type='count', fmt='%.2f'):
             pstr = '*'
         else:
             pstr = ''
-
+    filterwarnings("ignore")
     if summary_type == 'count':
         tc = len(np.where(all_data)[0])
         if tot_size > 0:
@@ -3030,11 +3256,21 @@ def build_str(all_data, lbls, summary_type='count', fmt='%.2f'):
             idx = np.where(lbls == lbl_names[i])[0]
             m, iq1, iq2 = iqr(all_data[idx].flatten())
             if len(lbl_names) == 2 and i == 1:
-                s += (',' + fmt + '%s (' + fmt + '- ' + fmt + ')') % (m, pstr, iq1, iq2)
+                s += (',' + fmt + '%s (' + fmt + '-' + fmt + ')') % (m, pstr, iq1, iq2)
             else:
-                s += (',' + fmt + ' (' + fmt + '- ' + fmt + ')') % (m, iq1, iq2)
+                s += (',' + fmt + ' (' + fmt + '-' + fmt + ')') % (m, iq1, iq2)
 
-    if len(lbl_names) == 2:
+    else:
+        mn, std = np.nanmean(all_data), np.nanstd(all_data)
+        m, iq1, iq2 = iqr(all_data)
+        s = (',' + fmt + ' (+-' + fmt + ') ' + fmt + ' (' + fmt + '-' + fmt + ')') % (mn, std, m, iq1, iq2)
+        for i in range(len(lbl_names)):
+            idx = np.where(lbls == lbl_names[i])[0]
+            mn, std = np.nanmean(all_data[idx].flatten()), np.nanstd(all_data[idx].flatten())
+            m, iq1, iq2 = iqr(all_data[idx].flatten())
+            s += (',' + fmt + ' (+-' + fmt + ') ' + fmt + ' (' + fmt + '-' + fmt + ')') % (mn, std, m, iq1, iq2)
+
+    if len(lbl_names) == 2 and summary_type != 'all':
         idx = np.where(lbls == lbl_names[0])[0]
         d1 = all_data[idx].flatten()
         idx = np.where(lbls == lbl_names[1])[0]
@@ -3055,33 +3291,26 @@ def build_str(all_data, lbls, summary_type='count', fmt='%.2f'):
             except ValueError:
                 p = 1
             s += ',%.2E' % p
+    filterwarnings("default")
     return s
 
 
 # %%
 def formatted_stats(meta, label_path):
-    # get IDs and Clusters in order from cluster file
-    # ids = np.loadtfxt(id_file, dtype=int, delimiter=',')
     all_ids = meta['ids'][:]
-    try:
-        ids = np.loadtxt(os.path.join(label_path, 'labels.csv'), delimiter=',', usecols=0, dtype=int)
-        sel = np.array([x in ids for x in all_ids], dtype=bool)
+    if os.path.exists(os.path.join(label_path, 'labels.csv')):
+        ids = np.loadtxt(os.path.join(label_path, 'labels.csv'), delimiter=',', usecols=0)
         lbls = load_csv(os.path.join(label_path, 'labels.csv'), ids, dt=str)
         lbl_names = np.unique(lbls)
-        # asert len(lbl_names) == 2
-    except IOError:
-        ids = np.loadtxt(os.path.join(label_path, 'clusters.csv'), delimiter=',', usecols=0, dtype=int)
-        sel = np.array([x in ids for x in all_ids], dtype=bool)
+    else:
+        ids = np.loadtxt(os.path.join(label_path, 'clusters.csv'), delimiter=',', usecols=0)
         lbls = load_csv(os.path.join(label_path, 'clusters.csv'), ids, dt=str)
         lbl_names = np.unique(lbls)
 
+    sel = np.array([x in ids for x in all_ids])
     ages = meta['age'][:][sel]
     genders = meta['gender'][:][sel]
-    # Switch race so that 1=white and 0=not
     races = meta['race'][:][sel]
-    # races[np.where(races)] = 2
-    # races[np.where(races == 0)] = 1
-    # races[np.where(races == 2)] = 0
     bmis = meta['bmi'][:][sel]
     charls = meta['charlson'][:][sel]
     elixs = meta['elixhauser'][:][sel]
@@ -3120,25 +3349,28 @@ def formatted_stats(meta, label_path):
     died_120d_admit = meta['died_120d_admit'][:][sel]
     died_120d_disch = meta['died_120d_disch'][:][sel]
 
-    bsln_types = meta['baseline_type'][:][sel].astype('U18')
+    bsln_types = meta['baseline_type'][:].astype('U18')[sel]
     bsln_scr = meta['baseline_scr'][:][sel]
     bsln_gfr = meta['baseline_gfr'][:][sel]
     admit_scr = meta['admit_scr'][:][sel]
     peak_scr = meta['peak_scr'][:][sel]
     net_fluid = meta['net_fluid'][:][sel]
+    cum_fluid = meta['cum_fluid_balance'][:][sel]
     fluid_overload = meta['fluid_overload'][:][sel]
 
     mks = meta['max_kdigo'][:][sel]
     mks7d = meta['max_kdigo_win'][:][sel]
-    # n_eps = meta['num_episodes'][:][sel]
     hd_days = meta['hd_days'][:][sel]
     hd_trtmts = meta['hd_treatments'][:][sel]
     crrt_days = meta['crrt_days'][:][sel]
     rrt_tot = hd_days + crrt_days
-    hd_free_7d = meta['hd_free_7d'][:][sel]
+    hd_free_7d = meta['hd_free_win'][:][sel]
     hd_free_28d = meta['hd_free_28d'][:][sel]
-    crrt_free_7d = meta['crrt_free_7d'][:][sel]
+    crrt_free_7d = meta['crrt_free_win'][:][sel]
     crrt_free_28d = meta['crrt_free_28d'][:][sel]
+    crrt_flag = meta['crrt_flag'][:][sel]
+    hd_flag = meta['hd_flag'][:][sel]
+    rrt_flag = meta['rrt_flag'][:][sel]
 
     neph_cts = meta['nephrotox_ct'][:][sel]
     vaso_cts = meta['vasopress_ct'][:][sel]
@@ -3158,15 +3390,16 @@ def formatted_stats(meta, label_path):
     phs = meta['ph'][:, 0][sel]
 
     hosp_free[np.where(died_inp)] = 0
-    icu_free[np.where(died_inp)] = 0
-    mv_free[np.where(died_inp)] = 0
-    hd_free_7d[np.where(died_inp)] = 0
-    hd_free_28d[np.where(died_inp)] = 0
-    crrt_free_7d[np.where(died_inp)] = 0
-    crrt_free_28d[np.where(died_inp)] = 0
+    # icu_free[np.where(died_inp)] = 0
+    # mv_free[np.where(died_inp)] = 0
+    # hd_free_7d[np.where(died_inp)] = 0
+    # hd_free_28d[np.where(died_inp)] = 0
+    # crrt_free_7d[np.where(died_inp)] = 0
+    # crrt_free_28d[np.where(died_inp)] = 0
 
     # Generate formatted table as text
     table_f = open(os.path.join(label_path, 'formatted_table.csv'), 'w')
+    stat_f = open(os.path.join(label_path, 'summary_statistics.csv'), 'w')
     if len(lbl_names) == 2:
         hdr = ',Total,%s,%s,Tot_Normal,Neg_Normal,Pos_Normal,T-test_pval,Kruskal_pval' % (lbl_names[0], lbl_names[1])
     else:
@@ -3174,44 +3407,56 @@ def formatted_stats(meta, label_path):
         for i in range(len(lbl_names)):
             hdr += ',%s' % lbl_names[i]
     table_f.write(hdr + '\n')
+    stat_f.write(hdr + '\n')
 
+    np.seterr(invalid='ignore')
     row = 'Count,%d' % len(lbls)
     for lbl in lbl_names:
         row += ',%d' % len(np.where(lbls == lbl)[0])
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     s = build_str(died_inp, lbls, 'count', '%.2f')
 
     row = 'Inpatient Mortality - n (%)' + s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     s = build_str(died_90d_admit, lbls, 'count', '%.2f')
 
     row = 'Mortality w/in ICU Admit + 90d - n (%)' + s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     s = build_str(died_120d_admit, lbls, 'count', '%.2f')
 
     row = 'Mortality w/in ICU Admit + 120d - n (%)' + s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     s = build_str(died_90d_disch, lbls, 'count', '%.2f')
 
     row = 'Mortality w/in Hospital Discharge + 90d - n (%)' + s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     s = build_str(died_120d_disch, lbls, 'count', '%.2f')
 
     row = 'Mortality w/in Hospital Discharge + 120d - n (%)' + s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Demographics
     table_f.write('Demographics\n')
     row = 'Age - mean(SD)'
     s = build_str(ages, lbls, 'mean', '%.1f')
-
     row += s
     table_f.write(row + '\n')
+
+    row = 'Age '
+    s = build_str(ages, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # Gender - male n( %)
     row = 'Gender - male n(%)'
@@ -3219,46 +3464,63 @@ def formatted_stats(meta, label_path):
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Ethnic group - white n( %)
     row = 'Ethnic group - white n(%)'
     s = build_str(np.array(races == 0), lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Ethnic group - black n( %)
     row = 'Ethnic group - black n(%)'
     s = build_str(np.array(races == 1), lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Ethnic group - other n( %)
     row = 'Ethnic group - other n(%)'
     s = build_str(np.array(races == 2), lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # BMI - mean(SD)
     row = 'BMI - mean(SD)'
     s = build_str(bmis, lbls, 'mean', '%.1f')
     row += s
-
     table_f.write(row + '\n')
+
+    row = 'BMI'
+    s = build_str(bmis, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # Comorbidity
     table_f.write('Comorbidity\n')
     row = 'Charlson Comorbidty Index Score - mean(SD)'
     s = build_str(charls[np.where(charls > 0)], lbls[np.where(charls > 0)], 'median', '%.1f')
     row += s
-
     table_f.write(row + '\n')
+
+    row = 'Charlson Comorbidty Index Score'
+    s = build_str(charls[np.where(charls > 0)], lbls[np.where(charls > 0)], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
 
     # Elixhauser Comorbidty Index Score - mean(SD)
     row = 'Elixhauser Comorbidty Index Score - mean(SD)'
     s = build_str(elixs[np.where(elixs > 0)], lbls[np.where(elixs > 0)], 'median', '%.1f')
     row += s
-
     table_f.write(row + '\n')
+
+    row = 'Elixhauser Comorbidty Index Score'
+    s = build_str(elixs[np.where(elixs > 0)], lbls[np.where(elixs > 0)], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # Diabetes - n( %)
     row = 'Diabetes - n(%)'
@@ -3266,6 +3528,7 @@ def formatted_stats(meta, label_path):
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Hypertension - n( %)
     row = 'Hypertension - n(%)'
@@ -3273,6 +3536,7 @@ def formatted_stats(meta, label_path):
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Smoker status - n( %)
     row = 'Smoker status - n(%)'
@@ -3280,6 +3544,7 @@ def formatted_stats(meta, label_path):
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Anemia Def A - n( %)
     row = 'Anemia Definition A - n(%)'
@@ -3287,18 +3552,21 @@ def formatted_stats(meta, label_path):
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
     # Anemia Def B - n( %)
     row = 'Anemia Definition B - n(%)'
     s = build_str(anemia[:, 1], lbls, 'count', '%.1f')
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
     # Anemia Def C - n( %)
     row = 'Anemia Definition C - n(%)'
     s = build_str(anemia[:, 2], lbls, 'count', '%.1f')
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
 
     # Acuity of Critical Illnes
@@ -3307,29 +3575,45 @@ def formatted_stats(meta, label_path):
     row = 'Hospital free days - median[IQ1 - IQ3]'
     s = build_str(hosp_free, lbls, 'median', '%.1f')
     row += s
-
     table_f.write(row + '\n')
+
+    row = 'Hospital free days'
+    s = build_str(hosp_free, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # ICU length of stay - median[IQ1 - IQ3]
     row = 'ICU free days - median[IQ1 - IQ3]'
     s = build_str(icu_free, lbls, 'median', '%.1f')
     row += s
-
     table_f.write(row + '\n')
+
+    row = 'ICU free days'
+    s = build_str(icu_free, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # SOFA score - median[IQ1 - IQ3]
     row = 'SOFA score - median[IQ1 - IQ3]'
     s = build_str(sofa, lbls, 'median', '%.1f')
     row += s
-
     table_f.write(row + '\n')
+
+    row = 'SOFA score'
+    s = build_str(sofa, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # APACHE Score, - median[IQ1 - IQ3]
     row = 'APACHE score - median[IQ1 - IQ3]'
     s = build_str(apache, lbls, 'median', '%.1f')
     row += s
-
     table_f.write(row + '\n')
+
+    row = 'APACHE score'
+    s = build_str(apache, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # Mechanical ventilation - n( %)
     row = 'Mechanical ventilation - n(%)'
@@ -3337,13 +3621,18 @@ def formatted_stats(meta, label_path):
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Days on mechanical ventilation - mean[IQ1 - IQ3]
     row = 'Mechanical ventilation free days - mean[IQ1 - IQ3]'
     s = build_str(mv_free[np.where(mv_flag)], lbls[np.where(mv_flag)], 'median', '%.1f')
     row += s
-
     table_f.write(row + '\n')
+
+    row = 'Mechanical ventilation free days'
+    s = build_str(mv_free[np.where(mv_flag)], lbls[np.where(mv_flag)], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # ECMO - n( %)
     row = 'ECMO - n(%)'
@@ -3351,6 +3640,7 @@ def formatted_stats(meta, label_path):
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # IABP - n( %)
     row = 'IABP - n(%)'
@@ -3358,6 +3648,7 @@ def formatted_stats(meta, label_path):
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # VAD - n( %)
     row = 'VAD - n(%)'
@@ -3365,19 +3656,23 @@ def formatted_stats(meta, label_path):
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     table_f.write('Nephrotoxins:\n')
+    stat_f.write('Nephrotoxins:\n')
     # Number w/ >=1 Nephrotoxins D0-1 - n (%)
     row = '\t>=1 - n (%)'
     s = build_str(neph_cts >= 1, lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
     # Number w/ >=2 Nephrotoxins D0-1 - n (%)
     row = '\t>=2 - n (%)'
     s = build_str(neph_cts >= 2, lbls, 'count', '%.1f')
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Number w/ >=3 Nephrotoxins D0-1 - n (%)
     row = '\t>=3 - n (%)'
@@ -3385,6 +3680,7 @@ def formatted_stats(meta, label_path):
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Vasoactive drugs, n (%)
     row = 'Vasoactive drugs - n (%)'
@@ -3392,43 +3688,57 @@ def formatted_stats(meta, label_path):
     row += s
 
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Cumulative fluid balance at 72 h - median[IQ1 - IQ3]
     row = 'Cumulative fluid balance at 72 h - median[IQ1 - IQ3]'
-    s = build_str(net_fluid / 1000, lbls, 'median', '%.1f')
+    s = build_str(cum_fluid, lbls, 'median', '%.1f')
     row += s
-
     table_f.write(row + '\n')
+
+    row = 'Cumulative fluid balance at 72 h'
+    s = build_str(cum_fluid, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # FO% at 72 h - median[IQ1 - IQ3]
     row = 'FO% at 72 h - median[IQ1 - IQ3]'
-    s = build_str(fluid_overload / 10, lbls, 'median', '%.1f')
+    s = build_str(fluid_overload * 100, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
+
+    row = 'FO% at 72 h'
+    s = build_str(fluid_overload * 100, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # Sepsis - n( %)
     row = 'Sepsis - n(%)'
     s = build_str(sepsis, lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # pH < 7.30- n( %)
     row = 'pH < 7.3 - n(%)'
     s = build_str(phs < 7.3, lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # MAP < 70 mmHg - n( %)
     row = 'MAP mmHg < 70 - n(%)'
     s = build_str(maps < 70, lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # MAP < 60 mmHg - n( %)
     row = 'MAP mmHg < 60 - n(%)'
     s = build_str(maps < 60, lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Serum Albumin, g/dL - median[IQ1 - IQ3]
     row = 'Serum Albumin g/dL - median[IQ1 - IQ3]'
@@ -3436,17 +3746,32 @@ def formatted_stats(meta, label_path):
     row += s
     table_f.write(row + '\n')
 
+    row = 'Serum Albumin g/dL'
+    s = build_str(albs, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Serum Lactate, mmol/L - median[IQ1 - IQ3]
     row = 'Serum Lactate mmol/L - median[IQ1 - IQ3]'
     s = build_str(lacs, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
+    row = 'Serum Lactate mmol/L'
+    s = build_str(lacs, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Serum Bilirubin, mg/dL - median[IQ1 - IQ3]
     row = 'Serum Bilirubin mg/dL - median[IQ1 - IQ3]'
     s = build_str(bilis, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
+
+    row = 'Serum Bilirubin mg/dL'
+    s = build_str(bilis, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # AKI Characteristics
     table_f.write('AKI characteristics\n')
@@ -3457,17 +3782,28 @@ def formatted_stats(meta, label_path):
     row += s
     table_f.write(row + '\n')
 
+    row = 'ALL Baseline SCr mg/dL'
+    s = build_str(bsln_scr, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Baseline eGFR, mL/min/1.73m2 - median[IQ1 - IQ3]
     row = 'ALL Baseline eGFR mL/min/1.73m2 - median[IQ1 - IQ3]'
     s = build_str(bsln_gfr, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
+    row = 'ALL Baseline eGFR mL/min/1.73m2'
+    s = build_str(bsln_gfr, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Measured Baselines - n (%)
     row = 'Measured Baselines - n (%)'
     s = build_str(np.array(bsln_types == 'measured'), lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Baseline SCr, mg/dL - median[IQ1 - IQ3]
     sel = np.where(bsln_types == 'measured')[0]
@@ -3476,11 +3812,21 @@ def formatted_stats(meta, label_path):
     row += s
     table_f.write(row + '\n')
 
+    row = 'Measured Baseline SCr mg/dL'
+    s = build_str(bsln_scr[sel], lbls[sel], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Baseline eGFR, mL/min/1.73m2 - median[IQ1 - IQ3]
     row = 'Measured Baseline eGFR mL/min/1.73m2 - median[IQ1 - IQ3]'
     s = build_str(bsln_gfr[sel], lbls[sel], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
+
+    row = 'Measured Baseline eGFR mL/min/1.73m2'
+    s = build_str(bsln_gfr[sel], lbls[sel], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # Baseline SCr, mg/dL - median[IQ1 - IQ3]
     sel = np.where(bsln_types == 'imputed')[0]
@@ -3489,11 +3835,21 @@ def formatted_stats(meta, label_path):
     row += s
     table_f.write(row + '\n')
 
+    row = 'Imputed Baseline SCr mg/dL'
+    s = build_str(bsln_scr[sel], lbls[sel], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Baseline eGFR mL/min/1.73m2 - median[IQ1 - IQ3]
     row = 'Imputed Baseline eGFR mL/min/1.73m2 - median[IQ1 - IQ3]'
     s = build_str(bsln_gfr[sel], lbls[sel], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
+
+    row = 'Imputed Baseline eGFR mL/min/1.73m2'
+    s = build_str(bsln_gfr[sel], lbls[sel], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # Admit SCr, mg/dL - median[IQ1 - IQ3]
     row = 'Admit SCr mg/dL - median[IQ1 - IQ3]'
@@ -3501,56 +3857,76 @@ def formatted_stats(meta, label_path):
     row += s
     table_f.write(row + '\n')
 
+    row = 'Admit SCr mg/dL'
+    s = build_str(admit_scr, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Peak SCr, mg/dL - median[IQ1 - IQ3]
     row = 'Peak SCr mg/dL - median[IQ1 - IQ3]'
     s = build_str(peak_scr, lbls, 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
+    row = 'Peak SCr mg/dL'
+    s = build_str(peak_scr, lbls, 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Max KDIGO stage
     table_f.write('Maximum KDIGO Stage - Whole ICU:\n')
+    stat_f.write('Maximum KDIGO Stage - Whole ICU\n')
     # Stage 1,  n (%)
     row = '\tStage 1 - n (%)'
     s = build_str(mks == 1, lbls, 'countrow', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
     # Stage 2,  n (%)
     row = '\tStage 2 - n (%)'
     s = build_str(mks == 2, lbls, 'countrow', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
     # Stage 3,  n (%)
     row = '\tStage 3 - n (%)'
     s = build_str(mks == 3, lbls, 'countrow', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
     # Stage 3D,  n (%)
     row = '\tStage 3D - n (%)'
     s = build_str(mks == 4, lbls, 'countrow', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
-    table_f.write('Maximum KDIGO Stage - 7 Days:\n')
+    table_f.write('Maximum KDIGO Stage - 14 Days:\n')
+    stat_f.write('Maximum KDIGO Stage - 14 Days:\n')
     # Stage 1,  n (%)
     row = '\tStage 1 - n (%)'
     s = build_str(mks7d == 1, lbls, 'countrow', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
     # Stage 2,  n (%)
     row = '\tStage 2 - n (%)'
     s = build_str(mks7d == 2, lbls, 'countrow', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
     # Stage 3,  n (%)
     row = '\tStage 3 - n (%)'
     s = build_str(mks7d == 3, lbls, 'countrow', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
     # Stage 3D,  n (%)
     row = '\tStage 3D - n (%)'
     s = build_str(mks7d == 4, lbls, 'countrow', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Urine output, L D0-D2 - median[IQ1 - IQ3]
     row = 'Urine output L D0-D2 - median[IQ1 - IQ3]'
@@ -3558,29 +3934,42 @@ def formatted_stats(meta, label_path):
     row += s
     table_f.write(row + '\n')
 
+    row = 'Urine output L D0-D2'
+    s = build_str(urine_out[np.where(urine_out != 0)], lbls[np.where(urine_out != 0)[0]], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Urine flow, ml/kg/24h D0-D2 - median[IQ1 - IQ3]
     row = 'Urine flow ml/kg/24h D0-D2 - median[IQ1 - IQ3]'
     s = build_str(urine_flow[np.where(urine_flow != 0)], lbls[np.where(urine_flow != 0)[0]], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
+    row = 'Urine flow ml/kg/24h D0-D2'
+    s = build_str(urine_flow[np.where(urine_flow != 0)], lbls[np.where(urine_flow != 0)[0]], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Inpatient RRT
     table_f.write('Inpatient RRT characteristics\n')
     # Number of Patients with CRRT - n (%)
     row = 'Number of Patients on CRRT - n (%)'
-    s = build_str(crrt_days > 0, lbls, 'count', '%.1f')
+    s = build_str(crrt_flag, lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
     # Number of Patients with HD - n (%)
     row = 'Number of Patients on HD - n (%)'
-    s = build_str(hd_days > 0, lbls, 'count', '%.1f')
+    s = build_str(hd_flag, lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
     # Total Number of Patients on RRT - n (%)
     row = 'Total Number of Patients on RRT - n (%)'
-    s = build_str(rrt_tot > 0, lbls, 'count', '%.1f')
+    s = build_str(rrt_flag, lbls, 'count', '%.1f')
     row += s
     table_f.write(row + '\n')
+    # stat_f.write(row + '\n')
 
     # Total days of CRRT - median[IQ1 - IQ3]
     row = 'Total days of CRRT - median[IQ1 - IQ3]'
@@ -3588,11 +3977,21 @@ def formatted_stats(meta, label_path):
     row += s
     table_f.write(row + '\n')
 
+    row = 'Total days of CRRT'
+    s = build_str(crrt_days[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Total days of HD - median[IQ1 - IQ3]
     row = 'Total days of HD - median[IQ1 - IQ3]'
     s = build_str(hd_days[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
+
+    row = 'Total days of HD'
+    s = build_str(hd_days[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
 
     # Total number of HD treatments - median[IQ1 - IQ3]
     row = 'Total number of HD treatments - median[IQ1 - IQ3]'
@@ -3600,35 +3999,70 @@ def formatted_stats(meta, label_path):
     row += s
     table_f.write(row + '\n')
 
+    row = 'Total number of HD treatments'
+    s = build_str(hd_trtmts[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # Total days of CRRT + HD - median[IQ1 - IQ3]
     row = 'Total days of CRRT + HD - median[IQ1 - IQ3]'
     s = build_str(rrt_tot[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
+    row = 'Total days of CRRT + HD'
+    s = build_str(rrt_tot[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # CRRT free days - 7d - median[IQ1 - IQ3]
-    row = 'CRRT Free Days - 7d - median[IQ1 - IQ3]'
+    row = 'CRRT Free Days - 14d'
     s = build_str(crrt_free_7d[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
+
+    row = 'CRRT Free Days - 14d'
+    s = build_str(crrt_free_7d[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # CRRT free days - 28d - median[IQ1 - IQ3]
     row = 'CRRT Free Days - 28d - median[IQ1 - IQ3]'
     s = build_str(crrt_free_28d[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
+    row = 'CRRT Free Days - 28d'
+    s = build_str(crrt_free_28d[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # hd free days - 7d - median[IQ1 - IQ3]
     row = 'HD Free Days - 7d - median[IQ1 - IQ3]'
     s = build_str(hd_free_7d[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
+
+    row = 'HD Free Days - 7d'
+    s = build_str(hd_free_7d[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
     # hd free days - 28d - median[IQ1 - IQ3]
     row = 'HD Free Days - 28d - median[IQ1 - IQ3]'
     s = build_str(hd_free_28d[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'median', '%.1f')
     row += s
     table_f.write(row + '\n')
 
+    row = 'HD Free Days - 28d'
+    s = build_str(hd_free_28d[np.where(rrt_tot > 0)], lbls[np.where(rrt_tot > 0)], 'all', '%.1f')
+    row += s
+    stat_f.write(row + '\n')
+
+    np.seterr(invalid='warn')
+
     table_f.close()
+    stat_f.close()
 
     return
 
@@ -4638,8 +5072,8 @@ def get_apache(ids, stats, scr_interp, days_interp, out_name, v=False):
         elif 45 <= age < 55:
             score[12] = 2
 
-        for i in range(len(score)):
-            out.write(',%d' % (score[i]))
+        for j in range(len(score)):
+            out.write(',%d' % (score[j]))
         out.write('\n')
         apaches[i, :] = score
         apaches_raw[i, :] = np.array([s1_low, s1_high, s2_low, s2_high, s3_low, s3_high, s4_low, s4_high, s5_f, s5_po, s5_pco,
@@ -4862,7 +5296,7 @@ def get_MAKE90(ids, stats, datapath, out, ref='disch', min_day=7, buffer=0, ct=1
     dods = stats['dod'][:].astype('unicode')
 
     # print('id,died,gfr_drop,new_dialysis')
-    out.write('id,died_inp,died90,died_in_window,esrd_manual_revision,esrd_scm,esrd_usrds,new_dialysis_manual_revision,new_dialysis,gfr_drop_25,gfr_drop_30,gfr_drop_50,n_vals,delta\n')
+    out.write('id,died_inp,died90,died_in_window,esrd_manual_revision,esrd_scm,esrd_usrds_90,esrd_usrds_window,new_dialysis_manual_revision,new_dialysis,gfr_drop_25,gfr_drop_30,gfr_drop_50,n_vals,delta\n')
     scores = []
     out_ids = []
     for i in range(len(ids)):
@@ -4872,7 +5306,9 @@ def get_MAKE90(ids, stats, datapath, out, ref='disch', min_day=7, buffer=0, ct=1
         if stats['died_inp'][idx] > 0:
             died_inp = 1
             if ref == 'disch':
-                died_win = 1
+                died_buf = 1
+            else:
+                died_buf = 0
         else:
             died_inp = 0
         sex = sexes[i]
@@ -4887,7 +5323,7 @@ def get_MAKE90(ids, stats, datapath, out, ref='disch', min_day=7, buffer=0, ct=1
         esrd_usrds90 = 0
         esrd_usrdsbuf = 0
         gfr_drop_25 = 0
-        gfr_drop_30= 0
+        gfr_drop_30 = 0
         gfr_drop_50 = 0
         dia_dep_man = 0
         dia_dep = 0
@@ -5337,46 +5773,20 @@ def eval_reclassification(basePath):
 
     probs1 = n2r.py2ro(probs1)
     probs2 = n2r.py2ro(probs2)
-    data = n2r.py2ro(np.hstack(lbls, lbls, lbls))
+    data = n2r.py2ro(np.hstack((lbls, lbls, lbls)))
     idx = base.integer(1)
     idx[0] = 0
     cutoffs = n2r.py2ro(np.array([0, 0.05, 0.1, 0.2, 1.0]))
     pa.reclassification(data, idx, probs1, probs2, cutoffs)
 
 
-def eval_classification(probs, ground_truth):
-    preds = np.array(probs > 0.5, dtype=int)
+def eval_classification(probs, ground_truth, thresh=0.5):
+    preds = np.array(probs >= thresh, dtype=int)
     tn, fp, fn, tp = confusion_matrix(ground_truth, preds).ravel()
     precision, recall, f1, support = precision_recall_fscore_support(ground_truth, preds, average='micro')
     sensitivity = tp / np.sum(ground_truth)
     specificity = tn / (len(ground_truth) - np.sum(ground_truth))
     auc = roc_auc_score(ground_truth, probs)
-    return auc, sensitivity, specificity, precision, recall, f1, support
-
-
-
-# %%
-def get_apache_iv(stats):
-    ages = stats['age'][:]
-    tem = stats['temperature'][:]
-    map = stats['map'][:]
-    hr = stats['heart_rate'][:]
-    rr = stats['resp_rate'][:]
-    fio = stats['fio2'][:]
-    oxy = stats['po2'][:]
-    pco = stats['pco2'][:]
-    pha = stats['ph'][:]
-    nas = stats['sodium'][:]
-    ure = stats['urine_output'][:]
-    cre = stats['peak_scr'][:]
-    uri = stats['urea'][:]
-    bsl = stats['glucose'][:]
-    alb = stats['albumin'][:]
-    bil = stats['bilirutbin'][:]
-    hto = stats['hematocrit'][:]
-    wbc = stats['wbc'][:]
-    gce = stats['glasgow_eye'][:]
-    gcv = stats['glasgow_verb'][:]
-    gcm = stats['glasgow_motor'][:]
-
-    pre_los = stats['pre_icu_los'][:]
+    ppv = tp / (tp + fp)
+    npv = tn / (tn + fn)
+    return auc, sensitivity, specificity, ppv, npv, precision, recall, f1, support

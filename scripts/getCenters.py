@@ -11,6 +11,9 @@ from DBA import performDBA
 from dtw_distance import continuous_mismatch, continuous_extension, get_custom_distance_discrete, \
     mismatch_penalty_func, extension_penalty_func
 from cluster_funcs import centerCategorizer
+from matplotlib import rcParams
+
+rcParams.update({'font.family': 'Arial'})
 
 fp = open('../kdigo_conf.json', 'r')
 conf = json.load(fp)
@@ -120,30 +123,28 @@ if len(centers) < len(np.unique(lbls)):
     cof.close()
     sf.close()
 elif plotNew:
-    cats = centerCategorizer(centers, useTransient=True, stratifiedRecovery=True)
-    with PdfPages(os.path.join(lblPath, 'centers_wOutcomes.pdf')) as pdf:
-        for lbl in np.unique(lbls):
-            idx = np.where(lbls == lbl)[0]
-            center = centers[lbl]
-            conf = confs[lbl]
-            fig = plt.figure()
-            plt.plot(center)
-            plt.fill_between(range(len(center)), center - conf, center + conf, alpha=0.5)
-            plt.xticks(range(0, len(center), 4), ['%d' % x for x in range(len(center))])
-            plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
-            plt.ylim((-0.5, 4.5))
-            plt.title(cats[lbl])
-            extra = Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
-            plt.legend([extra for _ in range(6)],
-                      ['Inpatient Mortality: %d (%.2f)' % (np.sum(died_inp[idx]), np.sum(died_inp[idx]) / len(idx) * 100),
-                       'Died Discharge + 120d: %d (%.2f)' % (np.sum(died_120[idx]), np.sum(died_120[idx]) / len(idx) * 100),
-                       'M90 Admit 30pct: %d (%.2f)' % (np.sum(m90_a30[idx]), np.sum(m90_a30[idx]) / len(idx) * 100),
-                       'M90 Admit 50pct: %d (%.2f)' % (np.sum(m90_a50[idx]), np.sum(m90_a50[idx]) / len(idx) * 100),
-                       'M90 Disch 30pct: %d (%.2f)' % (np.sum(m90_d30[idx]), np.sum(m90_d30[idx]) / len(idx) * 100),
-                       'M90 Disch 50pct: %d (%.2f)' % (np.sum(m90_d50[idx]), np.sum(m90_d50[idx]) / len(idx) * 100)])
-            pdf.savefig(dpi=600)
-            plt.close(fig)
-    for grp in cats.values():
+    cats = centerCategorizer(centers, useTransient=False, stratifiedRecovery=False)
+    # with PdfPages(os.path.join(lblPath, 'centers_wOutcomes.pdf')) as pdf:
+    #     for lbl in np.unique(lbls):
+    #         idx = np.where(lbls == lbl)[0]
+    #         center = centers[lbl]
+    #         conf = confs[lbl]
+    #         fig = plt.figure()
+    #         plt.plot(center)
+    #         plt.fill_between(range(len(center)), center - conf, center + conf, alpha=0.5)
+    #         plt.xticks(range(0, len(center), 4), ['%d' % x for x in range(len(center))])
+    #         plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
+    #         plt.ylim((-0.5, 4.5))
+    #         plt.title('%s (%s)' % (lbl, cats[lbl]))
+    #         extra = Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
+    #         plt.legend([extra for _ in range(2)],
+    #                    ['Inpatient Mortality: %.2f%%' % (
+    #                            np.sum(died_inp[idx]) / len(idx) * 100),
+    #                     'MAKE-90: %.2f%%' % (
+    #                             np.sum(m90_d50[idx]) / len(idx) * 100)], fontsize=20)
+    #         pdf.savefig(dpi=600)
+    #         plt.close(fig)
+    for grp in ['2-Im', '3-Im']:
         if np.any([grp in x for x in cats.values()]):
             with PdfPages(os.path.join(lblPath, 'centers_%s_wOutcomes.pdf' % grp)) as pdf:
                 for lbl in np.unique(lbls):
@@ -154,23 +155,21 @@ elif plotNew:
                         fig = plt.figure()
                         plt.plot(center)
                         plt.fill_between(range(len(center)), center - conf, center + conf, alpha=0.5)
-                        plt.xticks(range(0, len(center), 4), ['%d' % x for x in range(len(center))])
-                        plt.yticks(range(5), ['0', '1', '2', '3', '3D'])
+                        plt.xticks(range(0, len(center), 4), ['%d' % x for x in range(len(center))], fontsize=16)
+                        plt.yticks(range(5), ['0', '1', '2', '3', '3D'], fontsize=16)
                         plt.ylim((-0.5, 4.5))
                         plt.title(cats[lbl])
-                        extra = Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
-                        plt.legend([extra for _ in range(6)],
-                                   ['Inpatient Mortality: %d (%.2f)' % (
-                                   np.sum(died_inp[idx]), np.sum(died_inp[idx]) / len(idx) * 100),
-                                    'Died Discharge + 120d: %d (%.2f)' % (
-                                    np.sum(died_120[idx]), np.sum(died_120[idx]) / len(idx) * 100),
-                                    'M90 Admit 30pct: %d (%.2f)' % (
-                                    np.sum(m90_a30[idx]), np.sum(m90_a30[idx]) / len(idx) * 100),
-                                    'M90 Admit 50pct: %d (%.2f)' % (
-                                    np.sum(m90_a50[idx]), np.sum(m90_a50[idx]) / len(idx) * 100),
-                                    'M90 Disch 30pct: %d (%.2f)' % (
-                                    np.sum(m90_d30[idx]), np.sum(m90_d30[idx]) / len(idx) * 100),
-                                    'M90 Disch 50pct: %d (%.2f)' % (
-                                    np.sum(m90_d50[idx]), np.sum(m90_d50[idx]) / len(idx) * 100)])
+                        # extra = Rectangle((0, 0), 0.1, 0.1, fc="w", fill=False, edgecolor='none', linewidth=0)
+                        # plt.legend([extra for _ in range(2)],
+                        #            ['Inpatient Mortality: %.2f%%' % (
+                        #            np.sum(died_inp[idx]) / len(idx) * 100),
+                        #             'MAKE-90: %.2f%%' % (
+                        #             np.sum(m90_d50[idx]) / len(idx) * 100)], fontsize=16)
+                        plt.text(24, 3.5, 'Inpatient Mortality: %.2f%%' % (
+                                   np.sum(died_inp[idx]) / len(idx) * 100), fontsize=14)
+                        plt.text(24, 3.2, 'MAKE-90: %.2f%%' % (
+                                    np.sum(m90_d50[idx]) / len(idx) * 100), fontsize=14)
+                        plt.xlabel('Days in ICU', fontsize=14)
+                        plt.ylabel('KDIGO Score', fontsize=14)
                         pdf.savefig(dpi=600)
                         plt.close(fig)

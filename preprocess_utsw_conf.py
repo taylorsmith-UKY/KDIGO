@@ -5,7 +5,7 @@ import pandas as pd
 import json
 import h5py
 from utility_funcs import arr2csv, load_csv, dict2csv, get_array_dates
-from kdigo_funcs import get_admit_disch, extract_scr_data, extract_masked_data, get_baselines, \
+from kdigo_funcs import get_admit_disch, extract_scr_data, extract_window_data, get_baselines, extract_masked_data,\
     get_exclusion_criteria_dallas, linear_interpo, scr2kdigo, get_transition_weights, rolling_average
 from classification_funcs import descriptive_trajectory_features
 from stat_funcs import get_utsw_demographics, summarize_stats_dallas, get_sofa, get_apache, formatted_stats
@@ -44,12 +44,12 @@ if not os.path.exists(resPath):
 
 # Get mask for all SCr indicating whether each point was in hospital or ICU, or neither
 if not os.path.exists(os.path.join(dataPath, 'icu_admit_discharge.csv')):
-    print('Getting hospitalization mask...')
+    print('Getting Indexed Hospital and ICU admissions...')
     hosp_windows, icu_windows = get_admit_disch(baseDataPath, scr_fname='all_scr_data.csv', date_fname='tIndexedIcuAdmission.csv', scr_dcol='SPECIMN_TEN_TIME', id_col='PATIENT_NUM')
     dict2csv(os.path.join(dataPath, 'icu_admit_discharge.csv'), icu_windows, fmt='%s')
     dict2csv(os.path.join(dataPath, 'hosp_admit_discharge.csv'), hosp_windows, fmt='%s')
 else:
-    print('Loaded previous hospitalization mask.')
+    print('Loaded previously determined Indexed Hospital and ICU admissions.')
     icu_windows, iids = load_csv(os.path.join(dataPath, 'icu_admit_discharge.csv'), ids=None, dt='date', struct='dict')
     hosp_windows, hids = load_csv(os.path.join(dataPath, 'hosp_admit_discharge.csv'), ids=None, dt='date', struct='dict')
 
@@ -93,8 +93,10 @@ if not os.path.exists(os.path.join(dataPath, 'scr_raw_%s.csv' % analyze)):
     print('Extracting SCr records in ICU...')
     if analyze == 'icu':
         (scrs, dates, rrt_masks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=2)
+        # [scrs, dates, rrt_masks] = extract_window_data(ids, [scrs, dates, rrt_masks], dates, icu_windows, 2)
     if analyze == 'hosp':
         (scrs, dates, rrt_masks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=[1, 2])
+        # [scrs, dates, rrt_masks] = extract_window_data(ids, [scrs, dates, rrt_masks], dates, hosp_windows, 2)
     arr2csv(os.path.join(dataPath, 'scr_raw_%s.csv' % analyze), scrs, ids, fmt='%.3f')
     arr2csv(os.path.join(dataPath, 'dates_%s.csv' % analyze), dates, ids, fmt='%s')
     arr2csv(os.path.join(dataPath, 'ind_rrt_masks_%s.csv' % analyze), rrt_masks, ids, fmt='%d')
@@ -135,6 +137,20 @@ else:
     excluded = np.max(exc, axis=1)
     keep = np.where(excluded == 0)[0]
 
+if not os.path.exists(os.path.join(dataPath, 'exclusion_criteria_avg.csv')):
+    print('Evaluating exclusion criteria...')
+    if males is None:
+        males, races, ages, dods, dtds = get_utsw_demographics(ids, hosp_windows, baseDataPath)
+    aexc, hdr = get_exclusion_criteria_dallas(ids, adates, icu_windows, males, races, ages, baseDataPath)
+    arr2csv(os.path.join(dataPath, 'exclusion_criteria_avg.csv'), aexc, ids, fmt='%d', header=hdr)
+    excluded = np.max(exc, axis=1)
+    keep = np.where(excluded == 0)[0]
+else:
+    print('Loaded exclusion criteria.')
+    exc = load_csv(os.path.join(dataPath, 'exclusion_criteria_avg.csv'), ids, int, skip_header=True)
+    excluded = np.max(exc, axis=1)
+    keep = np.where(excluded == 0)[0]
+
 # Interpolate raw SCr values in the analysis window
 if not os.path.exists(os.path.join(dataPath, 'scr_interp_%s.csv' % analyze)):
     # Interpolate missing values
@@ -172,8 +188,6 @@ if not os.path.exists(os.path.join(dataPath, 'kdigo_%s.csv' % analyze)):
     print('Converting to KDIGO')
     kdigos = scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
     arr2csv(os.path.join(dataPath, 'kdigo_%s.csv' % analyze), kdigos, ids, fmt='%d')
-    kdigos_noabs = scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks, useAbs=False)
-    arr2csv(os.path.join(dataPath, 'kdigo_noAbs_%s.csv' % analyze), kdigos_noabs, ids, fmt='%d')
 else:
     print('Loaded KDIGO scores')
     kdigos = load_csv(os.path.join(dataPath, 'kdigo_%s.csv' % analyze), ids, int)
@@ -183,8 +197,6 @@ if not os.path.exists(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv') % (analyze,
     baselines = pd.read_csv(os.path.join(baseDataPath, 'all_baseline_info.csv'))['bsln_val'].values
     akdigos = scr2kdigo(apost_interpo, baselines, admasks_interp, adays_interp, ainterp_masks)
     arr2csv(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv') % (analyze, args.avgpts), akdigos, ids, fmt='%d')
-    akdigos_noabs = scr2kdigo(apost_interpo, baselines, admasks_interp, adays_interp, ainterp_masks, useAbs=False)
-    arr2csv(os.path.join(dataPath, 'kdigo_%s_%dptAvg_noAbs.csv') % (analyze, args.avgpts), akdigos_noabs, ids, fmt='%d')
 else:
     if not os.path.exists(os.path.join(resPath, 'stats.h5')):
         akdigos = load_csv(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv') % (analyze, args.avgpts), ids, int)
@@ -437,5 +449,15 @@ if not os.path.exists(os.path.join(dataPath, 'kdigo_transition_weights.csv')):
     tweights = get_transition_weights(cohort_kdigos)
     arr2csv(os.path.join(dataPath, 'kdigo_transition_weights.csv'), tweights,
             ['0-1', '1-2', '2-3', '3-3D'], header='Transition,Weight')
+
+mk = stats_avg['max_kdigo_win'][:]
+if not os.path.exists(os.path.join(resPath, 'clusters')):
+    os.mkdir(os.path.join(resPath, 'clusters'))
+if not os.path.exists(os.path.join(resPath, 'clusters', 'max_kdigo')):
+    os.mkdir(os.path.join(resPath, 'clusters', 'max_kdigo'))
+
+arr2csv(os.path.join(resPath, 'clusters', 'max_kdigo', 'clusters.csv'), mk, ids, fmt='%d')
+formatted_stats(stats_avg, os.path.join(resPath, 'clusters', 'max_kdigo'))
+
 
 print('Ready for distance matrix calculation. Please run script \'calc_dms.py\'')

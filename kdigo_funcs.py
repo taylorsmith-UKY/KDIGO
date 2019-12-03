@@ -110,7 +110,7 @@ def get_dialysis_mask(dataPath='', scr_fname='SCR_ALL_VALUES.csv', rrt_fname='RE
 
 # %%
 def extract_scr_data(icu_windows, hosp_windows, dataPath='', scr_fname='SCR_ALL_VALUES.csv', rrt_fname='RENAL_REPLACE_THERAPY.csv',
-                      scr_dcol='SCR_ENTERED', scr_vcol='SCR_VALUE', id_col='STUDY_PATIENT_ID', rrtSep='col', v=False):
+                      scr_dcol='SCR_ENTERED', scr_vcol='SCR_VALUE', id_col='STUDY_PATIENT_ID', rrtSep='col'):
     '''
     Extract SCr data for individual patients
     :param icu_windows: dict, icu admit/discharge for all patients
@@ -1078,7 +1078,10 @@ def linear_interpo(scrs, ids, dates, dmasks, windows, scale):
         tid = ids[i]                # patient ID
         tdates = dates[i]           # raw SCr dates
         tdmask = dmasks[i]          # indicates dialysis for raw values
-        window = windows[i]
+        if type(windows) == dict:
+            window = windows[tid]
+        else:
+            window = windows[i]
         if len(tscrs) < 2:
             interp_scr = tscrs
             interp_dia = tdmask
@@ -1183,31 +1186,21 @@ def interpolate_scr(scrs, dates, dmasks, window, scale):
                         idays[idx] = cd
                     idx -= 1
                 cd -= 1
-        # #
-        # # idays = list(
-        # #     np.concatenate([[d for _ in range(bins_per_day)] for d in range(int(np.ceil(nbins / bins_per_day)) + 1)]))
-        # #
-        # # for i in range(start_bin):
-        # #     _ = idays.pop(0)
-        # # for i in range(0, nb4, 4):
-        # #     for j in range(4):
-        # #         idays.insert(0, i - 1)
-        # idays = np.array(idays, dtype=int)[:nbins]
     else:
         iscr = scrs
         if len(scrs) > 1:
-            iscr = [np.mean(scrs)]
-            idia = [max(dmasks)]
-            idays = [0]
+            iscr = np.array([np.mean(scrs)])
+            idia = np.array([max(dmasks)])
+            idays = np.array([0])
         elif len(scrs) == 1:
-            iscr = scrs
-            idays = [0]
-            imask = [1]
-            idia = dmasks
+            iscr = np.array(scrs)
+            idays = np.array([0])
+            imask = np.array([1])
+            idia = np.array(dmasks)
         else:
-            idays = []
-            imask = []
-            idia = []
+            idays = np.array([])
+            imask = np.array([])
+            idia = np.array([])
     assert len(iscr) == len(idays) == len(imask) == len(idia)
     return iscr, idays, imask, idia
 
@@ -1375,7 +1368,7 @@ def baseline_est_gfr_mdrd(gfr, sex, race, age):
 
 
 # %%
-def scr2kdigo(scr, base, masks, days, valid, onlyAbs=False, onlyRel=False, rolling=False):
+def scr2kdigo(scr, base, masks, days, valid, onlyRel=False, rolling=False, ptsPerDay=4):
     kdigos = []
     for i in range(len(scr)):
         kdigo = np.zeros(len(scr[i]), dtype=int)
@@ -1398,19 +1391,20 @@ def scr2kdigo(scr, base, masks, days, valid, onlyAbs=False, onlyRel=False, rolli
                     window = window[np.where(window < j)[0]]
                     window = np.intersect1d(window, np.where(valid[i])[0])
                 else:
-                    window = np.array(range(8), dtype=int)
+                    window = np.array(range(2 * ptsPerDay), dtype=int)
                     window = np.intersect1d(window, np.where(valid[i])[0])
                 if window.size > 0:
                     if scr[i][j] >= np.min(scr[i][window]) + 0.3:
                         kdigo[j] = 1
-            elif scr[i][j] < (2 * bsln) and not onlyAbs:
-                kdigo[j] = 1
-            elif scr[i][j] < (3 * bsln):
-                kdigo[j] = 2
-            elif (scr[i][j] >= (3 * bsln)) or (scr[i][j] >= 4.0):
-                kdigo[j] = 3
-            elif scr[i][j] >= 4.0:
-                kdigo[j] = 3
+            if scr[i][j] >= (1.5 * bsln):
+                if scr[i][j] < (2 * bsln):
+                    kdigo[j] = 1
+                elif scr[i][j] < (3 * bsln):
+                    kdigo[j] = 2
+                elif (scr[i][j] >= (3 * bsln)) or (scr[i][j] >= 4.0):
+                    kdigo[j] = 3
+                elif scr[i][j] >= 4.0:
+                    kdigo[j] = 3
         kdigos.append(kdigo)
     return kdigos
 
