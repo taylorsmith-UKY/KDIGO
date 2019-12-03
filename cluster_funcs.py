@@ -1080,6 +1080,7 @@ def merge_simulated_sequences(ids, sequences, lbls, args, mismatch=lambda x,y: a
                             if args.maxExt < 0 or max(xext, yext) < args.maxExt:
                                 mergeGrp = [i, j]
                                 pidx = ct
+                                minDist = d
                         ct += 1
                 allDist.append(tdist)
                 mergeDist.append(tdist[pidx])
@@ -1666,6 +1667,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
                         if args.maxExt < 0 or max(xext, yext) < args.maxExt:
                             mergeGrp = [i, j]
                             pidx = ct
+                            minDist = d
                     ct += 1
             allDist.append(tdist)
             mergeDist.append(tdist[pidx])

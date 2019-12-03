@@ -31,7 +31,7 @@ parser.add_argument('--extensionDistanceWeight', '-extDistWeight', action='store
                     default=0.0)
 parser.add_argument('--scaleExtension', '-scaleExt', action='store_true', dest='scaleExt')
 parser.add_argument('--cumulativeExtensionForDistance', '-cumExtDist', action='store_true', dest='cumExtDist')
-
+parser.add_argument('--clustersPerCategory', '-clustPerCat', action='store', type=int, dest='clustPerCat', default=5)
 parser.add_argument('--maxExtension', '-maxExt', action='store', type=float, default=-1., dest='maxExt')
 args = parser.parse_args()
 
@@ -77,4 +77,4 @@ for i in range(len(rawlbls)):
 lbls = np.array(lbls)
 sequences = load_csv(os.path.join(lblPath, 'sequences.csv'), ids)
 
-merge_simulated_sequences(ids, sequences, lbls, args, mismatch, extension, dist, lblPath)
+merge_simulated_sequences(ids, sequences, lbls, args, mismatch, extension, dist, lblPath, clustersPerCategory=args.clustPerCat)
