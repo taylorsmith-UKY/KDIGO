@@ -1523,7 +1523,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
     idx = np.where(lbls == lblgrp[0])[0]
     for i in range(1, len(lblgrp)):
         idx = np.union1d(idx, np.where(lbls == lblgrp[i])[0])
-    dmidx = np.ix_(idx, idx)
+    grpDmIdx = np.ix_(idx, idx)
     grpLbls = lbls[idx]
     grpCenters = {}
     for lbl in lblgrp:
@@ -1551,7 +1551,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
     # grpCenters = [centers[x] for x in lblgrp]
     grpKdigos = [kdigos[x] for x in idx]
     grpIds = ids[idx]
-    grpDm = squareform(squareform(dm)[dmidx])
+    grpDm = squareform(squareform(dm)[grpDmIdx])
     nClust = len(lblgrp)
     progScores = []
     mortScores = []
@@ -1575,12 +1575,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
                     plt.title('Cluster ' + tlbl)
                     pdf1.savefig(dpi=600)
                     plt.close(fig)
-        mergeCt = 0
-        mergeDist = []
-        cmergeDist = []
-        pmergeDist = []
-        pcmergeDist = []
-        allDist = []
+
         progs = np.array([x for x in grpProgs.values()])[:, None]
         morts = np.array([x for x in grpMorts.values()])[:, None]
         progDist = pdist(progs, metric='cityblock')
@@ -1610,76 +1605,110 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
         bigGS = GridSpec(nBigRows * cellsPerRow, 5 * cellsPerCol)
         rcParams['font.size'] = 10
         t = tqdm.tqdm(total=len(lblgrp), desc='Merging %d clusters' % len(lblgrp), unit='merge')
+        mergeDistMat = None
+        extMat = None
+        pureDistMat = None
+        xExtMat = None
+        yExtMat = None
+        cumXExtMat = None
+        cumYExtMat = None
+
+        mergeCt = 0
+        indMergeDist = []      # Individual Distance + ExtDistWeight * Extension
+        cumMergeDist = []     # Cumulative Distance + ExtDistWeight * Extension
+        indPureDist = []     # Individual Distance
+        cumPureDist = []    # Cumulative Distance
+        allPairwiseDist = []
         while len(lblgrp) > 2:
             mergeGrp = [0, 0]
-            tdist = []
             pureDist = []
-            cxpenalties = []
-            cypenalties = []
-            xpenalties = []
-            ypenalties = []
-            imismatches = []
+            cumXpenalties = []
+            cumYpenalties = []
+            xPenalties = []
+            yPenalties = []
+            pwiseIterationDist = []
             pidx = 0
             ct = 0
-            minDist = 1000
+            minDist = 1000000
             for i in range(len(lblgrp)):
                 for j in range(i + 1, len(lblgrp)):
                     lbl1 = lblgrp[i]
                     lbl2 = lblgrp[j]
                     c1 = grpCenters[lbl1]
                     c2 = grpCenters[lbl2]
-                    if not args.pdtw:
-                        _, paths = dtw(c1, c2)
-                        path1 = np.array(paths)[:, 0]
-                        path2 = np.array(paths)[:, 1]
-                        paths = [path1, path2]
+                    if mergeDistMat is not None and (i < len(lblgrp) - 1) and (j < len(lblgrp) - 1):
+                        d = mergeDistMat[i, j]
+                        indPureDist = pureDistMat[i, j]
                     else:
-                        _, _, _, paths, xext, yext = dtw_p(c1, c2, mismatch, extension, args.alpha)
-
-                    xext = evalExtension(c1, paths[0], extension)
-                    yext = evalExtension(c2, paths[1], extension)
-                    if args.scaleExt:
-                        xext /= len(c1)
-                        yext /= len(c2)
-                    cxext = copy.copy(xext)
-                    cyext = copy.copy(yext)
-                    if lbl1 in list(curExt):
-                        cxext += curExt[lbl1]
-                    if lbl2 in list(curExt):
-                        cyext += curExt[lbl2]
-
-                    mism = np.sum([[mismatch(x, y) for x in c1[paths[0]]] for y in c2[paths[1]]])
-                    imismatches.append(mism)
-
-                    d = dist(c1[paths[0]], c2[paths[1]])
-                    pureDist.append(copy.copy(d))
-                    if args.extDistWeight > 0:
-                        if args.cumExtDist:
-                            d += args.extDistWeight * (cxext + cyext)
+                        if not args.pdtw:
+                            _, paths = dtw(c1, c2)
+                            path1 = np.array(paths)[:, 0]
+                            path2 = np.array(paths)[:, 1]
+                            paths = [path1, path2]
                         else:
-                            d += args.extDistWeight * (xext + yext)
-                    tdist.append(d)
-                    cxpenalties.append(cxext)
-                    cypenalties.append(cyext)
-                    xpenalties.append(xext)
-                    ypenalties.append(yext)
-                    if len(tdist) == 1 or d < minDist:
+                            _, _, _, paths, xext, yext = dtw_p(c1, c2, mismatch, extension, args.alpha)
+
+                        cxext = copy.copy(xext)
+                        cyext = copy.copy(yext)
+                        if lbl1 in list(curExt):
+                            cxext += curExt[lbl1]
+                        if lbl2 in list(curExt):
+                            cyext += curExt[lbl2]
+
+                        d = dist(c1[paths[0]], c2[paths[1]])
+                        indPureDist = copy.copy(d)
+                        if args.extDistWeight > 0:
+                            if args.cumExtDist:
+                                d += args.extDistWeight * (cxext + cyext)
+                            else:
+                                d += args.extDistWeight * (xext + yext)
+
+                        if mergeDistMat is not None:
+                            mergeDistMat[i, j] = d
+                            extMat[i, j] = max(cxext, cyext)
+                            xExtMat[i, j] = xext
+                            yExtMat[i, j] = yext
+                            cumXExtMat[i, j] = cxext
+                            cumYExtMat[i, j] = cyext
+                        else:
+                            cumXpenalties.append(cxext)
+                            cumYpenalties.append(cyext)
+                            xPenalties.append(xext)
+                            yPenalties.append(yext)
+
+                    pwiseIterationDist.append(d)
+                    if len(pwiseIterationDist) == 1 or d < minDist:
                         if args.maxExt < 0 or max(xext, yext) < args.maxExt:
                             mergeGrp = [i, j]
                             pidx = ct
                             minDist = d
                     ct += 1
-            allDist.append(tdist)
-            mergeDist.append(tdist[pidx])
-            if len(cmergeDist) == 0:
-                cmergeDist.append(tdist[pidx])
+                    pureDist.append(indPureDist)
+            allPairwiseDist.append(pwiseIterationDist)
+            indMergeDist.append(minDist)
+
+            if mergeDistMat is None:
+                mergeDistMat = squareform(np.array(pwiseIterationDist))
+                pureDistMat = squareform(np.array(pureDist))
+                extMat = np.max(np.dstack((squareform(np.array(cumXpenalties)), squareform(np.array(cumYpenalties)))),
+                                axis=-1)
+                xExtMat = squareform(np.array(xPenalties))
+                yExtMat = squareform(np.array(yPenalties))
+                cumXExtMat = squareform(np.array(cumXpenalties))
+                cumYExtMat = squareform(np.array(cumYpenalties))
+
+            if len(cumMergeDist) == 0:
+                cumMergeDist.append(minDist)
             else:
-                cmergeDist.append(cmergeDist[-1] + [pidx])
-            pmergeDist.append(pureDist[pidx])
-            if len(pcmergeDist) == 0:
-                pcmergeDist.append(pureDist[pidx])
+                cumMergeDist.append(cumMergeDist[-1] + minDist)
+
+            indPureDist.append(pureDistMat[mergeGrp[0], mergeGrp[1]])
+
+            if len(cumPureDist) == 0:
+                cumPureDist.append(pureDistMat[mergeGrp[0], mergeGrp[1]])
             else:
-                pcmergeDist.append(pcmergeDist[-1] + pureDist[pidx])
+                cumPureDist.append(cumPureDist[-1] + pureDistMat[mergeGrp[0], mergeGrp[1]])
+
             idx1 = np.where(grpLbls == lblgrp[mergeGrp[0]])[0]
             idx2 = np.where(grpLbls == lblgrp[mergeGrp[1]])[0]
             if lblgrp[mergeGrp[0]] not in grpLbls:
@@ -1689,7 +1718,6 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
             plotGrp = copy.deepcopy(lblgrp)
             nlbl = '-'.join((lblgrp[mergeGrp[0]], lblgrp[mergeGrp[1]]))
             mergeLabels.append(lblgrp[mergeGrp[0]] + ' + ' + lblgrp[mergeGrp[1]] + ' -> ' + nlbl)
-            vdm = squareform(np.array(tdist))
             grpLbls[idx1] = nlbl
             grpLbls[idx2] = nlbl
             sils.append(silhouette_score(squareform(grpDm), grpLbls, metric='precomputed'))
@@ -1702,31 +1730,19 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
             lbl2 = lblgrp.pop(mergeGrp[1])
             lbl1 = lblgrp.pop(mergeGrp[0])
             idx = np.sort(np.concatenate((idx1, idx2)))
-            dmidx = np.ix_(idx, idx)
+            grpDmIdx = np.ix_(idx, idx)
             tkdigos = [grpKdigos[x] for x in idx]
-            tdm = squareform(squareform(grpDm)[dmidx])
-            xext_cum = cxpenalties[pidx]
-            yext_cum = cypenalties[pidx]
-            xext_ind = xpenalties[pidx]
-            yext_ind = ypenalties[pidx]
+            tdm = squareform(squareform(grpDm)[grpDmIdx])
+            xext_cum = cumXExtMat[mergeGrp[0], mergeGrp[1]]
+            yext_cum = cumYExtMat[mergeGrp[0], mergeGrp[1]]
+            xext_ind = xExtMat[mergeGrp[0], mergeGrp[1]]
+            yext_ind = yExtMat[mergeGrp[0], mergeGrp[1]]
+
             curExt[nlbl] = max(xext_cum, yext_cum)
             if lbl1 in list(curExt):
                 del curExt[lbl1]
             if lbl2 in list(curExt):
                 del curExt[lbl2]
-            del grpProgs[lbl1]
-            del grpProgs[lbl2]
-            del grpMorts[lbl1]
-            del grpMorts[lbl2]
-            grpProgs[nlbl] = np.mean(allProgs[idx])
-            grpMorts[nlbl] = np.mean(allMorts[idx])
-
-            progs = np.array([x for x in grpProgs.values()])[:, None]
-            morts = np.array([x for x in grpMorts.values()])[:, None]
-            progDist = pdist(progs, metric='cityblock')
-            mortDist = pdist(morts, metric='cityblock')
-            progScores.append([np.min(progDist), np.max(progDist), np.max(progDist) / (100 - np.min(progDist))])
-            mortScores.append([np.min(mortDist), np.max(mortDist), np.max(mortDist) / (100 - np.min(mortDist))])
 
             if args.pdtw:
                 _, _, _, path, xext, yext = dtw_p(c1, c2, mismatch=mismatch, extension=extension, alpha=args.alpha)
@@ -1833,27 +1849,27 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
 
             # Current distance matrix
             ax = fig.add_subplot(gs[:2, 3])
-            plt.pcolormesh(vdm, linewidth=0, rasterized=True)
-            ax.set_xticks(np.arange(vdm.shape[0]) + 0.5)
+            plt.pcolormesh(mergeDistMat, linewidth=0, rasterized=True)
+            ax.set_xticks(np.arange(mergeDistMat.shape[0]) + 0.5)
             ax.set_xticklabels([str(x) for x in plotGrp], rotation=30, ha='right')
-            ax.set_yticks(np.arange(vdm.shape[0]) + 0.5)
+            ax.set_yticks(np.arange(mergeDistMat.shape[0]) + 0.5)
             ax.set_yticklabels([str(x) for x in plotGrp])
             ax.set_title('Distance Matrix')
-            if vdm.shape[0] <= 5:
+            if mergeDistMat.shape[0] <= 5:
                 fs = 8.
                 rot = 0
-            elif vdm.shape[0] < 10:
+            elif mergeDistMat.shape[0] < 10:
                 fs = 4.5
                 rot = 0
-            elif vdm.shape[0] < 15:
+            elif mergeDistMat.shape[0] < 15:
                 fs = 3.5
                 rot = 0
             else:
                 fs = 2
                 rot = 45
-            for y in range(vdm.shape[0]):
-                for x in range(vdm.shape[1]):
-                    plt.text(x + 0.5, y + 0.5, '%.3f' % vdm[y, x],
+            for y in range(mergeDistMat.shape[0]):
+                for x in range(mergeDistMat.shape[1]):
+                    plt.text(x + 0.5, y + 0.5, '%.3f' % mergeDistMat[y, x],
                              horizontalalignment='center',
                              verticalalignment='center',
                              fontsize=fs,
@@ -1863,28 +1879,27 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
             # Extension penalty matrix
 
             ax = fig.add_subplot(gs[2:, 3])
-            vdm = np.max(np.dstack((squareform(np.array(cxpenalties)), squareform(np.array(cypenalties)))), axis=-1)
-            plt.pcolormesh(vdm, linewidth=0, rasterized=True)
-            ax.set_xticks(np.arange(vdm.shape[0]) + 0.5)
+            plt.pcolormesh(extMat, linewidth=0, rasterized=True)
+            ax.set_xticks(np.arange(extMat.shape[0]) + 0.5)
             ax.set_xticklabels([str(x) for x in plotGrp], rotation=30, ha='right')
-            ax.set_yticks(np.arange(vdm.shape[0]) + 0.5)
+            ax.set_yticks(np.arange(extMat.shape[0]) + 0.5)
             ax.set_yticklabels([str(x) for x in plotGrp])
             ax.set_title('Cumulative Extension Penalties')
-            if vdm.shape[0] <= 5:
+            if extMat.shape[0] <= 5:
                 fs = 10.7
                 rot = 0
-            elif vdm.shape[0] < 10:
+            elif extMat.shape[0] < 10:
                 fs = 6
                 rot = 0
-            elif vdm.shape[0] < 15:
+            elif extMat.shape[0] < 15:
                 fs = 4.7
                 rot = 0
             else:
                 fs = 2.6
                 rot = 45
-            for y in range(vdm.shape[0]):
-                for x in range(vdm.shape[1]):
-                    plt.text(x + 0.5, y + 0.5, '%.1f' % vdm[y, x],
+            for y in range(extMat.shape[0]):
+                for x in range(extMat.shape[1]):
+                    plt.text(x + 0.5, y + 0.5, '%.1f' % extMat[y, x],
                              horizontalalignment='center',
                              verticalalignment='center',
                              fontsize=fs,
@@ -1950,6 +1965,14 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
             ax.set_ylim((-0.2, 4.2))
             mergeCt += 1
 
+            mergeDistMat = newMatrixAfterRemoving(mergeDistMat, mergeGrp)
+            extMat = newMatrixAfterRemoving(extMat, mergeGrp)
+            pureDistMat = newMatrixAfterRemoving(pureDistMat, mergeGrp)
+            xExtMat = newMatrixAfterRemoving(xExtMat, mergeGrp)
+            yExtMat = newMatrixAfterRemoving(yExtMat, mergeGrp)
+            cumXExtMat = newMatrixAfterRemoving(cumXExtMat, mergeGrp)
+            cumYExtMat = newMatrixAfterRemoving(cumYExtMat, mergeGrp)
+
             if args.plot_centers:
                 with PdfPages(os.path.join(lblPath, '%d_clusters' % nClust, 'centers.pdf')) as pdf1:
                     for i in range(len(lblgrp)):
@@ -1979,8 +2002,8 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
         # Individual Merge Distance (may include extension)
         if args.extDistWeight > 0:
             fig = plt.figure()
-            plt.plot(mergeDist)
-            plt.xticks(range(len(mergeDist)), ['%d' % (x + 1) for x in range(len(mergeDist))])
+            plt.plot(indMergeDist)
+            plt.xticks(range(len(indMergeDist)), ['%d' % (x + 1) for x in range(len(indMergeDist))])
             plt.xlabel('Merge Number')
             plt.ylabel('Distance')
             if args.scaleExt:
@@ -1994,8 +2017,8 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
 
             # Cumulative Distance (may include extension)
             fig = plt.figure()
-            plt.plot(cmergeDist)
-            plt.xticks(range(len(cmergeDist)), ['%d' % (x + 1) for x in range(len(cmergeDist))])
+            plt.plot(cumMergeDist)
+            plt.xticks(range(len(cumMergeDist)), ['%d' % (x + 1) for x in range(len(cumMergeDist))])
             plt.xlabel('Merge Number')
             plt.ylabel('Distance')
             if args.scaleExt:
@@ -2009,22 +2032,22 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
 
         # Individual Merge Distance (does not include extension)
         fig = plt.figure()
-        plt.plot(pmergeDist)
-        plt.xticks(range(len(pmergeDist)), ['%d' % (x + 1) for x in range(len(pmergeDist))])
+        plt.plot(indPureDist)
+        plt.xticks(range(len(indPureDist)), ['%d' % (x + 1) for x in range(len(indPureDist))])
         plt.xlabel('Merge Number')
         plt.ylabel('Distance')
-        plt.title('Individual Merge Distances')
+        plt.title('Individual Pure Merge Distances')
         pdf.savefig(fig, dpi=600)
         pdf2.savefig(fig, dpi=600)
         plt.close(fig)
 
         # Cumulative Distance (does not include extension)
         fig = plt.figure()
-        plt.plot(pcmergeDist)
-        plt.xticks(range(len(pcmergeDist)), ['%d' % (x + 1) for x in range(len(pcmergeDist))])
+        plt.plot(cumPureDist)
+        plt.xticks(range(len(cumPureDist)), ['%d' % (x + 1) for x in range(len(cumPureDist))])
         plt.xlabel('Merge Number')
         plt.ylabel('Distance')
-        plt.title('Cumulative Merge Distance')
+        plt.title('Cumulative Pure Merge Distance')
         pdf.savefig(fig, dpi=600)
         pdf2.savefig(fig, dpi=600)
         plt.close(fig)
@@ -2032,7 +2055,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
         # Maximum Extension
         fig = plt.figure()
         plt.plot(mextl)
-        plt.xticks(range(len(mextl)), ['%d' % (x + 1) for x in range(len(mergeDist))])
+        plt.xticks(range(len(mextl)), ['%d' % (x + 1) for x in range(len(indMergeDist))])
         plt.xlabel('Merge Number')
         plt.ylabel('Extension Penalty')
         plt.title('Maximum Cumulative Extension Penalty')
@@ -2043,7 +2066,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
         # Total Cumulative Extension
         fig = plt.figure()
         plt.plot(cextl)
-        plt.xticks(range(len(cextl)), ['%d' % (x + 1) for x in range(len(mergeDist))])
+        plt.xticks(range(len(cextl)), ['%d' % (x + 1) for x in range(len(indMergeDist))])
         plt.xlabel('Merge Number')
         plt.ylabel('Extension Penalty')
         plt.title('Total Sum of Cumulative Extension Penalties')
@@ -2054,7 +2077,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
         # Maximum Extension
         fig = plt.figure()
         plt.plot(iextl)
-        plt.xticks(range(len(iextl)), ['%d' % (x + 1) for x in range(len(mergeDist))])
+        plt.xticks(range(len(iextl)), ['%d' % (x + 1) for x in range(len(indMergeDist))])
         plt.xlabel('Merge Number')
         plt.ylabel('Extension Penalty')
         plt.title('Individual Merge Extension Penalties')
@@ -2062,59 +2085,30 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
         pdf2.savefig(fig, dpi=600)
         plt.close(fig)
         pdf2.close()
-    np.savetxt(os.path.join(lblPath, 'merge_distances.txt'), mergeDist)
-    arr2csv(os.path.join(lblPath, 'all_distances.csv'), allDist, mergeLabels)
-    arr2csv(os.path.join(lblPath, 'prog_scores.csv'), progScores, mergeLabels,
-            header='Merge,MinProgDiff,MaxProgDiff,RelProgDiff')
-    arr2csv(os.path.join(lblPath, 'mort_scores.csv'), mortScores, mergeLabels,
-            header='Merge,MinMortDiff,MaxMortDiff,RelMortDiff')
+    np.savetxt(os.path.join(lblPath, 'merge_distances.txt'), indMergeDist)
+    arr2csv(os.path.join(lblPath, 'all_distances.csv'), allPairwiseDist, mergeLabels)
     arr2csv(os.path.join(lblPath, 'silhouette_scores.csv'), sils, mergeLabels,
             header='Merge,Silhouette')
-    progScores = np.array(progScores)
-    mortScores = np.array(mortScores)
-    with PdfPages(os.path.join(lblPath, cat + '_merge_evaluation.pdf')) as pdf:
-        fig = plt.figure()
-        plt.plot(progScores[:, 0])
-        plt.xlabel('Merge #')
-        plt.ylabel('Value')
-        plt.title('MinProgDiff')
-        pdf.savefig(dpi=600)
-        plt.close(fig)
-        fig = plt.figure()
-        plt.plot(progScores[:, 1])
-        plt.xlabel('Merge #')
-        plt.ylabel('Value')
-        plt.title('MaxProgDiff')
-        pdf.savefig(dpi=600)
-        plt.close(fig)
-        fig = plt.figure()
-        plt.plot(progScores[:, 2])
-        plt.xlabel('Merge #')
-        plt.ylabel('Value')
-        plt.title('RelProgDiff')
-        pdf.savefig(dpi=600)
-        plt.close(fig)
-        fig = plt.figure()
-        plt.plot(mortScores[:, 0])
-        plt.xlabel('Merge #')
-        plt.ylabel('Value')
-        plt.title('MinMortDiff')
-        pdf.savefig(dpi=600)
-        plt.close(fig)
-        fig = plt.figure()
-        plt.plot(mortScores[:, 1])
-        plt.xlabel('Merge #')
-        plt.ylabel('Value')
-        plt.title('MaxMortDiff')
-        pdf.savefig(dpi=600)
-        plt.close(fig)
-        fig = plt.figure()
-        plt.plot(mortScores[:, 2])
-        plt.xlabel('Merge #')
-        plt.ylabel('Value')
-        plt.title('RelMortDiff')
-        pdf.savefig(dpi=600)
-        plt.close(fig)
+
+
+def newMatrixAfterRemoving(matrix, idxs):
+    assert matrix.shape[0] == matrix.shape[1]
+    condensed = squareform(matrix)
+
+    ct = 0
+    for i in range(len(matrix)):
+        for j in range(i + 1, len(matrix)):
+            if i in idxs or j in idxs:
+                condensed[ct] = np.nan
+            ct += 1
+
+    newNum = len(matrix) - len(idxs) + 1
+    out = np.zeros((newNum, newNum))
+    out[:-1, :-1] = squareform(condensed[np.logical_not(np.isnan(condensed))])
+    return out
+
+
+
 
 
 def plotGroupedCenters(lblPath, centerPath, plotConf=True):
