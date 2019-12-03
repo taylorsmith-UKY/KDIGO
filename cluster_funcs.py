@@ -943,6 +943,16 @@ def merge_simulated_sequences(ids, sequences, lbls, args, mismatch=lambda x,y: a
                     first = False
                 else:
                     lblPath += '_extWeight_%dE-02' % (args.extDistWeight * 100)
+        if args.lapType != "none":
+            if args.lapType == 'aggregated':
+                lapStr = "aggLap_"
+            else:
+                lapStr = "indLap_"
+            if first:
+                lblPath = os.path.join(lblPath, lapStr + '%d' % int(args.lapVal))
+                first = False
+            else:
+                lblPath += '_' + lapStr + '%d' % int(args.lapVal)
         if args.maxExt > 0:
             if first:
                 if args.maxExt >= 1:
