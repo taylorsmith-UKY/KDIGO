@@ -28,6 +28,9 @@ for nDays in [9, 14]:
 
     simulated, labels = genSimulationData(lengthInDays=nDays, numVariants=numVariants)
     arr2csv(os.path.join(outPath, 'sequences.csv'), simulated, ids=None, fmt='%.3f')
+    arr2csv(os.path.join(outPath, 'sequences.txt'), simulated, ids=None, fmt='%.3f', delim=" ")
+    arr2csv(os.path.join(outPath, 'transition_weights.txt'), transition_costs,
+            ids=["0-1", "1->2", "2->3", "3->3D"], fmt='%.3f', delim=" ")
     arr2csv(os.path.join(outPath, 'labels.csv'), labels, ids=None, fmt='%d', header=header)
 
     selPath = os.path.join(outPath, "randomSets")
@@ -36,9 +39,9 @@ for nDays in [9, 14]:
 
     lbls = np.array(["".join(labels[i].astype(str)) for i in range(len(labels))])
 
-    randomSimulationSubsets(simulated, lbls, selPath, coords,
-                            variantsPerSubtype=numVariants, nSamples=nSamplesPerSet, nSets=nSets,
-                            mismatch=mismatch, extension=extension)
+    # randomSimulationSubsets(simulated, lbls, selPath, coords,
+    #                         variantsPerSubtype=numVariants, nSamples=nSamplesPerSet, nSets=nSets,
+    #                         mismatch=mismatch, extension=extension)
 
     with PdfPages(os.path.join(outPath, 'sequences_firstVariant.pdf')) as pdf:
         for i in range(0, len(simulated), numVariants):

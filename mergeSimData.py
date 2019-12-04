@@ -15,6 +15,7 @@ parser.add_argument('--config_file', action='store', type=str, dest='cfname',
 parser.add_argument('--config_path', action='store', type=str, dest='cfpath',
                     default='')
 parser.add_argument('--sequence_file', '-sf', action='store', type=str, dest='sf', default='kdigo_icu.csv')
+parser.add_argument('--setSelection', '-setSel', action='store', type=str, dest='setSel', default='random')
 parser.add_argument('--popDTW', '-pdtw', action='store_true', dest='pdtw')
 parser.add_argument('--ext_alpha', '-alpha', action='store', type=float, dest='alpha', default=1.0)
 parser.add_argument('--distance_function', '-dfunc', '-d', action='store', type=str, dest='dfunc', default='braycurtis')
@@ -31,7 +32,6 @@ parser.add_argument('--extensionDistanceWeight', '-extDistWeight', action='store
                     default=0.0)
 parser.add_argument('--scaleExtension', '-scaleExt', action='store_true', dest='scaleExt')
 parser.add_argument('--cumulativeExtensionForDistance', '-cumExtDist', action='store_true', dest='cumExtDist')
-parser.add_argument('--clustersPerCategory', '-clustPerCat', action='store', type=int, dest='clustPerCat', default=5)
 parser.add_argument('--maxExtension', '-maxExt', action='store', type=float, default=-1., dest='maxExt')
 args = parser.parse_args()
 
@@ -63,10 +63,30 @@ else:
 extension = continuous_extension(extension_penalty_func(*transition_costs))
 mismatch = continuous_mismatch(mismatch_penalty_func(*transition_costs))
 
-# Load patient data
-lblPath = os.path.join(resPath, 'clusters', 'simulated', '%ddays' % args.clen)
+if args.cat[0] == 'all':
+    cats = ['1-Im', '1-St', '1-Ws', '2-Im', '2-St', '2-Ws', '3-Im', '3-St', '3-Ws', '3D-Im', '3D-St', '3D-Ws']
+
+elif args.cat[0] == 'allk':
+    cats = ['1', '2', '3', '3D']
+elif args.cat[0] == 'none':
+    cats = []
 
 dist = get_custom_distance_discrete(coords, dfunc=args.dfunc, lapVal=args.lapVal, lapType=args.lapType)
+
+# Load patient data
+lblPath = os.path.join(resPath, 'clusters', 'simulated', '%ddays' % args.clen)
+if args.setSel == "random":
+    lblPath = os.path.join(lblPath, "randomSets")
+    for cat in cats:
+        catPath = os.path.join(lblPath, cat)
+        for dirpath, dirnames, fnames in os.walk(catPath):
+            for dirname in dirnames:
+                if "set" not in dirname:
+                    continue
+
+
+
+
 
 ids = np.loadtxt(os.path.join(lblPath, 'sequences.csv'), delimiter=',', usecols=0, dtype=int)
 rawlbls = load_csv(os.path.join(lblPath, 'labels.csv'), ids, str, skip_header=True)
