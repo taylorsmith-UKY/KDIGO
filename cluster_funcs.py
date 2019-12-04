@@ -2318,96 +2318,105 @@ def genSimulationData(lengthInDays=14, ptsPerDay=4, numVariants=15):
     return simulated, labels
 
 
-def randomSimulationSubsets(sequences, labels, basePath, variantsPerSubtype=15, nSamples=5, nSets=10):
+def randomSimulationSubsets(sequences, labels, basePath, coords, mismatch=lambda x,y: abs(x - y),
+                            extension=lambda x: 0, nSamples=5, nSets=10):
 
+    variantsPerSubtype = len(np.where(labels == labels[0])[0])
     firstVariants = [sequences[x] for x in range(0, len(sequences), variantsPerSubtype)]
     firstVariantLbls = [labels[x] for x in range(0, len(sequences), variantsPerSubtype)]
 
-    alldms = {}
-    allXexts = {}
-    allYexts = {}
+    lblNames = centerCategorizer(firstVariants)
 
-    for dirpath, dirnames, fnames in os.walk(basePath):
-        for fname in fnames:
-            if "dm_" in fname:
-                d = np.load(os.path.join(dirpath, fname))
-                dist = squareform(d[:, 2])
-                xext = squareform(d[:, 3])
-                yext = squareform(d[:, 4])
-                if "aggLap" in fname:
-                    alldms["aggregated"] = dist
-                    allXexts["aggregated"] = xext
-                    allYexts["aggregated"] = yext
-                elif "indLap" in fname:
-                    alldms["individual"] = dist
-                    allXexts["individual"] = xext
-                    allYexts["individual"] = yext
-                else:
-                    alldms["none"] = dist
-                    allXexts["none"] = xext
-                    allYexts["none"] = yext
+    cats = ['1-Im', '1-St', '1-Ws', '2-Im', '2-St', '2-Ws', '3-Im', '3-St', '3-Ws', '3D-Im', '3D-St', '3D-Ws']
+    for cat in cats:
+        if len(cat.split('-')) == 2:
+            lblgrp = [firstVariantLbls[x] for x in range(len(firstVariantLbls)) if cat in lblNames[x]]
+        elif len(cat.split('-')) == 1:
+            lblgrp = [firstVariantLbls[x] for x in range(len(firstVariantLbls)) if cat == lblNames[x].split('-')[0]]
+        else:
+            raise ValueError("The provided category, '{}', is not valid. Must be '1', '2', '3', '3D', "
+                             "or any of those followed by '-Im', '-Tr', '-St', or 'Ws'. Please try again.".format(cat))
 
-                lblNames = centerCategorizer(firstVariants)
-                cats = ['1-Im', '1-St', '1-Ws', '2-Im', '2-St', '2-Ws', '3-Im', '3-St', '3-Ws', '3D-Im', '3D-St', '3D-Ws']
-                for cat in cats:
-                    if len(cat.split('-')) == 2:
-                        lblgrp = [firstVariantLbls[x] for x in range(len(firstVariantLbls)) if cat in lblNames[x]]
-                    elif len(cat.split('-')) == 1:
-                        lblgrp = [firstVariantLbls[x] for x in range(len(firstVariantLbls)) if cat == lblNames[x].split('-')[0]]
+        catPath = os.path.join(basePath, cat)
+        if not os.path.exists(catPath):
+            os.mkdir(catPath)
+
+        for setNum in tqdm.trange(nSets):
+            setPath = os.path.join(catPath, "set%d" % (setNum + 1))
+            if not os.path.exists(setPath):
+                os.mkdir(setPath)
+
+            setgrp = sorted(list(np.random.permutation(lblgrp)[:nSamples]))
+
+            idx = np.where(labels == setgrp[0])[0]
+            for i in range(1, len(lblgrp)):
+                idx = np.union1d(idx, np.where(labels == lblgrp[i])[0])
+
+            setLbls = labels[idx]
+            setIds = np.arange(len(sequences))[idx].astype(int)
+            setSequences = [sequences[x] for x in idx]
+
+            arr2csv(os.path.join(setPath, "sequences.csv"), setSequences, setIds, fmt='%.3f')
+            arr2csv(os.path.join(setPath, "labels.csv"), setLbls, setIds, fmt='%s')
+
+            for lapType in ["aggregated", "none", "individual"]:
+
+                dist = get_custom_distance_discrete(coords, dfunc='braycurtis', lapVal=1.0, lapType=lapType)
+
+                for extWeight in [0.0, 0.2, 0.35, 0.5]:
+                    nameTag = ""
+                    if extWeight > 0:
+                        nameTag += "_extWeight_%dE-02" % extWeight
                     else:
-                        raise ValueError("The provided category, '{}', is not valid. Must be '1', '2', '3', '3D', "
-                                         "or any of those followed by '-Im', '-Tr', '-St', or 'Ws'. Please try again.".format(cat))
+                        nameTag += "_noExt"
 
-                    catPath = os.path.join(basePath, cat)
-                    if not os.path.exists(catPath):
-                        os.mkdir(catPath)
-                    for setNum in tqdm.trange(nSets, desc=""):
-                        setPath = os.path.join(catPath, "set%d" % (setNum + 1))
-                        if not os.path.exists(setPath):
-                            os.mkdir(setPath)
+                    if lapType == "aggregated":
+                        nameTag += "_aggLap_1"
+                    elif lapType == "individual":
+                        nameTag += "_indLap_1"
 
-                        setgrp = sorted(list(np.random.permutation(lblgrp)[:nSamples]))
+                    pureDists = []
+                    mergeDists = []
+                    xexts = []
+                    yexts = []
+                    mergeExt = []
 
-                        idx = np.where(labels == setgrp[0])[0]
-                        for i in range(1, len(lblgrp)):
-                            idx = np.union1d(idx, np.where(labels == lblgrp[i])[0])
-                        dmIdx = np.ix_(idx, idx)
+                    for i in range(len(idx)):
+                        s1 = setSequences[i]
+                        for j in range(i + 1, len(idx)):
+                            s2 = setSequences[j]
+                            _, _, _, paths, xext, yext = dtw_p(s1, s2, mismatch, extension, 0.35)
 
-                        setLbls = labels[idx]
-                        setIds = np.arange(len(sequences))[idx].astype(int)
-                        setSequences = [sequences[x] for x in idx]
+                            s1p = s1[paths[0]]
+                            s2p = s2[paths[1]]
 
-                        arr2csv(os.path.join(setPath, "sequences.csv"), setSequences, setIds, fmt='%.3f')
-                        arr2csv(os.path.join(setPath, "labels.csv"), setLbls, setIds, fmt='%s')
+                            d = dist(s1p, s2p)
+                            pureDists.append(copy.copy(d))
 
-                        for lapType in ["aggregated", "none", "individual"]:
-                            pureDists = squareform(alldms[lapType][dmIdx])  # squareform returns condensed
-                            xexts = squareform(allXexts[lapType][dmIdx])
-                            yexts = squareform(allYexts[lapType][dmIdx])
-                            mergeExt = np.max(np.vstack((xexts, yexts)).T, axis=1)
+                            ext = max(xext, yext)
+                            xexts.append(xext)
+                            yexts.append(yext)
+                            mergeExt.append(ext)
 
-                            for extWeight in [0.0, 0.2, 0.35, 0.5]:
-                                nameTag = ""
-                                if extWeight > 0:
-                                    nameTag += "_extWeight_%dE-02" % extWeight
-                                else:
-                                    nameTag += "_noExt"
+                            if extWeight > 0:
+                                d += extWeight * ext
 
-                                if lapType == "aggregated":
-                                    nameTag += "_aggLap_1"
-                                elif lapType == "individual":
-                                    nameTag += "_indLap_1"
+                            mergeDists.append(d)
 
-                                mergeDists = pureDists + extWeight * mergeExt
+                    pureDists = np.array(pureDists)
+                    mergeDists = np.array(mergeDists)
+                    xexts = np.array(xexts)
+                    yexts = np.array(yexts)
+                    mergeExt = np.array(mergeExt)
 
-                                np.save(os.path.join(setPath, "mergeDist%s.npy" % nameTag), mergeDists)
-                                np.save(os.path.join(setPath, "pureDist%s.npy" % nameTag), pureDists)
-                                np.save(os.path.join(setPath, "xExt%s.npy" % nameTag), xexts)
-                                np.save(os.path.join(setPath, "yExt%s.npy" % nameTag), yexts)
-                                np.save(os.path.join(setPath, "mergeExt%s.npy" % nameTag), mergeExt)
+                    np.save(os.path.join(setPath, "mergeDist%s.npy" % nameTag), mergeDists)
+                    np.save(os.path.join(setPath, "pureDist%s.npy" % nameTag), pureDists)
+                    np.save(os.path.join(setPath, "xExt%s.npy" % nameTag), xexts)
+                    np.save(os.path.join(setPath, "yExt%s.npy" % nameTag), yexts)
+                    np.save(os.path.join(setPath, "mergeExt%s.npy" % nameTag), mergeExt)
 
-                                np.savetxt(os.path.join(setPath, "mergeDist%s.txt" % nameTag), mergeDists)
-                                np.savetxt(os.path.join(setPath, "pureDist%s.txt" % nameTag), pureDists)
-                                np.savetxt(os.path.join(setPath, "xExt%s.txt" % nameTag), xexts)
-                                np.savetxt(os.path.join(setPath, "yExt%s.txt" % nameTag), yexts)
-                                np.savetxt(os.path.join(setPath, "mergeExt%s.txt" % nameTag), mergeExt)
+                    np.savetxt(os.path.join(setPath, "mergeDist%s.txt" % nameTag), mergeDists)
+                    np.savetxt(os.path.join(setPath, "pureDist%s.txt" % nameTag), pureDists)
+                    np.savetxt(os.path.join(setPath, "xExt%s.txt" % nameTag), xexts)
+                    np.savetxt(os.path.join(setPath, "yExt%s.txt" % nameTag), yexts)
+                    np.savetxt(os.path.join(setPath, "mergeExt%s.txt" % nameTag), mergeExt)
