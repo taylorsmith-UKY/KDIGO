@@ -1,21 +1,44 @@
-from cluster_funcs import genSimulationData
+from cluster_funcs import genSimulationData, randomSimulationSubsets
 from matplotlib.backends.backend_pdf import PdfPages
 from utility_funcs import arr2csv
 import os
 import matplotlib.pyplot as plt
+import numpy as np
+from dtw_distance import extension_penalty_func, continuous_extension, mismatch_penalty_func, continuous_mismatch
 
-numVariants = 5
+numVariants = 15
+nSamplesPerSet = 5
+nSets = 10
+
+tWeightFileName = "/Volumes/GoogleDrive/My Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj/DATA/icu/" \
+                  "final/kdigo_icu_2ptAvg_transition_weights.csv"
+
+transition_costs = np.loadtxt(tWeightFileName, delimiter=',', usecols=1, skiprows=1)
+coords = np.array([np.sum(transition_costs[:i]) for i in range(len(transition_costs) + 1)], dtype=float)
+
+mismatch = continuous_mismatch(mismatch_penalty_func(*transition_costs))
+extension = continuous_extension(extension_penalty_func(*transition_costs))
 
 header = 'SequenceNum,StartKDIGO,LongStart,StopKDIGO,LongStop,BaseKDIGO,NumPeaks,PeakVal'
 for nDays in [9, 14]:
     outPath = "/Volumes/GoogleDrive/My Drive/Documents/Work/Workspace/Kidney Pathology/" \
               "KDIGO_eGFR_traj/RESULTS/icu/final/clusters/simulated/%ddays" % nDays
+    if not os.path.exists(outPath):
+        os.mkdir(outPath)
+
     simulated, labels = genSimulationData(lengthInDays=nDays, numVariants=numVariants)
     arr2csv(os.path.join(outPath, 'sequences.csv'), simulated, ids=None, fmt='%.3f')
     arr2csv(os.path.join(outPath, 'labels.csv'), labels, ids=None, fmt='%d', header=header)
 
-    # arr2csv(os.path.join(outPath, 'sequences_noNoise.csv'), noNoise, ids=None, fmt='%.3f')
-    # arr2csv(os.path.join(outPath, 'labels_noNoise.csv'), noNoiseLabels, ids=None, fmt='%d', header=header)
+    selPath = os.path.join(outPath, "randomSets")
+    if not os.path.exists(selPath):
+        os.mkdir(selPath)
+
+    lbls = np.array(["".join(labels[i].astype(str)) for i in range(len(labels))])
+
+    randomSimulationSubsets(simulated, lbls, selPath, coords,
+                            variantsPerSubtype=numVariants, nSamples=nSamplesPerSet, nSets=nSets,
+                            mismatch=mismatch, extension=extension)
 
     with PdfPages(os.path.join(outPath, 'sequences_firstVariant.pdf')) as pdf:
         for i in range(0, len(simulated), numVariants):
@@ -27,6 +50,6 @@ for nDays in [9, 14]:
             plt.xticks(range(0, len(center), 4), ['%d' % x for x in range(len(center))])
             plt.xlabel('Days')
             plt.ylabel('KDIGO Score')
-            plt.title("Start: %d - LongStart: %d - Stop: %d - LongStop: %d\nBase: %d - NumPeaks: %d - PeakVal: %d" % tuple(labels[i]))
+            plt.title("Simulation %d\nStart: %d - LongStart: %d - Stop: %d - LongStop: %d\nBase: %d - NumPeaks: %d - PeakVal: %d" % tuple([i] + list(labels[i])))
             pdf.savefig(dpi=600)
             plt.close(fig)

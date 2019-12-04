@@ -9,7 +9,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
     average_precision_score, roc_curve, auc
 from sklearn.metrics.classification import classification_report
 from xgboost import XGBClassifier
-from stat_funcs import perf_measure, get_even_pos_neg
+from stat_funcs import perf_measure, get_even_pos_neg, count_eps
 import os
 from scipy import interp
 from utility_funcs import arr2csv, cartesian, get_date, get_array_dates, load_csv
@@ -32,18 +32,18 @@ rf_params = {'n_estimators': 100,
 
 
 # %%
-def descriptive_trajectory_features(kdigos, ids, days=None, t_lim=None, filename='descriptive_features.csv'):
+def descriptive_trajectory_features(kdigos, ids, days, t_lim=None, filename='descriptive_features.csv', tRes=6):
     npts = len(kdigos)
-    features = np.zeros((npts, 15))
-    header = 'id,peak_KDIGO,KDIGO_at_admit,KDIGO_at_7d,AKI_first_3days,AKI_after_3days,' + \
+    features = np.zeros((npts, 16))
+    header = 'id,peak_KDIGO,KDIGO_at_admit,KDIGO_at_EndOfWindow,AKI_first_3days,AKI_after_3days,' + \
              'multiple_hits,KDIGO1+_gt_24hrs,KDIGO2+_gt_24hrs,KDIGO3+_gt_24hrs,KDIGO4_gt_24hrs,' + \
-             'flat,strictly_increase,strictly_decrease,slope_posTOneg,slope_negTOpos'
+             'flat,strictly_increase,strictly_decrease,slope_posTOneg,slope_negTOpos,numPeaks'
     PEAK_KDIGO = 0
     KDIGO_ADMIT = 1
-    KDIGO_7D = 2
+    KDIGO_EndOfWin = 2
     AKI_FIRST_3D = 3
     AKI_AFTER_3D = 4
-    MULTI_HITS = 5
+    NUM_HITS = 5
     KDIGO1_GT1D = 6
     KDIGO2_GT1D = 7
     KDIGO3_GT1D = 8
@@ -53,56 +53,40 @@ def descriptive_trajectory_features(kdigos, ids, days=None, t_lim=None, filename
     ONLY_DEC = 12
     POStoNEG = 13
     NEGtoPOS = 14
+    NUM_PEAKS = 15
 
     for i in range(len(kdigos)):
         kdigo = kdigos[i]
-        if days is not None:
-            tdays = days[i]
+        tdays = days[i]
+        if t_lim is not None:
             sel = np.where(tdays <= t_lim)[0]
             kdigo = kdigo[sel]
             tdays = tdays[sel]
-        kdigo1 = np.where(kdigo == 1)[0]
-        kdigo2 = np.where(kdigo == 2)[0]
-        kdigo3 = np.where(kdigo == 3)[0]
-        kdigo4 = np.where(kdigo == 4)[0]
         # No AKI
         features[i, PEAK_KDIGO] = max(kdigo)
         features[i, KDIGO_ADMIT] = kdigo[0]
-        features[i, KDIGO_7D] = kdigo[-1]
+        features[i, KDIGO_EndOfWin] = kdigo[-1]
         if min(tdays) <= 3:
             features[i, AKI_FIRST_3D] = max(kdigo[np.where(tdays <= 3)])
         if max(tdays) > 3:
             features[i, AKI_AFTER_3D] = max(kdigo[np.where(tdays > 3)])
 
         # Multiple hits separated by >= 24 hrs
-        temp = 0
-        count = 0
-        eps = 0
-        for j in range(len(kdigo)):
-            if kdigo[j] > 0:
-                if temp == 0:
-                    if count >= 4:
-                        features[i, MULTI_HITS] = 1
-                temp = 1
-                count = 0
-            else:
-                if temp == 1:
-                    count = 1
-                temp = 0
-                if count > 0:
-                    count += 1
+        numHits, numPeaks = count_eps(kdigo, t_gap=24, timescale=6)
+        features[i, NUM_HITS] = numHits
+        features[i, NUM_PEAKS] = numPeaks
 
         # >=24 hrs at KDIGO 1
-        if len(np.where(kdigo >= 1)[0]) >= 4:
+        if len(np.where(kdigo == 1)[0]) >= (24 / tRes):
             features[i, KDIGO1_GT1D] = 1
         # >=24 hrs at KDIGO 2
-        if len(np.where(kdigo >= 2)[0]) >= 4:
+        if len(np.where(kdigo == 2)[0]) >= (24 / tRes):
             features[i, KDIGO2_GT1D] = 1
         # >=24 hrs at KDIGO 3
-        if len(np.where(kdigo >= 3)[0]) >= 4:
+        if len(np.where(kdigo == 3)[0]) >= (24 / tRes):
             features[i, KDIGO3_GT1D] = 1
         # >=24 hrs at KDIGO 3D
-        if len(np.where(kdigo >= 4)[0]) >= 4:
+        if len(np.where(kdigo == 4)[0]) >= (24 / tRes):
             features[i, KDIGO4_GT1D] = 1
         # Flat trajectory
         if np.all(kdigo == kdigo[0]):
@@ -126,15 +110,16 @@ def descriptive_trajectory_features(kdigos, ids, days=None, t_lim=None, filename
             if kdigo[j] < temp:
                 # Pos to neg
                 if direction == 1:
-                    features[i, POStoNEG] = 1
+                    features[i, POStoNEG] += 1
                 direction = -1
             elif kdigo[j] > temp:
                 # Neg to pos
                 if direction == -1:
-                    features[i, NEGtoPOS] = 1
+                    features[i, NEGtoPOS] += 1
                 direction = 1
             temp = kdigo[j]
-    arr2csv(filename, features, ids, fmt='%d', header=header)
+    if filename is not None:
+        arr2csv(filename, features, ids, fmt='%d', header=header)
     return features, header
 
 # %%

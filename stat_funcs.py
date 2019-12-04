@@ -4223,7 +4223,19 @@ def count_eps(kdigo, t_gap=48, timescale=6):
     for i in range(1, len(aki)):
         if (aki[i] - aki[i - 1]) >= gap_ct:
             count += 1
-    return count
+
+    direction = 0
+    numPeaks = 0
+    for i in range(1, len(kdigo)):
+        if kdigo[i] > kdigo[i - 1]:
+            if direction < 1:
+                numPeaks += 1
+            direction = 1
+        elif kdigo[i] < kdigo[i - 1]:
+            direction = -1
+    if direction == 1:
+        numPeaks -= 1
+    return count, numPeaks
 
 
 def get_los(pid, date_m, hosp_locs, icu_locs):
