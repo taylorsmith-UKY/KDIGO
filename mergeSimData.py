@@ -95,7 +95,7 @@ if args.setSel == "random":
 
             for dirpath, dirnames, fnames in os.walk(setPath):
                 for dirname in tqdm.tqdm(dirnames, desc="%s - Set %d/%d" % (cat, setNum, args.nSets)):
-                    if dirname == 'merged':
+                    if dirname == 'merged' or "_clusters" in dirname:
                         continue
                     tPath = os.path.join(setPath, dirname)
                     tseqs = np.array(sequences)
