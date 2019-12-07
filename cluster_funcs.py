@@ -888,50 +888,24 @@ def merge_clusters(kdigos, days, dm, lblPath, meta, args, mismatch=lambda x,y: a
                         extension=extension, dist=dist)
 
 
-def merge_simulated_sequences(args, mismatch=lambda x,y: abs(x-y), extension=lambda x:0, dist=braycurtis, basePath=''):
+def merge_simulated_sequences(ids, sequences, labels, args, mismatch=lambda x,y: abs(x-y), extension=lambda x:0, dist=braycurtis, basePath=''):
 
-    ids = np.loadtxt(os.path.join(basePath, "sequences.csv"), delimiter=',', usecols=0, dtype=int)
-    sequences = load_csv(os.path.join(basePath, "sequences.csv"), ids)
-    labels = load_csv(os.path.join(basePath, "labels.csv"), ids, str)
-
-    _, dbaTag = get_dm_tag(args.pdtw, args.alpha, False, True, 'braycurtis', args.lapVal, args.lapType)
-    lblPath = os.path.join(basePath, 'merged_' + dbaTag)
+    lblPath = os.path.join(basePath, 'merged')
     if not os.path.exists(lblPath):
         os.mkdir(lblPath)
 
-    if args.extDistWeight > 0:
-        if args.extDistWeight >= 1:
-            nameTag = 'extWeight_%d' % args.extDistWeight
-        else:
-            nameTag = 'extWeight_%dE-02' % (args.extDistWeight * 100)
-    else:
-        nameTag = 'noExt'
-
-    if args.lapType != "none":
-        if args.lapType == 'aggregated':
-            lapStr = "aggLap_"
-        else:
-            lapStr = "indLap_"
-        nameTag += '_' + lapStr + '%d' % int(args.lapVal)
-    if args.maxExt > 0:
-        if args.maxExt >= 1:
-            nameTag += '_maxExt_%d' % args.maxExt
-        else:
-            nameTag += '_maxExt_%.0f' % (args.maxExt * 100)
-
-    lblPath = os.path.join(lblPath, nameTag)
+    nameTag = basePath.split("/")[-1]
 
     if not os.path.exists(lblPath):
         os.mkdir(lblPath)
 
-    lblgrp = list(ids.astype(str))
-    grpLbls = ids.astype("|S100").astype(str)
-    grpIds = ids.astype("|S100").astype(str)
+    lblgrp = list(ids)
+    grpLbls = copy.copy(ids)
+    grpIds = copy.copy(ids)
 
     grpSequences = {}
-    for lbl in lblgrp:
-        idx = np.where(ids.astype(str) == lbl)[0][0]
-        grpSequences[lbl] = sequences[idx]
+    for i, tid in enumerate(ids):
+        grpSequences[tid] = sequences[i]
 
     nClust = len(lblgrp)
 
@@ -968,7 +942,7 @@ def merge_simulated_sequences(args, mismatch=lambda x,y: abs(x-y), extension=lam
         aBigFig = plt.figure(figsize=[22, (nBigRows * 6.0)])
         bigGS = GridSpec(nBigRows * cellsPerRow, 5 * cellsPerCol)
         rcParams['font.size'] = 10
-        t = tqdm.tqdm(total=len(lblgrp), desc='Merging %d clusters' % len(lblgrp), unit='merge')
+        # t = tqdm.tqdm(total=len(lblgrp), desc='Merging %d clusters' % len(lblgrp), unit='merge')
 
         mergeDistMat = squareform(np.load(os.path.join(basePath, "mergeDist_%s.npy" % nameTag)))
         xExtMat = squareform(np.load(os.path.join(basePath, "xExt_%s.npy" % nameTag)))
@@ -991,8 +965,8 @@ def merge_simulated_sequences(args, mismatch=lambda x,y: abs(x-y), extension=lam
         indPureDist = []  # Individual Distance
         cumPureDist = []  # Cumulative Distance
         allPairwiseDist = []
+        t = tqdm.tqdm(total=len(lblgrp) - 5, desc="Merging %s" % nameTag, unit="merge")
         while len(lblgrp) > len(np.unique(labels)):
-            print("Merge #%d" % (mergeCt + 1))
             mergeGrp = [0, 0]
             pureDist = []
             cumXpenalties = []
@@ -1068,7 +1042,7 @@ def merge_simulated_sequences(args, mismatch=lambda x,y: abs(x-y), extension=lam
                             minDist = d
                     ct += 1
                     pureDist.append(thisPureDist)
-
+            t.update()
             allPairwiseDist.append(pwiseIterationDist)
             indMergeDist.append(minDist)
 
@@ -1347,7 +1321,7 @@ def merge_simulated_sequences(args, mismatch=lambda x,y: abs(x-y), extension=lam
                         plt.title('Cluster ' + tlbl, wrap=True)
                         pdf1.savefig(dpi=600)
                         plt.close(fig)
-
+        t.close()
         bigFig.text(0.5, 0.975, "Merges In Order - Original Sequences", ha='center', fontsize=20, fontweight='bold')
         bigFig.subplots_adjust(top=0.95, bottom=0.0, left=0.055, right=1.0)
         pdf2.savefig(bigFig, dpi=600)
@@ -1490,37 +1464,21 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
     if not os.path.exists(lblPath):
         os.mkdir(lblPath)
 
-    first = True
+    nameTag = ""
     if args.extDistWeight > 0:
-        if args.extDistWeight >= 1:
-            if first:
-                lblPath = os.path.join(lblPath, 'extWeight_%d' % args.extDistWeight)
-                first = False
-            else:
-                lblPath += '_extWeight_%d' % args.extDistWeight
-        else:
-            if first:
-                lblPath = os.path.join(lblPath, 'extWeight_%dE-02' % (args.extDistWeight * 100))
-                first = False
-            else:
-                lblPath += '_extWeight_%dE-02' % (args.extDistWeight * 100)
-    if args.maxExt > 0:
-        if first:
-            if args.maxExt >= 1:
-                lblPath = os.path.join(lblPath, 'maxExt_%d' % args.maxExt)
-            else:
-                lblPath = os.path.join(lblPath, 'maxExt_%.0f' % (args.maxExt * 100))
-            first = False
-        else:
-            if args.maxExt >= 1:
-                lblPath += '_maxExt_%d' % args.maxExt
-            else:
-                lblPath += '_maxExt_%.0f' % (args.maxExt * 100)
-    if args.scaleExt:
-        if first:
-            lblPath = os.path.join(lblPath, 'scaledExt')
-        else:
-            lblPath += '_scaledExt'
+        nameTag += "_extWeight_%dE-02" % (args.extDistWeight * 100)
+    else:
+        nameTag += "_noExt"
+
+    if args.lapType == "aggregated":
+        nameTag += "_aggLap_1"
+    elif args.lapType == "individual":
+        nameTag += "_indLap_1"
+
+    if args.cumExtDist:
+        nameTag += "_cumExt"
+
+    lblPath = os.path.join(lblPath, nameTag)
     if not os.path.exists(lblPath):
         os.mkdir(lblPath)
 
@@ -1605,10 +1563,6 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
             mortScores.append([np.min(mortDist), np.max(mortDist), np.max(mortDist) / (100 - np.min(mortDist))])
         except ValueError:
             mortScores.append([0, 0, 0])
-        try:
-            sils.append(silhouette_score(squareform(grpDm), grpLbls, metric='precomputed'))
-        except ValueError:
-            sils.append(0)
         mergeLabels = ['Original']
         mextl = []
         cextl = []
@@ -1622,6 +1576,14 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
         bigGS = GridSpec(nBigRows * cellsPerRow, 5 * cellsPerCol)
         rcParams['font.size'] = 10
         t = tqdm.tqdm(total=len(lblgrp), desc='Merging %d clusters' % len(lblgrp), unit='merge')
+        mergeDistMat = np.zeros((len(lblgrp), len(lblgrp)))
+        xExtMat = np.zeros((len(lblgrp), len(lblgrp)))
+        yExtMat = np.zeros((len(lblgrp), len(lblgrp)))
+        pureDistMat = np.zeros((len(lblgrp), len(lblgrp)))
+
+        extMat = np.zeros((len(lblgrp), len(lblgrp)))
+        cumXExtMat = np.zeros((len(lblgrp), len(lblgrp)))
+        cumYExtMat = np.zeros((len(lblgrp), len(lblgrp)))
         while len(lblgrp) > 2:
             mergeGrp = [0, 0]
             tdist = []
@@ -2364,59 +2326,65 @@ def randomSimulationSubsets(sequences, labels, basePath, coords, mismatch=lambda
                 dist = get_custom_distance_discrete(coords, dfunc='braycurtis', lapVal=1.0, lapType=lapType)
 
                 for extWeight in [0.0, 0.2, 0.35, 0.5]:
-                    nameTag = ""
-                    if extWeight > 0:
-                        nameTag += "_extWeight_%dE-02" % extWeight
-                    else:
-                        nameTag += "_noExt"
+                    for cumExtDist in [False, True]:
+                        if extWeight == 0 and cumExtDist:
+                            continue
+                        nameTag = ""
+                        if extWeight > 0:
+                            nameTag += "_extWeight_%dE-02" % extWeight
+                        else:
+                            nameTag += "_noExt"
 
-                    if lapType == "aggregated":
-                        nameTag += "_aggLap_1"
-                    elif lapType == "individual":
-                        nameTag += "_indLap_1"
+                        if lapType == "aggregated":
+                            nameTag += "_aggLap_1"
+                        elif lapType == "individual":
+                            nameTag += "_indLap_1"
 
-                    pureDists = []
-                    mergeDists = []
-                    xexts = []
-                    yexts = []
-                    mergeExt = []
+                        if cumExtDist:
+                            nameTag += "_cumExt"
 
-                    for i in range(len(idx)):
-                        s1 = setSequences[i]
-                        for j in range(i + 1, len(idx)):
-                            s2 = setSequences[j]
-                            _, _, _, paths, xext, yext = dtw_p(s1, s2, mismatch, extension, 0.35)
+                        pureDists = []
+                        mergeDists = []
+                        xexts = []
+                        yexts = []
+                        mergeExt = []
 
-                            s1p = s1[paths[0]]
-                            s2p = s2[paths[1]]
+                        for i in range(len(idx)):
+                            s1 = setSequences[i]
+                            for j in range(i + 1, len(idx)):
+                                s2 = setSequences[j]
+                                _, _, _, paths, xext, yext = dtw_p(s1, s2, mismatch, extension, 0.35)
 
-                            d = dist(s1p, s2p)
-                            pureDists.append(copy.copy(d))
+                                s1p = s1[paths[0]]
+                                s2p = s2[paths[1]]
 
-                            ext = max(xext, yext)
-                            xexts.append(xext)
-                            yexts.append(yext)
-                            mergeExt.append(ext)
+                                d = dist(s1p, s2p)
+                                pureDists.append(copy.copy(d))
 
-                            if extWeight > 0:
-                                d += extWeight * ext
+                                ext = max(xext, yext)
+                                xexts.append(xext)
+                                yexts.append(yext)
+                                mergeExt.append(ext)
 
-                            mergeDists.append(d)
+                                if extWeight > 0:
+                                    d += extWeight * ext
 
-                    pureDists = np.array(pureDists)
-                    mergeDists = np.array(mergeDists)
-                    xexts = np.array(xexts)
-                    yexts = np.array(yexts)
-                    mergeExt = np.array(mergeExt)
+                                mergeDists.append(d)
 
-                    np.save(os.path.join(setPath, "mergeDist%s.npy" % nameTag), mergeDists)
-                    np.save(os.path.join(setPath, "pureDist%s.npy" % nameTag), pureDists)
-                    np.save(os.path.join(setPath, "xExt%s.npy" % nameTag), xexts)
-                    np.save(os.path.join(setPath, "yExt%s.npy" % nameTag), yexts)
-                    np.save(os.path.join(setPath, "mergeExt%s.npy" % nameTag), mergeExt)
+                        pureDists = np.array(pureDists)
+                        mergeDists = np.array(mergeDists)
+                        xexts = np.array(xexts)
+                        yexts = np.array(yexts)
+                        mergeExt = np.array(mergeExt)
 
-                    np.savetxt(os.path.join(setPath, "mergeDist%s.txt" % nameTag), mergeDists)
-                    np.savetxt(os.path.join(setPath, "pureDist%s.txt" % nameTag), pureDists)
-                    np.savetxt(os.path.join(setPath, "xExt%s.txt" % nameTag), xexts)
-                    np.savetxt(os.path.join(setPath, "yExt%s.txt" % nameTag), yexts)
-                    np.savetxt(os.path.join(setPath, "mergeExt%s.txt" % nameTag), mergeExt)
+                        np.save(os.path.join(setPath, "mergeDist%s.npy" % nameTag), mergeDists)
+                        np.save(os.path.join(setPath, "pureDist%s.npy" % nameTag), pureDists)
+                        np.save(os.path.join(setPath, "xExt%s.npy" % nameTag), xexts)
+                        np.save(os.path.join(setPath, "yExt%s.npy" % nameTag), yexts)
+                        np.save(os.path.join(setPath, "mergeExt%s.npy" % nameTag), mergeExt)
+
+                        np.savetxt(os.path.join(setPath, "mergeDist%s.txt" % nameTag), mergeDists)
+                        np.savetxt(os.path.join(setPath, "pureDist%s.txt" % nameTag), pureDists)
+                        np.savetxt(os.path.join(setPath, "xExt%s.txt" % nameTag), xexts)
+                        np.savetxt(os.path.join(setPath, "yExt%s.txt" % nameTag), yexts)
+                        np.savetxt(os.path.join(setPath, "mergeExt%s.txt" % nameTag), mergeExt)

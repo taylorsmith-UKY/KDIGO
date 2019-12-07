@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from dtw_distance import extension_penalty_func, continuous_extension, mismatch_penalty_func, continuous_mismatch
 
-numVariants = 15
+numVariants = 10
 nSamplesPerSet = 5
 nSets = 10
 
@@ -39,8 +39,8 @@ for nDays in [9, 14]:
 
     lbls = np.array(["".join(labels[i].astype(str)) for i in range(len(labels))], dtype=str)
 
-    randomSimulationSubsets(simulated, lbls, selPath, coords, nSamples=nSamplesPerSet, nSets=nSets,
-                            mismatch=mismatch, extension=extension)
+    # randomSimulationSubsets(simulated, lbls, selPath, coords, nSamples=nSamplesPerSet, nSets=nSets,
+    #                         mismatch=mismatch, extension=extension)
 
     with PdfPages(os.path.join(outPath, 'sequences_firstVariant.pdf')) as pdf:
         for i in range(0, len(simulated), numVariants):

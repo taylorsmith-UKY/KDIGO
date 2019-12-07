@@ -6,7 +6,9 @@ import os
 import argparse
 from cluster_funcs import merge_simulated_sequences
 import json
-from utility_funcs import get_dm_tag, load_csv
+from utility_funcs import load_csv
+import tqdm
+from sklearn.metrics import normalized_mutual_info_score as nmi
 
 # --------------------- Parser Arguments
 parser = argparse.ArgumentParser(description='Merge clusters.')
@@ -33,6 +35,7 @@ parser.add_argument('--extensionDistanceWeight', '-extDistWeight', action='store
 parser.add_argument('--scaleExtension', '-scaleExt', action='store_true', dest='scaleExt')
 parser.add_argument('--cumulativeExtensionForDistance', '-cumExtDist', action='store_true', dest='cumExtDist')
 parser.add_argument('--maxExtension', '-maxExt', action='store', type=float, default=-1., dest='maxExt')
+parser.add_argument('--numSetsPerCategory', '-nSets', action='store', type=int, default=10, dest='nSets')
 args = parser.parse_args()
 
 configurationFileName = os.path.join(args.cfpath, args.cfname)
@@ -70,31 +73,73 @@ elif args.cat[0] == 'allk':
     cats = ['1', '2', '3', '3D']
 elif args.cat[0] == 'none':
     cats = []
-
-dist = get_custom_distance_discrete(coords, dfunc=args.dfunc, lapVal=args.lapVal, lapType=args.lapType)
+else:
+    cats = args.cat
 
 # Load patient data
 lblPath = os.path.join(resPath, 'clusters', 'simulated', '%ddays' % args.clen)
 if args.setSel == "random":
     lblPath = os.path.join(lblPath, "randomSets")
+    header = "Category,MergeParams," + ",".join(["Set%d" % x for x in range(1, args.nSets + 1)]) + "\n"
+    allEvalFile = open(os.path.join(lblPath, "allCategoryMergeEvaluation.csv"), "w")
+    allEvalFile.write(header)
+    header = ",".join(header.split(",")[1:])
     for cat in cats:
         catPath = os.path.join(lblPath, cat)
-        for dirpath, dirnames, fnames in os.walk(catPath):
-            for dirname in dirnames:
-                if "set" not in dirname:
-                    continue
+        scores = {}
+        for setNum in range(1, args.nSets + 1):
+            setPath = os.path.join(catPath, "set%d" % setNum)
+            ids = np.loadtxt(os.path.join(setPath, 'sequences.csv'), delimiter=',', usecols=0, dtype=int)
+            sequences = load_csv(os.path.join(setPath, 'sequences.csv'), ids)
+            lbls = load_csv(os.path.join(setPath, 'labels.csv'), ids, str)
 
+            for dirpath, dirnames, fnames in os.walk(setPath):
+                for dirname in tqdm.tqdm(dirnames, desc="%s - Set %d/%d" % (cat, setNum, args.nSets)):
+                    if dirname == 'merged':
+                        continue
+                    tPath = os.path.join(setPath, dirname)
+                    tseqs = np.array(sequences)
+                    tlbls = np.array(lbls)
+                    tids = ids.astype("|S100").astype(str)
 
+                    if "noExt" in dirname:
+                        args.extDistWeight = 0
+                    else:
+                        args.extDistWeight = float(int(dirname.split("_")[1].split("E")[0])) / 100
 
+                    if "aggLap" in dirname:
+                        args.lapType = "aggregated"
+                        args.lapVal = 1
+                    elif "indLap" in dirname:
+                        args.lapType = "individual"
+                        args.lapVal = 1
+                    else:
+                        args.lapType = "none"
+                        args.lapVal = 0
 
+                    if "cumExt" in dirname:
+                        args.cumExtDist = True
+                    else:
+                        args.cumExtDist = False
 
-ids = np.loadtxt(os.path.join(lblPath, 'sequences.csv'), delimiter=',', usecols=0, dtype=int)
-rawlbls = load_csv(os.path.join(lblPath, 'labels.csv'), ids, str, skip_header=True)
-lbls = []
-for i in range(len(rawlbls)):
-    lbls.append(''.join(rawlbls[i]))
+                    dist = get_custom_distance_discrete(coords, dfunc="braycurtis", lapVal=args.lapVal,
+                                                        lapType=args.lapType)
 
-lbls = np.array(lbls)
-sequences = load_csv(os.path.join(lblPath, 'sequences.csv'), ids)
+                    merge_simulated_sequences(tids, tseqs, tlbls, args, mismatch, extension, dist, tPath)
 
-merge_simulated_sequences(ids, sequences, lbls, args, mismatch, extension, dist, lblPath, clustersPerCategory=args.clustPerCat)
+                    nlbls = load_csv(os.path.join(tPath, "merged", "5_clusters", "clusters.csv"), ids, str)
+                    if setNum == 1:
+                        scores[dirname] = np.zeros(args.nSets)
+                    scores[dirname][setNum - 1] = nmi(lbls, nlbls)
+
+        evalFile = open(os.path.join(catPath, "%s_mergeEvaluation.csv" % cat), "w")
+        evalFile.write(header)
+        for dirname in list(scores.keys()):
+            scoreString = ",".join(scores[dirname].astype(str))
+            s = dirname + "," + scoreString + "\n"
+            allS = cat + "," + dirname + "," + scoreString + "\n"
+            evalFile.write(s)
+            allEvalFile.write(allS)
+            print(allS[:-1])
+        evalFile.close()
+    allEvalFile.close()
