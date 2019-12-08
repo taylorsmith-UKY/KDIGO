@@ -1465,6 +1465,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
         os.mkdir(lblPath)
 
     nameTag = ""
+    maxExt = -1
     if args.extDistWeight > 0:
         if args.extDistWeight >= 1:
             nameTag = 'extWeight_%d' % args.extDistWeight
@@ -1479,10 +1480,8 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
     if args.cumExtDist:
         nameTag += "_cumExt"
     if args.maxExt > 0:
-        if args.maxExt >= 1:
-            lblPath += '_maxExt_%d' % args.maxExt
-        else:
-            lblPath += '_maxExt_%.0f' % (args.maxExt * 100)
+        lblPath += '_maxExt_%d' % args.maxExt
+        maxExt = evalExtension([int(cat.split("_")[0])], np.zeros(args.maxExt * 4), extension, args.alpha)
 
     lblPath = os.path.join(lblPath, nameTag)
     if not os.path.exists(lblPath):
@@ -1596,7 +1595,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
         
         t = tqdm.tqdm(total=len(lblgrp), desc='Merging %d clusters' % len(lblgrp), unit='merge')
         while len(lblgrp) > 2:
-            mergeGrp = [0, 0]
+            mergeGrp = [None, None]
             tdist = []
             pureDist = []
             pwiseIterationDist = []
@@ -1660,12 +1659,23 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
                     pureDist.append(thisPureDist)
 
                     if len(pwiseIterationDist) == 1 or d < minDist:
-                        if args.maxExt < 0 or max(xext, yext) < args.maxExt:
+                        if maxExt < 0:
                             mergeGrp = [i, j]
-                            pidx = ct
                             minDist = d
+                        else:
+                            if args.cumExtDist:
+                                if max(cxext, cyext) < maxExt:
+                                    mergeGrp = [i, j]
+                                    minDist = d
+                            else:
+                                if max(xext, yext) < maxExt:
+                                    mergeGrp = [i, j]
+                                    minDist = d
                     ct += 1
 
+            if mergeGrp[0] is None:
+                print("No more valid merges. Maximum extension reached.")
+                break
             allPairwiseDist.append(pwiseIterationDist)
             indMergeDist.append(minDist)
             if len(cumMergeDist) == 0:
