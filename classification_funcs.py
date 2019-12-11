@@ -34,26 +34,29 @@ rf_params = {'n_estimators': 100,
 # %%
 def descriptive_trajectory_features(kdigos, ids, days, t_lim=None, filename='descriptive_features.csv', tRes=6):
     npts = len(kdigos)
-    features = np.zeros((npts, 16))
-    header = 'id,peak_KDIGO,KDIGO_at_admit,KDIGO_at_EndOfWindow,AKI_first_3days,AKI_after_3days,' + \
+    features = np.zeros((npts, 19))
+    header = 'id,peak_KDIGO,KDIGO_at_admit,KDIGO_at_EndOfWindow,Min_KDIGO,AKI_first_3days,AKI_after_3days,' + \
              'multiple_hits,KDIGO1+_gt_24hrs,KDIGO2+_gt_24hrs,KDIGO3+_gt_24hrs,KDIGO4_gt_24hrs,' + \
-             'flat,strictly_increase,strictly_decrease,slope_posTOneg,slope_negTOpos,numPeaks'
+             'flat,strictly_increase,strictly_decrease,slope_posTOneg,slope_negTOpos,numPeaks,Start_Duration,Stop_Duration'
     PEAK_KDIGO = 0
     KDIGO_ADMIT = 1
     KDIGO_EndOfWin = 2
-    AKI_FIRST_3D = 3
-    AKI_AFTER_3D = 4
-    NUM_HITS = 5
-    KDIGO1_GT1D = 6
-    KDIGO2_GT1D = 7
-    KDIGO3_GT1D = 8
-    KDIGO4_GT1D = 9
-    FLAT = 10
-    ONLY_INC = 11
-    ONLY_DEC = 12
-    POStoNEG = 13
-    NEGtoPOS = 14
-    NUM_PEAKS = 15
+    MIN_KDIGO = 3
+    AKI_FIRST_3D = 4
+    AKI_AFTER_3D = 5
+    NUM_HITS = 6
+    KDIGO1_GT1D = 7
+    KDIGO2_GT1D = 8
+    KDIGO3_GT1D = 9
+    KDIGO4_GT1D = 10
+    FLAT = 11
+    ONLY_INC = 12
+    ONLY_DEC = 13
+    POStoNEG = 14
+    NEGtoPOS = 15
+    NUM_PEAKS = 16
+    LONG_START = 17
+    LONG_STOP = 18
 
     for i in range(len(kdigos)):
         kdigo = kdigos[i]
@@ -64,12 +67,32 @@ def descriptive_trajectory_features(kdigos, ids, days, t_lim=None, filename='des
             tdays = tdays[sel]
         # No AKI
         features[i, PEAK_KDIGO] = max(kdigo)
+        features[i, MIN_KDIGO] = min(kdigo)
         features[i, KDIGO_ADMIT] = kdigo[0]
         features[i, KDIGO_EndOfWin] = kdigo[-1]
         if min(tdays) <= 3:
             features[i, AKI_FIRST_3D] = max(kdigo[np.where(tdays <= 3)])
         if max(tdays) > 3:
             features[i, AKI_AFTER_3D] = max(kdigo[np.where(tdays > 3)])
+
+        ct = 0
+        for i in range(1, len(kdigo)):
+            if kdigo[i] == kdigo[i - 1]:
+                ct += 1
+            else:
+                break
+
+        if ct >= ((9 * 4) / 5):
+            features[i, LONG_START] = 1
+
+        ct = 0
+        for i in range(len(kdigo)-1)[::-1]:
+            if kdigo[i] == kdigo[i + 1]:
+                ct += 1
+            else:
+                break
+        if ct >= ((9 * 4) / 5):
+            features[i, LONG_STOP] = 1
 
         # Multiple hits separated by >= 24 hrs
         numHits, numPeaks = count_eps(kdigo, t_gap=24, timescale=6)

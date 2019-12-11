@@ -24,6 +24,7 @@ from utility_funcs import load_csv, arr2csv, get_dm_tag
 from fastdtw import dtw
 from matplotlib import rcParams
 import tqdm
+import subprocess
 
 
 # %%
@@ -796,6 +797,7 @@ def merge_clusters(kdigos, days, dm, lblPath, meta, args, mismatch=lambda x,y: a
     lblPath1 = os.path.join(lblPath, "dba_centers")
     if not os.path.exists(lblPath1):
         os.mkdir(lblPath1)
+
     lblPath1 = os.path.join(lblPath1, folderName)
     if not os.path.exists(lblPath1):
         os.mkdir(lblPath1)
@@ -806,7 +808,7 @@ def merge_clusters(kdigos, days, dm, lblPath, meta, args, mismatch=lambda x,y: a
     if not os.path.exists(lblPath1):
         os.mkdir(lblPath1)
 
-    _, dbaTag = get_dm_tag(args.pdtw, args.alpha, False, True, 'braycurtis', 0.0, 'none')
+    _, dbaTag = get_dm_tag(args.pdtw, args.malpha, False, True, 'braycurtis', 0.0, 'none')
 
     if os.path.exists(os.path.join(lblPath1, 'centers.csv')):
         centers = load_csv(os.path.join(lblPath1, 'centers.csv'), np.unique(lbls), struct='dict', id_dtype=str)
@@ -868,9 +870,6 @@ def merge_clusters(kdigos, days, dm, lblPath, meta, args, mismatch=lambda x,y: a
         sf.close()
 
     dbaTag = 'merged_' + dbaTag
-
-    if not os.path.exists(os.path.join(lblPath, dbaTag)):
-        os.mkdir(os.path.join(lblPath, dbaTag))
 
     if args.cat[0] == 'all':
         for tcat in ['1-Im', '1-St', '1-Ws', '2-Im', '2-St', '2-Ws', '3-Im', '3-St', '3-Ws', '3D-Im', '3D-St', '3D-Ws']:
@@ -993,7 +992,7 @@ def merge_simulated_sequences(ids, sequences, labels, args, mismatch=lambda x,y:
                             path2 = np.array(paths)[:, 1]
                             paths = [path1, path2]
                         else:
-                            _, _, _, paths, xext, yext = dtw_p(c1, c2, mismatch, extension, args.alpha)
+                            _, _, _, paths, xext, yext = dtw_p(c1, c2, mismatch, extension, args.malpha)
 
                         cxext = copy.copy(xext)
                         cyext = copy.copy(yext)
@@ -1444,7 +1443,6 @@ def newMatrixAfterRemoving(matrix, idxs):
 
 def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
                 mismatch=lambda x, y: abs(x-y), extension=lambda x: 0, dist=braycurtis):
-    print('Merging clusters in category %s ' % cat)
     lblNames = centerCategorizer(centers)
     if len(cat.split('-')) == 2:
         lblgrp = [x for x in np.unique(lbls) if cat in lblNames[x]]
@@ -1456,10 +1454,10 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
     if len(lblgrp) <= 2:
         return
 
-    # _, dbaTag = get_dm_tag(args.pdtw, args.alpha, False, True, 'braycurtis', args.lapVal, args.lapType)
-    # lblPath = os.path.join(lblPath, 'merged_' + dbaTag)
-    # if not os.path.exists(lblPath):
-    #     os.mkdir(lblPath)
+    _, dbaTag = get_dm_tag(args.pdtw, args.malpha, False, True, 'braycurtis', args.lapVal, args.mlapType)
+    lblPath = os.path.join(lblPath, 'merged_' + dbaTag)
+    if not os.path.exists(lblPath):
+        os.mkdir(lblPath)
     lblPath = os.path.join(lblPath, 'center_%s' % args.seedType)
     if not os.path.exists(lblPath):
         os.mkdir(lblPath)
@@ -1473,15 +1471,20 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
             nameTag = 'extWeight_%dE-02' % (args.extDistWeight * 100)
     else:
         nameTag = "noExt"
-    if args.lapType == "aggregated":
+    if args.mlapType == "aggregated":
         nameTag += "_aggLap_1"
-    elif args.lapType == "individual":
+    elif args.mlapType == "individual":
         nameTag += "_indLap_1"
     if args.cumExtDist:
         nameTag += "_cumExt"
     if args.maxExt > 0:
-        lblPath += '_maxExt_%d' % args.maxExt
-        maxExt = evalExtension([int(cat.split("_")[0])], np.zeros(args.maxExt * 4), extension, args.alpha)
+        nameTag += '_maxExt_%d' % args.maxExt
+        maxK = cat.split("-")[0]
+        if maxK != "3D":
+            maxK = int(maxK)
+        else:
+            maxK = 4
+        maxExt = evalExtension([maxK], np.zeros(int(args.maxExt) * 4).astype(int), extension, args.malpha)
 
     lblPath = os.path.join(lblPath, nameTag)
     if not os.path.exists(lblPath):
@@ -1494,6 +1497,11 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
     lblPath = os.path.join(lblPath, args.mergeType)
     if not os.path.exists(lblPath):
         os.mkdir(lblPath)
+
+    if os.path.exists(os.path.join(lblPath, 'merge_distances.txt')):
+        return
+
+    print('Merging clusters in category %s ' % cat)
 
     idx = np.where(lbls == lblgrp[0])[0]
     for i in range(1, len(lblgrp)):
@@ -1617,7 +1625,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
                             path2 = np.array(paths)[:, 1]
                             paths = [path1, path2]
                         else:
-                            _, _, _, paths, xext, yext = dtw_p(c1, c2, mismatch, extension, args.alpha)
+                            _, _, _, paths, xext, yext = dtw_p(c1, c2, mismatch, extension, args.malpha)
 
                         cxext = copy.copy(xext)
                         cyext = copy.copy(yext)
@@ -2004,11 +2012,7 @@ def merge_group(meta, ids, kdigos, dm, lbls, centers, lblPath, args, cat='1-Im',
             plt.xticks(range(len(indMergeDist)), ['%d' % (x + 1) for x in range(len(indMergeDist))])
             plt.xlabel('Merge Number')
             plt.ylabel('Distance')
-            if args.scaleExt:
-                plt.title('Individual Merge Distances + %.3g * Extension Penalty (scaled by length)' %
-                          args.extDistWeight)
-            else:
-                plt.title('Individual Merge Distances + %.3g * Extension Penalty' % args.extDistWeight)
+            plt.title('Individual Merge Distances + %.3g * Extension Penalty' % args.extDistWeight)
             pdf.savefig(fig, dpi=600)
             pdf2.savefig(fig, dpi=600)
             plt.close(fig)
@@ -2321,6 +2325,73 @@ def genSimulationData(lengthInDays=14, ptsPerDay=4, numVariants=15):
     return simulated, labels
 
 
+def genSelectedSimulations(selected, nSamples=5, targLen=14, ptsPerDay=4):
+    simulated = []
+    labels = []
+    totLen = targLen * 4
+    for i in range(len(selected)):
+        startKDIGO, longStart, stopKDIGO, longStop, baseKDIGO, numPeaks, peakVal = selected[i]
+        for vnum in range(nSamples):
+            kdigo = np.zeros(totLen) + baseKDIGO
+            maxPeakLen = 0
+            ct = 0
+            startLen = 1
+            stopLen = 1
+            while maxPeakLen <= 2 and ct < 10:
+                if longStart:
+                    startLen = np.random.randint(int(totLen / 4), int(totLen / 2))
+                else:
+                    startLen = np.random.randint(1, int(totLen / 5))
+                if longStop:
+                    stopLen = np.random.randint(int(totLen / 4), int(totLen / 2))
+                else:
+                    stopLen = np.random.randint(1, int(totLen / 5))
+                maxPeakLen = int((totLen - startLen - stopLen) / (numPeaks + 1))
+                ct += 1
+
+            kdigo[:startLen] = startKDIGO
+            kdigo[-stopLen:] = stopKDIGO
+            if maxPeakLen < 2:
+                continue
+            for peak in range(numPeaks):
+                dur = np.random.randint(2, maxPeakLen)
+                # start = np.random.randint(startLen + (peak * maxPeakLen))
+                start = np.random.randint(maxPeakLen - dur) + startLen + (peak * maxPeakLen) + ptsPerDay
+                kdigo[start:start + dur] = peakVal
+                if peakVal > 1:
+                    frontSlopeOffset = np.random.randint(ptsPerDay)
+                    backSlopeOffset = np.random.randint(ptsPerDay)
+                    kdigo[start - frontSlopeOffset:start] = int((peakVal + baseKDIGO) / 2)
+                    kdigo[start + dur:start + dur + backSlopeOffset] = int(
+                        (peakVal + baseKDIGO) / 2)
+            for j in range(len(kdigo)):
+                if kdigo[j] < 4:  # Allow negative noise
+                    neg = np.random.randint(2)
+                    if neg:
+                        kdigo[j] -= np.random.rand() * (float(kdigo[j]) * 0.1)
+                    else:
+                        kdigo[j] += np.random.rand() * (float(kdigo[j]) * 0.1)
+                else:
+                    kdigo[j] -= np.random.rand() * (float(kdigo[j]) * 0.1)
+            simulated.append(kdigo)
+            labels.append(selected[i])
+    return simulated, labels
+
+
+def selectedSimulationSubsets(sequences, labels, selected, nSamples=5):
+    outSeqs = []
+    outLbls = []
+    outIds = []
+    for label in selected:
+        idxs = np.where(labels == label)[0]
+        idxs = np.sort(np.random.permutation(idxs)[:nSamples])
+        for idx in idxs:
+            outSeqs.append(sequences[idx])
+            outLbls.append(label)
+            outIds.append(idx)
+    return outSeqs, outLbls, outIds
+
+
 def randomSimulationSubsets(sequences, labels, basePath, coords, mismatch=lambda x,y: abs(x - y),
                             extension=lambda x: 0, nSubtypes=5, nSamples=5, nSets=10):
 
@@ -2473,4 +2544,152 @@ def randomSimulationSubsets(sequences, labels, basePath, coords, mismatch=lambda
                                 # np.savetxt(os.path.join(ttPath, "yExt_%s.txt" % nNameTag), yexts)
                                 # np.savetxt(os.path.join(ttPath, "mergeExt_%s.txt" % nNameTag), mergeExt)
 
+
+def alphaParamSearch(sequences, labels, outPath, mismatch, extension, dist, tweightFilename,
+                     thresh=0.01, nIter=10, useCpp=True, maxVal=1.0, iterSelection="random", v=False):
+    nTypes = len(np.unique(labels))
+
+    dms = {}
+    clusters = {}
+    evals = {}
+
+    curAlpha = 0.0
+    if v:
+        cmd = ["pwisedtw", "sequences.csv", tweightFilename, outPath, iterSelection, "-popDTW", "-popDist", "-v", "-alpha"]
+    else:
+        cmd = ["pwisedtw", "sequences.csv", tweightFilename, outPath, iterSelection, "-popDTW", "-popDist", "-alpha"]
+    if useCpp:
+        runResult = subprocess.run(cmd + ["%f" % curAlpha])
+        if curAlpha >= 1:
+            dtwTag = "sequences_popDTW_a%dE+00" % curAlpha
+        else:
+            dtwTag = "sequences_popDTW_a%dE-04" % (curAlpha * 10000)
+        if iterSelection != "":
+            cPath = os.path.join(outPath, iterSelection, dtwTag)
+        else:
+            cPath = os.path.join(outPath, dtwTag)
+        dm = np.loadtxt(os.path.join(cPath, "kdigo_dm.csv"), delimiter=",", usecols=[2])
+    else:
+        dm, dmSave, alignments = dtwDistMat(sequences, mismatch, extension, curAlpha, dist)
+        with open(os.path.join(outPath, "dm_alpha_0E-04.csv"), "w") as f:
+            for i in range(len(dmSave)):
+                f.write(dmSave[i] + "\n")
+    link = fc.ward(dm)
+    clust = fcluster(link, nTypes, criterion='maxclust')
+    val = normalized_mutual_info_score(labels, clust, average_method="arithmetic")
+    dms[curAlpha] = dm
+    clusters[curAlpha] = clust
+    evals[curAlpha] = val
+
+    curAlpha = maxVal
+    if useCpp:
+        runResult = subprocess.run(cmd + ["%f" % curAlpha])
+        if curAlpha >= 1:
+            dtwTag = "sequences_popDTW_a%dE+00" % curAlpha
+        else:
+            dtwTag = "sequences_popDTW_a%dE-04" % (curAlpha * 10000)
+        if iterSelection != "":
+            cPath = os.path.join(outPath, iterSelection, dtwTag)
+        else:
+            cPath = os.path.join(outPath, dtwTag)
+        dm = np.loadtxt(os.path.join(cPath, "kdigo_dm.csv"), delimiter=",", usecols=[2])
+    else:
+        dm, dmSave, alignments = dtwDistMat(sequences, mismatch, extension, curAlpha, dist)
+        with open(os.path.join(outPath, "dm_alpha_1.csv"), "w") as f:
+            for i in range(len(dmSave)):
+                f.write(dmSave[i] + "\n")
+    link = fc.ward(dm)
+    clust = fcluster(link, nTypes, criterion='maxclust')
+    val = normalized_mutual_info_score(labels, clust, average_method="arithmetic")
+    dms[curAlpha] = dm
+    clusters[curAlpha] = clust
+    evals[curAlpha] = val
+
+    allOpts = []
+    step = float(maxVal) / (nIter + 1)
+    for iterNum in range(nIter):
+        if iterSelection == "random":
+            curAlpha = float("%.4f" % (np.random.random() * maxVal))
+        elif iterSelection == "grid":
+            curAlpha = (iterNum + 1) * step
+        else:
+            raise ValueError("Parameter iterSelection must be either 'random' or 'grid'. Received: %s" % iterSelection)
+
+        left = 0.0
+        right = maxVal
+        if evals[0.0] > evals[maxVal]:
+            opt = [0.0, evals[0.0]]
+        else:
+            opt = [maxVal, evals[maxVal]]
+
+        while (right - left) > thresh:
+            if useCpp:
+                runResult = subprocess.run(cmd + ["%f" % curAlpha])
+                if curAlpha >= 1:
+                    dtwTag = "sequences_popDTW_a%dE+00" % curAlpha
+                else:
+                    dtwTag = "sequences_popDTW_a%dE-04" % (curAlpha * 10000)
+                if iterSelection != "":
+                    cPath = os.path.join(outPath, iterSelection, dtwTag)
+                else:
+                    cPath = os.path.join(outPath, dtwTag)
+                dm = np.loadtxt(os.path.join(cPath, "kdigo_dm.csv"), delimiter=",", usecols=[2])
+            else:
+                dm, dmSave, alignments = dtwDistMat(sequences, mismatch, extension, curAlpha, dist)
+                with open(os.path.join(outPath, "dm_alpha_%dE-04.csv" % (10000 * curAlpha)), "w") as f:
+                    for i in range(len(dmSave)):
+                        f.write(dmSave[i] + "\n")
+            link = fc.ward(dm)
+            clust = fcluster(link, nTypes, criterion='maxclust')
+            val = normalized_mutual_info_score(labels, clust, average_method="arithmetic")
+            dms[curAlpha] = dm
+            clusters[curAlpha] = clust
+            evals[curAlpha] = val
+
+            if val > opt[1]:
+                opt = [curAlpha, val]
+
+            # Both left and right are worse than current,
+            if evals[left] < val and evals[right] < val:
+                lslope = (val - evals[left]) / (curAlpha - left)
+                rslope = (val - evals[right]) / (right - curAlpha)
+                if lslope > rslope:
+                    left = curAlpha
+                else:
+                    right = curAlpha
+            # Left is worse but right is better, so go to right
+            elif evals[left] < val:
+                left = curAlpha
+            # Right is worse but left is better, so go to right
+            elif evals[right] < val:
+                right = curAlpha
+            # Both left and right are better than current
+            else:
+                if evals[left] > evals[right]:
+                    right = curAlpha
+                else:
+                    left = curAlpha
+            curAlpha = (left + right) / 2
+        allOpts.append(opt)
+
+    return allOpts, dms, clusters, evals
+
+
+def dtwDistMat(sequences, mismatch, extension, alpha, dist):
+    dm = []
+    dmSave = []
+    alignments = []
+    for i in tqdm.trange(len(sequences), desc="Computing distance matrix with alpha=%.3f" % alpha):
+        s1 = sequences[i]
+        for j in range(i + 1, len(sequences)):
+            s2 = sequences[j]
+            _, _, _, paths, xext, yext = dtw_p(s1, s2, mismatch, extension, alpha)
+            s1p = s1[paths[0]]
+            s2p = s2[paths[1]]
+            d = dist(s1p, s2p)
+            dm.append(d)
+            dmSave.append("%d,%d,%.4f" % (i, j, d))
+            alignments.append([s1p, s2p])
+    dm = np.array(dm)
+    return dm, dmSave, alignments
 

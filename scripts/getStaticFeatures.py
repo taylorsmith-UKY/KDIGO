@@ -39,7 +39,7 @@ hosp_windows = load_csv(os.path.join(dataPath, 'hosp_admit_discharge.csv'), ids,
 stats = f[grp_name]
 
 header = 'STUDY_PATIENT_ID,AdmitScr,Age,Albumin,Anemia_A,Anemia_B,Anemia_C,baseline_scr,Bicarbonate_Low,Bicarbonate_High,Bilirubin,BMI,BUN,Diabetic,' \
-         'Dopamine,Dobutamine,Milrinone,Epinephrine,Phenylephrine,Vasopressin,FiO2_Low,FiO2_High,FluidOverload,Gender,GCS,Net_Fluid,' \
+         'FiO2_Low,FiO2_High,FluidOverload,Gender,GCS,Net_Fluid,' \
          'HeartRate_Low,HeartRate_High,Hematocrit_low,Hematocrit_high,Hemoglobin_low,Hemoglobin_High,' \
          'Hypertensive,ECMO,IABP,MechanicalVentilation,VAD,Lactate,MAP_low,MAP_high,AdmitKDIGO,Nephrotox_ct,' \
          'Vasopress_ct,pCO2_low,pCO2_high,Peak_SCr,pH_low,pH_high,Platelets,pO2_low,pO2_high,Potassium_low,' \

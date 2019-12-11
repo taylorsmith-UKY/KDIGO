@@ -2,7 +2,6 @@
 #include <vector>
 #include <fstream>
 #include <string>
-#include <mpi.h>
 #include <math.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -17,6 +16,10 @@ using namespace std;
 vector<vector<double> > dtw(vector<double> X, vector<double> Y,  double mismatch[5][5], double extension[5], double *coords, bool popCoords, bool aggExt=0, bool aggLap=0, double alpha=1.0, double laplacian = 0.0);
 void priorDTW(char * dtwFileName, char * distFileName, double *coords, bool popCoords, double laplacian = 0, bool aggLap = 0);
 
+double mismatchInterp(double val1, double val2, double mismatch[5][5]);
+double extensionInterp(double val, double extension[5]);
+double coordInterp(double val, double coords[5]);
+
 double myDist(vector<double> X, vector<double> Y, double *coords, bool popCoords, double laplacian = 0, bool aggLap = 0);
 
 int main(int argc, char **argv) {
@@ -29,24 +32,25 @@ int main(int argc, char **argv) {
     vector<vector<int> > alignments;
     vector<vector<int> > pairs;
     vector<int> pair(2);
-    long val, idx1, idx2, nIterations, myStart, myStop, number;
-    int size, myid, nweights;
-    double msg[MAXLEN];
+    long idx1, idx2, nIterations, number;
     double fnum;
-    MPI_Status status;
     stringstream ss;
     stringstream ss2;
     string token;
     string line;
+    string pairFileName;
     char filename[80] = {"\0"};
-    char folderName[80] = {"\0"};
-    char dtwFileName[80] = {"\0"};
-    char distFileName[80] = {"\0"};
+    char folderName[256] = {"\0"};
+    char basePath[256] = {"\0"};
+    char dtwFileName[256] = {"\0"};
+    char distFileName[256] = {"\0"};
     char dist_tag[80] = {"\0"};
     char dtw_tag[80] = {"\0"};
+    char subFolderName[80] = {"\0"};
     char tempStr[256] = {"\0"};
     char inputFilenameStem[80] = {"\0"};
-    char mergeCommand[8*80] = {"\0"};
+    char sequenceFilename[80] = {"\0"};
+    char weightFilename[80] = {"\0"};
     vector<double> seq;
     struct stat info;
     char *delim = ",";
@@ -57,48 +61,50 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    MPI_Init(&argc, &argv);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
-
-
     bool popDTW = false;
     bool popDist = false;
     bool aggLap = false;
     bool aggExt = false;
     bool getLap = false;
     bool getAlpha = false;
+    bool verbose = false;
     double alpha = 0.0;
     double laplacian = 0.0;
-    for (int i = 2; i < argc; i++) {
+    for (int i = 4; i < argc; i++) {
         ss.clear();
         if (strcmp("-popDTW", argv[i]) == 0) {
 
             popDTW = true;
-            if (myid == 0)
+            if (verbose)
                 cout << "Using population mismatch and extension penalties." << endl;
         }
         else if (strcmp("-popDist", argv[i]) == 0) {
-            if (myid == 0)
+            if (verbose)
                 cout << "Using population bray-curtis distance." << endl;
             popDist = true;
         }
         else if (strcmp("-laplacian", argv[i]) == 0) {
-            if (myid == 0)
-                cout << "Received command for laplacian with value " << argv[i+1] << "." << endl;
+            if (verbose)
+                cout << "Laplacian factor value " << argv[i+1] << "." << endl;
             getLap = true;
         }
         else if (strcmp("-aggLap", argv[i]) == 0) {
+            strcat(dist_tag, "_aggLap");
+            if (verbose)
+                cout << "Aggregating Laplacian factor." << endl;
             aggLap = true;
         }
         else if (strcmp("-aggExt", argv[i]) == 0) {
             strcat(dtw_tag, "_aggExt");
-            if (myid == 0)
+            if (verbose)
                 cout << "Aggregating extension penalty." << endl;
             aggExt = true;
         }
         else if (strcmp("-alpha", argv[i]) == 0) {
             getAlpha = true;
+        }
+        else if (strcmp("-v", argv[i]) == 0) {
+            verbose = true;
         }
         else if (strcmp("-delim", argv[i]) == 0) {
             delim = argv[i+1];
@@ -107,7 +113,11 @@ int main(int argc, char **argv) {
             if (getLap) {
                 ss << argv[i];
                 ss >> laplacian;
-                if (myid == 0)
+                tempStr[0] = '\0';
+                sprintf(tempStr, "_lap%d", (int) laplacian);
+                strcat(dist_tag, tempStr);
+//                            i++;
+                if (verbose)
                     cout << "Using Laplacian value of " << laplacian << "." << endl;
                 getLap = false;
             }
@@ -115,8 +125,9 @@ int main(int argc, char **argv) {
                 ss << argv[i];
                 ss >> alpha;
                 tempStr[0] = '\0';
-                if (myid == 0)
+                if (verbose)
                     cout << "Using Extension Penalty weight of alpha = " << alpha << "." << endl;
+                //            i++;
                 getAlpha = false;
             }
         }
@@ -124,17 +135,19 @@ int main(int argc, char **argv) {
 
     // Construct tag for DTW
     if (popDTW)
+//        strcat(dtw_tag, "popDTW");
         sprintf(dtw_tag, "popDTW");
     else
+//        strcat(dtw_tag, "normDTW");
         sprintf(dtw_tag, "normDTW");
-    if (alpha > 0) {
+//    if (alpha > 0) {
         tempStr[0] = '\0';
         if (alpha >= 1)
             sprintf(tempStr, "_a%dE+00", (int) alpha);
         else
-            sprintf(tempStr, "_a%dE-02", (int) (alpha*100));
+            sprintf(tempStr, "_a%dE-04", (int) (floor((alpha*10000))));
         strcat(dtw_tag, tempStr);
-    }
+//    }
     if (aggExt)
         strcat(dtw_tag, "_aggExt");
 
@@ -144,6 +157,7 @@ int main(int argc, char **argv) {
     else
         sprintf(dist_tag, "absCoords");
     if (laplacian > 0) {
+//        tempStr[0] = '\0';
         memset(tempStr, 0, 256);
         sprintf(tempStr, "_lap%.0f", laplacian);
         strcat(dist_tag, tempStr);
@@ -151,98 +165,90 @@ int main(int argc, char **argv) {
     if (aggLap)
         strcat(dist_tag, "_aggLap");
 
+    // strcat(folderName, dtw_tag);
     // First get sequence file-name without extension and store in line
     char * tch;
     strcpy(inputFilenameStem, argv[1]);
     tch = strtok(inputFilenameStem, ".");
 
+//    cout << "Base Path: " << argv[3] << endl;
+    strcpy(basePath, argv[3]);
+    strcpy(subFolderName, argv[4]);
+    if (verbose)
+        cout << "Working in folder: " << basePath << endl;
     // Construct folder and dtw/distance filenames
-    sprintf(folderName, "%s_%s", tch, dtw_tag);    // sequenceFile_dtwTag
+    if (strcmp("", argv[4]) == 0)
+        sprintf(folderName, "%s/%s_%s", basePath, tch, dtw_tag);    // sequenceFile_dtwTag
+    else
+        sprintf(folderName, "%s/%s/%s_%s", basePath, subFolderName, tch, dtw_tag);
+//    sprintf(dtwFileName, "%s/dtw_alignment.csv", folderName);
+//    sprintf(distFileName, "%s/kdigo_dm_%s_%s.csv", folderName, dtw_tag, dist_tag);
 
     stat(folderName, &info);
-    if( (info.st_mode & S_IFDIR) == 0 )
+    if( ~S_ISDIR(info.st_mode))
         mkdir(folderName, ACCESSPERMS);
 
-    memset(dtwFileName, 0, 80);
-    memset(distFileName, 0, 80);
-    sprintf(dtwFileName, "%s/dtw_alignment.csv", folderName);
-    sprintf(distFileName, "%s/kdigo_dm_%s_%s_proc%d.csv", folderName, dtw_tag, dist_tag, myid);
-
     unsigned long minSize = 10000;
-    if (myid == 0) {
-        ifstream is(argv[2]);
+
+//    sprintf(weightFilename, "%s/%s", basePath, argv[2]);
+    strcpy(weightFilename, argv[2]);
+    ifstream is(weightFilename);
+    if (verbose)
         cout << "Reading weights from " << argv[2] << endl;
-        getline(is, line);
-        while (getline(is, line)) {
-            seq.clear();
-            ss.clear();
-            ss.str("");
-            ss << line;
-            getline(ss, token, *delim);
-            getline(ss, token, *delim);
-            ss2 << token;
-            ss2 >> fnum;
-            tweights.push_back(fnum);
-            ss2.clear();
-            ss2.str("");
-        }
-        is.clear();
-        nweights = tweights.size();
-
-
-        ifstream is2(argv[1]);
-        cout << "Reading sequences from " << argv[1] << endl;
-        bool IDSaved = false;
+    getline(is, line);
+    while (getline(is, line)) {
+        seq.clear();
         ss.clear();
-        string line2;
-        while (getline(is2,line2)) {
-            ss2.clear();
-            ss.clear();
-            ss2.str("");
-            ss.str("");
-            seq.clear();
+        ss.str("");
+        ss << line;
+        getline(ss, token, *delim);
+        getline(ss, token, *delim);
+        ss2 << token;
+        ss2 >> fnum;
+        tweights.push_back(fnum);
+        ss2.clear();
+        ss2.str("");
+    }
+    is.clear();
 
-            ss << line2;
-            getline(ss, token, *delim);
+    sprintf(sequenceFilename, "%s/%s", basePath, argv[1]);
+    ifstream is2(sequenceFilename);
+    if (verbose)
+        cout << "Reading sequences from " << argv[1] << endl;
+    ss.clear();
+    string line2;
+    while (getline(is2,line2)) {
+        ss2.clear();
+        ss.clear();
+        ss2.str("");
+        ss.str("");
+        seq.clear();
+
+        ss << line2;
+        getline(ss, token, *delim);
+        ss2 << token;
+        ss2 >> fnum;
+
+        ids.push_back((int) fnum);
+        while (getline(ss, token, *delim)) {
+            ss2.clear();
+            ss2.str("");
             ss2 << token;
             ss2 >> fnum;
-
-            ids.push_back(fnum);
-            while (getline(ss, token, *delim)) {
-                ss2.clear();
-                ss2.str("");
-                ss2 << token;
-                ss2 >> fnum;
-                seq.push_back(fnum);
-            }
-            seqs.push_back(seq);
-            minSize = min(minSize, seq.size());
-            line2.clear();
+            seq.push_back(fnum);
         }
-        number = seqs.size();
-        if (v)
-            cout << "Number of sequences: " << number << endl;
+        seqs.push_back(seq);
+        minSize = min(minSize, seq.size());
+        line2.clear();
     }
-    MPI_Bcast(&number, 1, MPI_LONG, 0, MPI_COMM_WORLD);
+    number = seqs.size();
+    if (verbose)
+        cout << "Computing for " << number << " sequences." << endl;
 
-
-    MPI_Bcast(&nweights, 1, MPI_LONG, 0, MPI_COMM_WORLD);
-    if (myid == 0) {
-        for (int i = 0; i < nweights; i ++) {
-            msg[i] = tweights[i];
-        }
-    }
-    MPI_Barrier(MPI_COMM_WORLD);
-    MPI_Bcast(&msg, nweights, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    if (myid != 0) {
-        for (int i = 0; i < nweights; i++) {
-            tweights.push_back(msg[i]);
-        }
-    }
-
-    double coords[nweights+1];
+    double coords[5];
     double temp_coord;
-    for (int i = 0; i < nweights+1; i++){
+
+    for (int i = 0; i < 5; i++) {
         temp_coord = 0;
         for (int j = 0; j < i; j++) {
             temp_coord += tweights[j];
@@ -280,82 +286,45 @@ int main(int argc, char **argv) {
         }
     }
 
-
-    if (myid == 0) {
-        for (long i = 0; i < number; i++) {
-            msg[0] = ids[i];
-            msg[1] = seqs[i].size();
-            copy(seqs[i].begin(), seqs[i].end(), &msg[2]);
-            for (int j = 1; j < size; j++) {
-                MPI_Send(&msg, msg[1]+2, MPI_DOUBLE, j, i, MPI_COMM_WORLD);
-            }
-
-        }
-    } else {
-        for (long i = 0; i < number; i++) {
-            MPI_Recv(&msg, MAXLEN, MPI_DOUBLE, 0, i, MPI_COMM_WORLD, &status);
-            ids.push_back(msg[0]);
-            val = msg[1];
-            vector<double> tseq;
-            for (long j = 2; j < val+2; j++) {
-                tseq.push_back(msg[j]);
-            }
-            seqs.push_back(tseq);
-            tseq.clear();
-        }
-        if (v)
-            cout << "Processor " << myid << " received " << seqs.size() << " sequences." << endl;
-    }
-
-    nIterations = ceil((float) pairs.size() / size);
-    myStart = myid * nIterations;
-    myStop = min(myStart + nIterations, (long) pairs.size());
-    if (v)
-        cout << "Processor " << myid << " computing alignments for sequence pairs " << myStart << "-" << myStop << " out of " << pairs.size() << endl;
+    nIterations = pairs.size();
     vector<vector<double> > ret;
     vector<vector<double> > allPaths;
-    MPI_Barrier(MPI_COMM_WORLD);
 
     memset(dtwFileName, 0, 80);
     memset(distFileName, 0, 80);
-    sprintf(dtwFileName, "%s/dtw_alignment_proc%d.csv", folderName, myid);
-    sprintf(distFileName, "%s/kdigo_dm_%s_%s_proc%d.csv", folderName, dtw_tag, dist_tag, myid);
+    sprintf(dtwFileName, "%s/dtw_alignment.csv", folderName);
+//    sprintf(distFileName, "%s/kdigo_dm_%s_%s.csv", folderName, dtw_tag, dist_tag);
+    sprintf(distFileName, "%s/kdigo_dm.csv", folderName);
 
+    // sprintf(filename, "%s/dtw_alignment_proc%d.csv", folderName, myid);
     ofstream alignmentFile;
     alignmentFile.open(dtwFileName, ios::out | ios::trunc);
     memset(filename, 0, sizeof(filename));
+    // sprintf(filename, "%s/%s_proc%d.csv", folderName, distFileName, myid);
     ofstream distanceFile;
     distanceFile.open(distFileName, ios::out | ios::trunc);
-    for (long i = myStart; i < myStop; i++) {
-        if ((i-myStart) % ((myStop - myStart) / 10) == 0)
-            cout << "Processor " << myid << " is " << ((i-myStart) / ((myStop - myStart) / 10)) * 10 << "% done with alignment." << endl;
+//    distanceFile << "ID1,ID2,Distance,PT1_Extension_Penalty,PT2_Extension_Penalty" << endl;
+    for (long i = 0; i < nIterations; i++) {
+        if (((i % (nIterations / 10)) == 0) & verbose)
+            cout << (i / (nIterations / 10)) * 10 << "% done with alignment." << endl;
         idx1 = pairs[i][0];
         idx2 = pairs[i][1];
         ret = dtw(seqs[idx1], seqs[idx2], mismatch, extension, coords, popDist, aggExt, aggLap, alpha, laplacian);
 
         alignmentFile << (int) ids[pairs[i][0]];
         for (long j = 0; j < ret[1].size(); j++)
-            alignmentFile << "," << (int) ret[1][j];
+            alignmentFile << "," << ret[1][j];
         alignmentFile << endl;
         alignmentFile << (int) ids[pairs[i][1]];
         for (long j = 0; j < ret[1].size(); j++)
-            alignmentFile << "," << (int) ret[2][j];
-        alignmentFile << endl;
-        alignmentFile << endl;
+            alignmentFile << "," << ret[2][j];
+        alignmentFile << endl << endl;
         distanceFile << ids[pairs[i][0]] << "," << ids[pairs[i][1]] << "," << ret[0][0]
                      << "," << ret[0][1] << "," << ret[0][2] << endl;
     }
-    if (v) {
-        cout << "Processor " << myid << " finished DTW" << endl;
-        cout << "Total of " << dist.size() << " alignments" << endl;
-    }
-
     alignmentFile.close();
     distanceFile.close();
-    MPI_Barrier(MPI_COMM_WORLD);
 
-
-    MPI_Finalize();
     return 0;
 }
 
@@ -379,9 +348,10 @@ vector<vector<double> > dtw(vector<double> X, vector<double> Y,  double mismatch
     for (int i = 0; i < r; i++) {
         for (int j = 0; j < c; j++) {
             if ((int)X[i] <= (int)Y[j])
-                D0[i+1][j+1] = mismatch[(int)X[i]][(int)Y[j]];
+//                D0[i+1][j+1] = mismatch[(int)X[i]][(int)Y[j]];
+                D0[i+1][j+1] = mismatchInterp(X[i], Y[j], mismatch);
             else
-                D0[i+1][j+1] = mismatch[(int)Y[j]][(int)X[i]];
+                D0[i+1][j+1] = mismatchInterp(Y[j], X[i], mismatch);
         }
     }
 
@@ -398,43 +368,36 @@ vector<vector<double> > dtw(vector<double> X, vector<double> Y,  double mismatch
             if (aggExt) {
                 options[0] = D0[i][j] + ext_x[i][j] + ext_y[i][j];
                 options[1] = D0[i][j + 1] + ext_x[i][j + 1] + ext_y[i][j + 1] +
-                             alpha * (dup_y[i][j + 1] + 1) * extension[(int)Y[j]];
+                             alpha * (dup_y[i][j + 1] + 1) * extensionInterp(Y[j], extension);
                 options[2] = D0[i + 1][j] + ext_x[i + 1][j] + ext_y[i + 1][j] +
-                             alpha * (dup_x[i + 1][j] + 1) * extension[(int)X[i]];
+                             alpha * (dup_x[i + 1][j] + 1) * extensionInterp(X[i], extension);
                 if (options[1] <= options[0] && options[1] <= options[2]) {
-                    ext_y[i + 1][j + 1] = ext_y[i][j + 1] + alpha * (dup_y[i][j + 1] + 1) * extension[(int)Y[j]];
-                    ext_x[i + 1][j + 1] = ext_x[i][j + 1];
-                    D0[i + 1][j + 1] += D0[i][j + 1];
+                    D0[i + 1][j + 1] += D0[i][j + 1] + alpha * ((dup_y[i][j + 1] + 1) * extensionInterp(Y[j], extension));
                     dup_y[i + 1][j + 1] = dup_y[i][j + 1] + 1;
                     dup_x[i + 1][j + 1] = 0;
                 } else if (options[2] <= options[0] && options[2] <= options[1]) {
-                    ext_y[i + 1][j + 1] = ext_y[i + 1][j];
-                    ext_x[i + 1][j + 1] = ext_x[i + 1][j] + alpha * (dup_x[i + 1][j] + 1) * extension[(int)X[i]];
-                    D0[i + 1][j + 1] += D0[i + 1][j];
+                    D0[i + 1][j + 1] += D0[i + 1][j] + alpha * ((dup_x[i + 1][j] + 1) * extensionInterp(X[i], extension));
                     dup_y[i + 1][j + 1] = 0;
                     dup_x[i + 1][j + 1] = dup_x[i + 1][j] + 1;
                 } else {
                     D0[i + 1][j + 1] += D0[i][j];
-                    ext_y[i + 1][j + 1] = ext_y[i + 1][j];
-                    ext_x[i + 1][j + 1] = ext_x[i + 1][j];
                     dup_y[i + 1][j + 1] = 0;
                     dup_x[i + 1][j + 1] = 0;
                 }
-                D0[i+1][j+1] += ext_x[i+1][j+1] + ext_y[i+1][j+1];
             } else {
                 options[0] = D0[i][j];
-                options[1] = D0[i][j + 1] + alpha * (dup_y[i][j + 1] + 1) * extension[(int)Y[j]];
-                options[2] = D0[i + 1][j] + alpha * (dup_x[i + 1][j] + 1) * extension[(int)X[i]];
+                options[1] = D0[i][j + 1] + alpha * ((dup_y[i][j + 1] + 1) * extensionInterp(Y[j], extension));
+                options[2] = D0[i + 1][j] + alpha * ((dup_x[i + 1][j] + 1) * extensionInterp(X[i], extension));
                 if (options[0] <= options[1] && options[0] <= options[2]) {
                     D0[i + 1][j + 1] += D0[i][j];
-                    dup_y[i + 1][j + 1] = 0;
                     dup_x[i + 1][j + 1] = 0;
+                    dup_y[i + 1][j + 1] = 0;
                 } else if (options[1] <= options[0] && options[1] <= options[2]) {
-                    D0[i + 1][j + 1] += D0[i][j + 1] + alpha * (dup_y[i][j + 1] + 1) * extension[(int)Y[j]];
+                    D0[i + 1][j + 1] += D0[i][j + 1] + alpha * ((dup_y[i][j + 1] + 1) * extensionInterp(Y[j], extension));
                     dup_y[i + 1][j + 1] = dup_y[i][j + 1] + 1;
                     dup_x[i + 1][j + 1] = 0;
                 } else{
-                    D0[i + 1][j + 1] += D0[i + 1][j] + alpha * (dup_x[i + 1][j] + 1) * extension[(int)X[i]];
+                    D0[i + 1][j + 1] += D0[i + 1][j] + alpha * ((dup_x[i + 1][j] + 1) * extensionInterp(X[i], extension));
                     dup_y[i + 1][j + 1] = 0;
                     dup_x[i + 1][j + 1] = dup_x[i + 1][j] + 1;
                 }
@@ -467,13 +430,13 @@ vector<vector<double> > dtw(vector<double> X, vector<double> Y,  double mismatch
         else if (v2 <= v1 && v2 <= v3) {
             i -= 1;
             ydup += 1;
-            distance[2] += (ydup * extension[(int)Y[j]]);
+            distance[2] += (ydup * extensionInterp(Y[j], extension));
             xdup = 0;
         }
         else {
             j -= 1;
             xdup += 1;
-            distance[1] += (xdup * extension[(int)X[i]]);
+            distance[1] += (xdup * extensionInterp(X[i], extension));
             ydup = 0;
         }
 
@@ -491,13 +454,102 @@ vector<vector<double> > dtw(vector<double> X, vector<double> Y,  double mismatch
     return paths;
 }
 
+double mismatchInterp(double val1, double val2, double mismatch[5][5]) {
+    double f1, f2, baseMism, slope1, slope2, intMism;
+    f1 = floor(val1);
+    f2 = floor(val2);
+
+    baseMism = mismatch[(int) f1][(int) f2];
+    if (f1 < 4)
+        slope1 = mismatch[(int) f1 + 1][(int) f2] - baseMism;
+    else
+        slope1 = 0;
+
+    if (f2 < 4)
+        slope2 = mismatch[(int) f1][(int) f2 + 1] - baseMism;
+    else
+        slope2 = 0;
+
+    intMism = baseMism + ((val1 - f1) * slope1) + ((val2 - f2) * slope2);
+    return intMism;
+}
+
+double extensionInterp(double val, double extension[5]) {
+    double flr, baseExt, slope, intExt;
+    flr = floor(val);
+    baseExt = extension[(int) flr];
+    if (flr < 4) {
+        slope = extension[(int) flr + 1] - baseExt;
+        intExt = baseExt + ((val - flr) * slope);
+        return intExt;
+    }
+    else
+        return baseExt;
+}
+
+
+double coordInterp(double val, double coords[5]) {
+    double flr, baseCoord, slope, intCoord;
+    flr = floor(val);
+    baseCoord = coords[(int) flr];
+    if (flr < 4) {
+        slope = coords[(int) flr + 1] - baseCoord;
+        intCoord = baseCoord + ((val - flr) * slope);
+        return intCoord;
+    }
+    else
+        return baseCoord;
+}
+
+void priorDTW(char * dtwFileName, char * distFileName, double *coords, bool popCoords, double laplacian, bool aggLap) {
+    string line;
+    vector<double> X;
+    vector<double> Y;
+    stringstream ss;
+    vector<double> id1;
+    vector<double> id2;
+    double number;
+
+    ifstream alignments(dtwFileName);
+    ofstream dist_out(distFileName);
+
+    while (getline(alignments, line)) {
+        X.clear();
+        Y.clear();
+        ss.clear();
+        ss << line;
+        ss >> number;
+        dist_out << number;
+        while (ss >> number) {
+            X.push_back(number);
+        }
+        getline(alignments, line);
+        ss.clear();
+        ss << line;
+        ss >> number;
+        dist_out << "," << number;
+        while (ss >> number) {
+            Y.push_back(number);
+        }
+        number = myDist(X, Y, coords, popCoords, laplacian, aggLap);
+        dist_out << "," << number << endl;
+        getline(alignments, line);
+    }
+    alignments.close();
+    dist_out.close();
+    return;
+}
+
 double myDist(vector<double> X, vector<double> Y, double *coords, bool popCoords, double laplacian, bool aggLap) {
     double num = 0;
     double den = 0;
+    double xCoord, yCoord;
     for (int i = 0; i < X.size(); i++) {
         if (popCoords) {
-            num += fabs(coords[(int)X[i]] - coords[(int)Y[i]]);
-            den += fabs(coords[(int)X[i]] + coords[(int)Y[i]]);
+            xCoord = coordInterp(X[i], coords);
+            yCoord = coordInterp(Y[i], coords);
+            num += fabs(xCoord - yCoord);
+            den += fabs(xCoord + yCoord);
         }
         else {
             num += fabs(X[i] - Y[i]);
@@ -508,5 +560,7 @@ double myDist(vector<double> X, vector<double> Y, double *coords, bool popCoords
     if (aggLap)
         laplacian *= X.size();
     out = num / (den + laplacian);
+    if (isnan(out))
+        cout << "Distance is NaN" << endl;
     return out;
 }

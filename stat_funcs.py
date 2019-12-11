@@ -429,25 +429,31 @@ def get_uky_medications(ids, icu_windows, dataPath='', maxDay=1):
                                                                                               'arb',
                                                                                               'aminoglycosides',
                                                                                               'nsaids']]):
-                                    neph_ct += 1
+                                    neph_ct = 1
 
                                 # Vasoactive Drugs
                                 if np.any([med_m['MEDICATION_TYPE'][tid].lower() in x for x in ['presor', 'inotrope',
                                                                                                 'presor or inotrope']]):
-                                    vaso_ct += 1
+                                    vaso_ct = 1
 
                                 if 'dopamine' in tname:
                                     dopa = 1
+                                    vaso_ct = 1
                                 elif 'dobutamine' in tname:
                                     dobu = 1
+                                    vaso_ct = 1
                                 elif 'milrinone' in tname:
                                     mili = 1
+                                    vaso_ct = 1
                                 elif 'epinephrine':
                                     epi = 1
+                                    vaso_ct = 1
                                 elif 'phenylephrine' in tname:
                                     phenyl = 1
+                                    vaso_ct = 1
                                 elif 'vasopressin' in tname:
                                     vaso = 1
+                                    vaso_ct = 1
 
         neph_cts[i] = neph_ct
         vaso_cts[i] = vaso_ct
@@ -4561,6 +4567,11 @@ def get_disch_summary(id_file, stat_file, ids=None):
 #     return sofas, mising
 
 def get_sofa(ids, stats, scr_interp, days_interp, out_name, v=False):
+
+    # For medications (if "dopa" in...)
+    # Use individual medications
+    # Dopamine/Dobutamine/Milrinone = 2
+    # Epinephrine/Norepinephrine/Phenylephrine/Vasopressin = 3
 
     all_ids = stats['ids'][:]
     pt_sel = np.array([x in ids for x in all_ids])

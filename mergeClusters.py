@@ -21,6 +21,7 @@ parser.add_argument('--ext_alpha', '-alpha', action='store', type=float, dest='a
 parser.add_argument('--distance_function', '-dfunc', '-d', action='store', type=str, dest='dfunc', default='braycurtis')
 parser.add_argument('--pop_coords', '-pcoords', '-pc', action='store_true', dest='popcoords')
 parser.add_argument('--laplacian_type', '-lt', action='store', type=str, dest='lapType', default='none', choices=['none', 'individual', 'aggregated'])
+parser.add_argument('--merge_laplacian_type', '-mlt', action='store', type=str, dest='mlapType', default='none', choices=['none', 'individual', 'aggregated'])
 parser.add_argument('--laplacian_val', '-lv', action='store', type=float, dest='lapVal', default=1.0)
 parser.add_argument('--meta_group', '-meta', action='store', type=str, dest='meta',
                     default='meta')
@@ -31,15 +32,18 @@ parser.add_argument('--category', '-cat', action='store', type=str, dest='cat', 
 parser.add_argument('--seedType', '-seed', action='store', type=str, dest='seedType',
                     default='medoid', choices=['medoid', 'mean', 'zeros'])
 parser.add_argument('--center_length', '-clen', action='store', type=int, dest='clen', default=14)
+parser.add_argument('--merge_alpha', '-malpha', action='store', type=float, dest='malpha', default=-1.0)
 parser.add_argument('--mergeType', '-mtype', action='store', type=str, dest='mergeType', default='mean')
 parser.add_argument('--DBAIterations', '-dbaiter', action='store', type=int, dest='dbaiter', default=10)
 parser.add_argument('--extensionDistanceWeight', '-extDistWeight', action='store', type=float, dest='extDistWeight',
                     default=0.0)
-parser.add_argument('--scaleExtension', '-scaleExt', action='store_true', dest='scaleExt')
 parser.add_argument('--cumulativeExtensionForDistance', '-cumExtDist', action='store_true', dest='cumExtDist')
 
 parser.add_argument('--maxExtension', '-maxExt', action='store', type=float, default=-1., dest='maxExt')
 args = parser.parse_args()
+
+if args.malpha < 0:
+    args.malpha = args.alpha
 
 configurationFileName = os.path.join(args.cfpath, args.cfname)
 
@@ -95,7 +99,7 @@ if dm.ndim == 2:
 lblPath = os.path.join(resPath, 'clusters', '%ddays' % t_lim,
                        folderName, dm_tag, 'flat', '%d_clusters' % args.nClusters)
 
-dist = get_custom_distance_discrete(coords, dfunc=args.dfunc, lapVal=args.lapVal, lapType=args.lapType)
+dist = get_custom_distance_discrete(coords, dfunc=args.dfunc, lapVal=args.lapVal, lapType=args.mlapType)
 
 stats = f[meta_grp]
 folderName = dtw_tag

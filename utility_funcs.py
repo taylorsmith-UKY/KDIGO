@@ -72,7 +72,7 @@ def load_csv(fname, ids=None, dt=float, skip_header=False, idxs=None, targets=No
             if ids is not None:
                 rid.append(type(ids[0])(l[0]))
             else:
-                rid.append(l[0])
+                rid.append(id_dtype(l[0]))
     if struct == 'list':
         try:
             if np.all([len(res[x]) == len(res[0]) for x in range(len(res))]):
