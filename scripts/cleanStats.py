@@ -24,7 +24,7 @@ analyze = conf['analyze']           # Time period to analyze (hospital/ICU/all)
 baseDataPath = os.path.join(basePath, 'DATA', 'all_sheets')         # folder containing all raw data
 dataPath = os.path.join(basePath, 'DATA', analyze, cohortName)
 resPath = os.path.join(basePath, 'RESULTS', analyze, cohortName)
-f = h5py.File(os.path.join(resPath, statFileName), 'r+')
+f = h5py.File(os.path.join(resPath, statFileName), 'r')
 ids = f[grp_name]['ids'][:]
 
 kdigos = load_csv(os.path.join(dataPath, 'kdigo_icu_2ptAvg.csv'), ids, int)
@@ -60,20 +60,27 @@ toppercents = ['urine_out', 'wbc_low', 'wbc_high', 'map_high', 'height']
 # By provided explicit ranges:
 for k in list(lims):
     temp = stats[k][:]
+    lowCount = 0
+    highCount = 0
     if lims[k][0] is not None:
+        lowCount = len(np.where(temp < lims[k][0])[0])
         temp[np.where(temp < lims[k][0])] = np.nan
     if lims[k][1] is not None:
+        highCount = len(np.where(temp > lims[k][1])[0])
         temp[np.where(temp > lims[k][1])] = np.nan
-    stats[k][:] = temp
+    # stats[k][:] = temp
+    print(k, lowCount, highCount)
 
 
 for k in bottomcents:
+    ct = 0
     if k in list(stats):
         temp = stats[k][:]
         m = np.nanmean(temp)
         std = np.nanstd(temp)
+        ct = len(np.where(temp < (m - (std * 1.96)))[0])
         temp[np.where(temp < (m - (std * 1.96)))] = np.nan
-        stats[k][:] = temp
+        # stats[k][:] = temp
     else:
         tk = k.split("_")[0]
         if k.split("_")[1] == "low":
@@ -83,16 +90,19 @@ for k in bottomcents:
         temp = stats[tk][:, idx]
         m = np.nanmean(temp)
         std = np.nanstd(temp)
+        ct = len(np.where(temp < (m - (std * 1.96)))[0])
         temp[np.where(temp < (m - (std * 1.96)))] = np.nan
-        stats[tk][:, idx] = temp
+        # stats[tk][:, idx] = temp
+    print(k, ct)
 
 for k in toppercents:
     if k in list(stats):
         temp = stats[k][:]
         m = np.nanmean(temp)
         std = np.nanstd(temp)
+        ct = len(np.where(temp > (m + (std * 1.96)))[0])
         temp[np.where(temp > (m + (std * 1.96)))] = np.nan
-        stats[k][:] = temp
+        # stats[k][:] = temp
     else:
         tk = k.split("_")[0]
         if k.split("_")[1] == "low":
@@ -102,8 +112,10 @@ for k in toppercents:
         temp = stats[tk][:, idx]
         m = np.nanmean(temp)
         std = np.nanstd(temp)
+        ct = len(np.where(temp > (m + (std * 1.96)))[0])
         temp[np.where(temp > (m + (std * 1.96)))] = np.nan
-        stats[tk][:, idx] = temp
+        # stats[tk][:, idx] = temp
+    print(k, ct)
 
 # It is OK to replace height and weight with imputed values
 temp = stats['height'][:]
@@ -133,6 +145,7 @@ stats['urine_flow'][:] = urine_flows
 
 # Recalculate fluid overloads using imputed weights
 nets, tots, fos, cfbs = get_uky_fluids(ids, stats['weight'][:], baseDataPath)
+
 stats['fluid_overload'][:] = fos
 
 # for k in list(stats):

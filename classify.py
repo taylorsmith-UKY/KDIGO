@@ -72,21 +72,7 @@ X, hdr = load_csv(os.path.join(indFeatPath, '%s.csv' % feat), ids, skip_header='
 if X.ndim == 1:
     X = X[:, None]
 featName = feat
-# else:
-#     data = []
-#     hdrs = []
-#     for j in range(len(feat[0])):
-#         X, hdr = load_csv(os.path.join(indFeatPath, '%s.csv' % feat[0][j]), ids, skip_header='keep')
-#         if X.ndim == 1:
-#             X = X[:, None]
-#         data.append(X)
-#         hdrs.append(hdr)
-#     X = np.hstack(data)
-#     hdr = np.concatenate(hdrs)
-#     featName = '_'.join(feat[0])
 assert len(hdr) == X.shape[1]
-# for i in range(X.shape[1]):
-#     X[np.where(np.isnan(X[:, i]))] = 0
 
 classPath = os.path.join(resPath, 'classification', '%ddays' % t_lim, target, featName)
 if not os.path.exists(classPath):
@@ -112,13 +98,17 @@ classificationModel = args.classModel
 modelPath = os.path.join(selectionPath, classificationModel)
 if not os.path.exists(modelPath):
     os.mkdir(modelPath)
+# else:
+#     if os.path.exists(os.path.join(modelPath, "evaluation_summary.png")):
+#         exit()
 # Feature Selection
-clf, probas, fold_probas, fold_lbls = classify(tX, y, classification_model=classificationModel, out_path=modelPath,
+clf, probas, fold_probas, fold_lbls, imports = classify(tX, y, classification_model=classificationModel, out_path=modelPath,
                                                feature_name=featName, gridsearch=args.grid, sample_method='rand_over',
                                                cv_num=args.cv)
 np.savetxt(os.path.join(modelPath, 'predicted_probas.txt'), probas)
 arr2csv(os.path.join(modelPath, 'predicted_probas_fold.csv'), fold_probas, None)
 arr2csv(os.path.join(modelPath, 'true_labels_fold.csv'), fold_lbls, None)
+arr2csv(os.path.join(modelPath, "feature_importances_fold.csv"), imports, None)
 dump(clf, os.path.join(modelPath, 'classifier.joblib'))
 
 model = SelectFromModel(clf, prefit=True)

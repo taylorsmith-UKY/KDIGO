@@ -9,7 +9,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
     average_precision_score, roc_curve, auc
 from sklearn.metrics.classification import classification_report
 from xgboost import XGBClassifier
-from stat_funcs import perf_measure, get_even_pos_neg, count_eps
+from stat_funcs import perf_measure, get_even_pos_neg, count_eps, eval_classification
 import os
 from scipy import interp
 from utility_funcs import arr2csv, cartesian, get_date, get_array_dates, load_csv
@@ -34,10 +34,10 @@ rf_params = {'n_estimators': 100,
 # %%
 def descriptive_trajectory_features(kdigos, ids, days, t_lim=None, filename='descriptive_features.csv', tRes=6):
     npts = len(kdigos)
-    features = np.zeros((npts, 19))
+    features = np.zeros((npts, 17))
     header = 'id,peak_KDIGO,KDIGO_at_admit,KDIGO_at_EndOfWindow,Min_KDIGO,AKI_first_3days,AKI_after_3days,' + \
              'multiple_hits,KDIGO1+_gt_24hrs,KDIGO2+_gt_24hrs,KDIGO3+_gt_24hrs,KDIGO4_gt_24hrs,' + \
-             'flat,strictly_increase,strictly_decrease,slope_posTOneg,slope_negTOpos,numPeaks,Start_Duration,Stop_Duration'
+             'flat,strictly_increase,strictly_decrease,slope_posTOneg,slope_negTOpos,numPeaks'
     PEAK_KDIGO = 0
     KDIGO_ADMIT = 1
     KDIGO_EndOfWin = 2
@@ -55,8 +55,8 @@ def descriptive_trajectory_features(kdigos, ids, days, t_lim=None, filename='des
     POStoNEG = 14
     NEGtoPOS = 15
     NUM_PEAKS = 16
-    LONG_START = 17
-    LONG_STOP = 18
+    # LONG_START = 17
+    # LONG_STOP = 18
 
     for i in range(len(kdigos)):
         kdigo = kdigos[i]
@@ -82,8 +82,8 @@ def descriptive_trajectory_features(kdigos, ids, days, t_lim=None, filename='des
             else:
                 break
 
-        if ct >= ((9 * 4) / 5):
-            features[i, LONG_START] = 1
+        # if ct >= ((9 * 4) / 5):
+        #     features[i, LONG_START] = 1
 
         ct = 0
         for i in range(len(kdigo)-1)[::-1]:
@@ -91,8 +91,8 @@ def descriptive_trajectory_features(kdigos, ids, days, t_lim=None, filename='des
                 ct += 1
             else:
                 break
-        if ct >= ((9 * 4) / 5):
-            features[i, LONG_STOP] = 1
+        # if ct >= ((9 * 4) / 5):
+        #     features[i, LONG_STOP] = 1
 
         # Multiple hits separated by >= 24 hrs
         numHits, numPeaks = count_eps(kdigo, t_gap=24, timescale=6)
@@ -402,7 +402,9 @@ def classify(X, y, classification_model, out_path, feature_name, gridsearch=Fals
     if classification_model != 'mvr':
         clf.set_params(**params)
         log_file = open(os.path.join(out_path, 'classification_log.txt'), 'w')
-        log_file.write('Fold_#,Accuracy,Precision,Recall,F1-Score,TP,FP,TN,FN,ROC_AUC\n')
+        log_file.write('Fold_#,ROC_AUC,Accuracy,Sensitivity,Specificity,Precision,Recall,F1-Score,PPV,NPV,TP,FP,TN,FN\n')
+
+        # auc, acc, sensitivity, specificity, ppv, npv, precision, recall, f1, support, tn, fp, fn, tp
 
         skf = StratifiedKFold(n_splits=cv_num, shuffle=True, random_state=1)
 
@@ -412,6 +414,7 @@ def classify(X, y, classification_model, out_path, feature_name, gridsearch=Fals
         mean_fpr = np.linspace(0, 1, 100)
         pre_probs = []
         val_lbls = []
+        imports = []
         for i, (train_idx, val_idx) in enumerate(skf.split(X, y)):
             print('Evaluating on Fold ' + str(i + 1) + ' of ' + str(cv_num) + '.')
             # Get the training and test sets
@@ -480,19 +483,28 @@ def classify(X, y, classification_model, out_path, feature_name, gridsearch=Fals
                 tprs[-1][0] = 0.0
                 aucs.append(roc_auc)
 
-                acc = accuracy_score(y_val, pred)
-                prec = precision_score(y_val, pred)
-                rec = recall_score(y_val, pred)
-                f1 = f1_score(y_val, pred)
+                # acc = accuracy_score(y_val, pred)
+                # prec = precision_score(y_val, pred)
+                # rec = recall_score(y_val, pred)
+                # f1 = f1_score(y_val, pred)
 
-                tp, fp, tn, fn = perf_measure(y_val, pred)
+                # tp, fp, tn, fn = perf_measure(y_val, pred)
+                # 'Fold_#,ROC_AUC,Accuracy,Sensitivity,Specificity,Precision,Recall,F1-Score,PPV,NPV,TP,FP,TN,FN\n'
 
-                log_file.write('%d,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d,%.4f\n' % (
-                    i + 1, acc, prec, rec, f1, tp, fp, tn, fn, roc_auc))
+                roc_auc, acc, sensitivity, specificity, ppv, \
+                npv, precision, recall, f1, support, tn, fp, fn, tp = eval_classification(probas, y_val)
+
+                log_file.write('%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d\n' % (
+                    i + 1, roc_auc, acc, sensitivity, specificity, precision, recall, f1, ppv, npv, tp, fp, tn, fn))
 
                 probs[val_idx] = probas
                 pre_probs.append(probas)
                 val_lbls.append(y_val)
+                if hasattr(clf, "coef_"):
+                    imports.append(clf.coef_[0])
+
+                elif hasattr(clf, "feature_importances_"):
+                    imports.append(clf.feature_importances_)
 
         log_file.close()
 
@@ -523,7 +535,7 @@ def classify(X, y, classification_model, out_path, feature_name, gridsearch=Fals
         plt.savefig(os.path.join(out_path, 'evaluation_summary.png'))
         plt.close(fig)
         clf = clf.fit(X, y)
-        return clf, probs, pre_probs, val_lbls
+        return clf, probs, pre_probs, val_lbls, imports
     else:
         np.savetxt(os.path.join(out_path, 'mvr_coefficients.csv'), coef, delimiter=',')
     return clf

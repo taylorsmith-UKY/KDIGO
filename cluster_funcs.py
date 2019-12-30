@@ -534,44 +534,68 @@ def getMeanParentDist(tree, tree_locs):
 
 
 # %%
-def eval_clusters(dm, ids, label_path, labels_true=None):
-    '''
-    Evaluate clustering performance. If no true labels provided, will only evaluate using Silhouette Score and
-    Calinski Harabaz score.
-    :param data_file: filename or file handle for hdf5 file containing patient statistics
-    :param label_path: fully qualified path to directory containing cluster labels
-    :param sel:
-    :param labels_true:
-    :return:
-    '''
-    if dm.ndim == 1:
-        sqdm = squareform(dm)
-    else:
-        sqdm = dm
-    clusters = load_csv(os.path.join(label_path, 'clusters.csv'), ids, str)
-    ss = silhouette_score(sqdm, clusters, metric='precomputed')
-    chs = calinski_harabaz_score(sqdm, clusters)
-    if labels_true is None:
-        print('Silhouette Score: %.4f' % ss)
-        print('Calinski Harabaz Score: %.4f' % chs)
-        return ss, chs
-    else:
-        ars = adjusted_rand_score(clusters, labels_true)
-        nmi = normalized_mutual_info_score(clusters, labels_true)
-        hs = homogeneity_score(clusters, labels_true)
-        cs = completeness_score(clusters, labels_true)
-        vms = v_measure_score(clusters, labels_true)
-        fms = fowlkes_mallows_score(clusters, labels_true)
+def eval_clusters(ids, max_kdigos, kdigos, days, inp_death, basePath, minClust=36, maxClust=96):
+    cats = ["%s-%s" % (x, y) for x in ["1", "2", "3", "3D"] for y in ["Im", "St", "Ws"]]
+    evals = {}
+    for cat in cats:
+        evals[cat] = []
 
-        print('Silhouette Score: %.4f' % ss)
-        print('Calinski Harabaz Score: %.4f' % chs)
-        print('Adjusted Rand Index: %.4f' % ars)
-        print('Normalize Mutual Information: %.4f' % nmi)
-        print('Homogeneity Score: %.4f' % hs)
-        print('Completeness Score: %.4f' % cs)
-        print('V Measure Score: %.4f' % vms)
-        print('Fowlkes-Mallows Score: %.4f' % fms)
-        return ss, chs, ars, nmi, hs, cs, vms, fms
+    for nClust in range(minClust, maxClust + 1):
+        labels = load_csv(os.path.join(basePath, "%d_clusters" % nClust, "clusters.csv"), ids, int)
+        catLabels, _ = clusterCategorizer(max_kdigos, kdigos, days, labels, t_lim=14)
+        catNames = np.unique(catLabels)
+        for cat in cats:
+            dcounts = []
+            for tcat in catNames:
+                if cat in tcat:
+                    idx = np.where(catLabels == tcat)[0]
+                    dcounts.append(np.sum(inp_death[idx]) / len(idx) * 100)
+            if len(dcounts) > 0:
+                evals[cat].append(max(dcounts) - min(dcounts))
+            else:
+                evals[cat].append(0)
+    return evals
+
+
+
+# def eval_clusters(dm, ids, label_path, labels_true=None):
+#     '''
+#     Evaluate clustering performance. If no true labels provided, will only evaluate using Silhouette Score and
+#     Calinski Harabaz score.
+#     :param data_file: filename or file handle for hdf5 file containing patient statistics
+#     :param label_path: fully qualified path to directory containing cluster labels
+#     :param sel:
+#     :param labels_true:
+#     :return:
+#     '''
+#     if dm.ndim == 1:
+#         sqdm = squareform(dm)
+#     else:
+#         sqdm = dm
+#     clusters = load_csv(os.path.join(label_path, 'clusters.csv'), ids, str)
+#     ss = silhouette_score(sqdm, clusters, metric='precomputed')
+#     chs = calinski_harabaz_score(sqdm, clusters)
+#     if labels_true is None:
+#         print('Silhouette Score: %.4f' % ss)
+#         print('Calinski Harabaz Score: %.4f' % chs)
+#         return ss, chs
+#     else:
+#         ars = adjusted_rand_score(clusters, labels_true)
+#         nmi = normalized_mutual_info_score(clusters, labels_true)
+#         hs = homogeneity_score(clusters, labels_true)
+#         cs = completeness_score(clusters, labels_true)
+#         vms = v_measure_score(clusters, labels_true)
+#         fms = fowlkes_mallows_score(clusters, labels_true)
+#
+#         print('Silhouette Score: %.4f' % ss)
+#         print('Calinski Harabaz Score: %.4f' % chs)
+#         print('Adjusted Rand Index: %.4f' % ars)
+#         print('Normalize Mutual Information: %.4f' % nmi)
+#         print('Homogeneity Score: %.4f' % hs)
+#         print('Completeness Score: %.4f' % cs)
+#         print('V Measure Score: %.4f' % vms)
+#         print('Fowlkes-Mallows Score: %.4f' % fms)
+#         return ss, chs, ars, nmi, hs, cs, vms, fms
 
 
 def inter_intra_dist(dm, lbls, op='mean', out_path='', plot='both'):
@@ -2546,14 +2570,14 @@ def randomSimulationSubsets(sequences, labels, basePath, coords, mismatch=lambda
 
 
 def alphaParamSearch(sequences, labels, outPath, mismatch, extension, dist, tweightFilename,
-                     thresh=0.01, nIter=10, useCpp=True, maxVal=1.0, iterSelection="random", v=False):
+                     thresh=0.01, nIter=10, useCpp=True, minVal=0.0, maxVal=1.0, iterSelection="random", v=False):
     nTypes = len(np.unique(labels))
 
     dms = {}
     clusters = {}
     evals = {}
 
-    curAlpha = 0.0
+    curAlpha = minVal
     if v:
         cmd = ["pwisedtw", "sequences.csv", tweightFilename, outPath, iterSelection, "-popDTW", "-popDist", "-v", "-alpha"]
     else:
@@ -2606,19 +2630,19 @@ def alphaParamSearch(sequences, labels, outPath, mismatch, extension, dist, twei
     evals[curAlpha] = val
 
     allOpts = []
-    step = float(maxVal) / (nIter + 1)
+    step = float(maxVal - minVal) / (nIter + 1)
     for iterNum in range(nIter):
         if iterSelection == "random":
             curAlpha = float("%.4f" % (np.random.random() * maxVal))
         elif iterSelection == "grid":
-            curAlpha = (iterNum + 1) * step
+            curAlpha = float("%.4f" % ((iterNum + 1) * step))
         else:
             raise ValueError("Parameter iterSelection must be either 'random' or 'grid'. Received: %s" % iterSelection)
 
-        left = 0.0
+        left = minVal
         right = maxVal
-        if evals[0.0] > evals[maxVal]:
-            opt = [0.0, evals[0.0]]
+        if evals[minVal] > evals[maxVal]:
+            opt = [minVal, evals[minVal]]
         else:
             opt = [maxVal, evals[maxVal]]
 

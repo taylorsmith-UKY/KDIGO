@@ -65,7 +65,7 @@ for iterSelection in iterSelectionList:
             plt.ylim([0, 1])
             plt.xlabel("Value of Alpha")
             plt.ylabel("Normalized Mutual Information")
-            plt.title("Optimization of Extension Penalty Weight")
+            plt.title("Optimization of Extension Penalty Weight\n%s" % cat)
             plt.savefig(os.path.join(outPath, "eval_plot.png"), dpi=600)
             pdf.savefig(figure=fig, dpi=600)
             plt.close(fig)

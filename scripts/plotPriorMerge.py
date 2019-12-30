@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from cluster_funcs import plotMultiKdigo, plotKdigo
 
-class Args:
+class args:
     sf = 'kdigo_icu_2ptAvg.csv'
     df = 'days_interp_icu_2ptAvg.csv'
     pdtw = True
@@ -17,7 +17,7 @@ class Args:
     popcoords = True
     lapType = 'aggregated'
     lapVal = 1.0
-    meta = 'meta_avg'
+    meta = 'meta'
     plot_centers = False
     nClusters = 96
     seedType = 'medoid'
@@ -30,7 +30,6 @@ class Args:
     cfpath = ''
     cfpath = 'kdigo_conf.json'
 
-args = Args()
 
 configurationFileName = os.path.join('kdigo_conf.json')
 

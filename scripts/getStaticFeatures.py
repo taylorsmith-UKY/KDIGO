@@ -20,6 +20,8 @@ t_lim = conf['analysisDays']        # How long to consider in the analysis
 tRes = conf['timeResolutionHrs']    # Resolution after imputation in hours
 analyze = conf['analyze']           # Time period to analyze (hospital/ICU/all)
 
+elixIdxs = [0, 4, 5, 6, 9, 10, 11, 14, 15, 16, 18, 20, 30]
+
 # Build paths and create if don't already exist
 baseDataPath = os.path.join(basePath, 'DATA', 'all_sheets')         # folder containing all raw data
 dataPath = os.path.join(basePath, 'DATA', analyze, cohortName)
@@ -38,20 +40,22 @@ hosp_windows = load_csv(os.path.join(dataPath, 'hosp_admit_discharge.csv'), ids,
 # stats = summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, baseDataPath, grp_name, 14)
 stats = f[grp_name]
 
-header = 'STUDY_PATIENT_ID,AdmitScr,Age,Albumin,Anemia_A,Anemia_B,Anemia_C,baseline_scr,Bicarbonate_Low,Bicarbonate_High,Bilirubin,BMI,BUN,Diabetic,' \
-         'FiO2_Low,FiO2_High,FluidOverload,Gender,GCS,Net_Fluid,' \
+header = 'STUDY_PATIENT_ID,AdmitScr,Age,Albumin,Anemia_A,Anemia_B,Anemia_C,baseline_scr,Bicarbonate_Low,Bicarbonate_High,Bilirubin,BMI,BUN,' \
+         'FiO2_Low,FiO2_High,FluidOverload,Gender,' \
          'HeartRate_Low,HeartRate_High,Hematocrit_low,Hematocrit_high,Hemoglobin_low,Hemoglobin_High,' \
-         'Hypertensive,ECMO,IABP,MechanicalVentilation,VAD,Lactate,MAP_low,MAP_high,AdmitKDIGO,Nephrotox_ct,' \
+         'ECMO,IABP,MechanicalVentilation,VAD,MAP_low,MAP_high,AdmitKDIGO,Nephrotox_ct,' \
          'Vasopress_ct,pCO2_low,pCO2_high,Peak_SCr,pH_low,pH_high,Platelets,pO2_low,pO2_high,Potassium_low,' \
-         'Potassium_high,Race,Respiration_low,Respiration_high,Septic,Smoker,Sodium_low,Sodium_high,' \
-         'Temperature_low,Temperature_high,Urine_flow,Urine_output,WBC_low,WBC_high,Height,Weight,hrsInICU_48hr,hrsInICU_D01,MechHemodynamicSupport,unPlannedAdmission'
+         'Potassium_high,Race,Respiration_low,Respiration_high,Septic,Sodium_low,Sodium_high,' \
+         'Temperature_low,Temperature_high,Urine_output,WBC_low,WBC_high,Height,Weight,hrsInICU_48hr,' \
+         'hrsInICU_D01,MechHemodynamicSupport,unPlannedAdmission,MaxKDIGO_D01,MaxKDIGO_D03,MaxKDIGO_14d'
 
-feats = np.zeros((len(ids), (len(header.split(',')) + 63)))
+feats = np.zeros((len(ids), (len(header.split(',')) + len(elixIdxs) - 1)))
 admit_scrs = np.zeros(len(ids))
 admit_kdigos = np.zeros(len(ids))
 peak_scrs = np.zeros(len(ids))
 hrsInIcu = np.zeros(len(ids))
 ahrsInIcu = np.zeros(len(ids))
+mks = np.zeros((len(ids), 3))
 
 hosp_admits = get_array_dates(stats['hosp_dates'][:, 0].astype(str))
 icu_admits = get_array_dates(stats['icu_dates'][:, 0].astype(str))
@@ -59,6 +63,9 @@ for i in range(len(ids)):
     admit_scrs[i] = scrs[i][0]
     admit_kdigos[i] = kdigos[i][0]
     peak_scrs[i] = np.max(scrs[i][np.where(days[i] <= 1)])
+    mks[i, 0] = np.max(kdigos[i][np.where(days[i] <= 1)])
+    mks[i, 1] = np.max(kdigos[i][np.where(days[i] <= 3)])
+    mks[i, 2] = np.max(kdigos[i][np.where(days[i] <= 14)])
 
     icuAdmitDay = icu_admits[i].toordinal() - hosp_admits[i].toordinal()
     if icuAdmitDay == 0:
@@ -77,7 +84,8 @@ tstats = {'AdmitScr': admit_scrs, 'AdmitKDIGO': admit_kdigos,
           'MechanicalVentilation': stats['mv_flag'][:], 'Urine_output': stats['urine_out'][:],
           'hrsInICU_D01': hrsInIcu, 'hrsInICU_48hr': ahrsInIcu, 'VAD': stats['vad'][:],
           'ECMO': stats['ecmo'], 'IABP': stats['iabp'], 'MechHemodynamicSupport': stats['mhs'],
-          'unPlannedAdmission': stats['unPlannedAdmissions']}
+          'unPlannedAdmission': stats['unPlannedAdmissions'],
+          "MaxKDIGO_D01": mks[:, 0], "MaxKDIGO_D03": mks[:, 1], "MaxKDIGO_14d": mks[:, 2]}
 
 col = 0
 ct = 0
@@ -103,25 +111,28 @@ for k in header.split(',')[1:]:
         print("Couldn't find feature %s" % k)
     prev = copy(k)
 
+#
+# header += ',' + ','.join(['SOFA_%d' % x for x in range(6)])
+# header += ',' + ','.join(['APACHE_%d' % x for x in range(13)])
+# header += ',' + ','.join(['Charlson_%d' % x for x in range(14)])
+# header += ',' + ','.join(['Elixhauser_%d' % x for x in range(31)])
+#
+# sofa = load_csv(os.path.join(dataPath, 'sofa.csv'), ids, int, skip_header=True)
+# feats[:, col:col+6] = sofa
+# col += 6
+#
+# apache = load_csv(os.path.join(dataPath, 'apache.csv'), ids, int, skip_header=True)
+# feats[:, col:col + 13] = apache
+# col += 13
+#
+# feats[:, col:col+14] = stats['charlson_components'][:]
+# col += 14
 
-header += ',' + ','.join(['SOFA_%d' % x for x in range(6)])
-header += ',' + ','.join(['APACHE_%d' % x for x in range(13)])
-header += ',' + ','.join(['Charlson_%d' % x for x in range(14)])
-header += ',' + ','.join(['Elixhauser_%d' % x for x in range(31)])
-
-sofa = load_csv(os.path.join(dataPath, 'sofa.csv'), ids, int, skip_header=True)
-feats[:, col:col+6] = sofa
-col += 6
-
-apache = load_csv(os.path.join(dataPath, 'apache.csv'), ids, int, skip_header=True)
-feats[:, col:col + 13] = apache
-col += 13
-
-feats[:, col:col+14] = stats['charlson_components'][:]
-col += 14
-
-feats[:, col:col+31] = stats['elixhauser_components'][:]
-col += 31
+elix = stats['elixhauser_components'][:]
+for idx in elixIdxs:
+    feats[:, col] = elix[:, idx]
+    col += 1
+    header += "," + "Elixhauser_%d" % idx
 
 contStr = 'FeatureName,Mean,StdDev,Median,IQ-1,IQ-3,Min,Max,Missing_#(%)\n'
 catStr = 'FeatureName,n (%),Missing_#(%)\n'

@@ -19,7 +19,7 @@ import pandas as pd
 from scipy.spatial.distance import squareform
 from scipy.stats import sem, t, ttest_ind, kruskal, normaltest
 from sklearn.utils import resample
-from sklearn.metrics import roc_auc_score, confusion_matrix, precision_recall_fscore_support
+from sklearn.metrics import roc_auc_score, confusion_matrix, precision_recall_fscore_support, accuracy_score
 from tqdm import trange
 from rpy2.robjects.packages import importr
 import rpy2.robjects.numpy2ri as n2r
@@ -95,7 +95,7 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
 
     if 'charlson' not in list(meta):
         print('Getting patient comorbidities...')
-        c_scores, e_scores, smokers, charls, elixs = get_uky_comorbidities(ids, data_path)
+        c_scores, e_scores, smokers, charls, elixs, diabetics, hypertensives = get_uky_comorbidities(ids, data_path)
         c_scores = np.array(c_scores, dtype=float)  # Float bc posible NaNs
         e_scores = np.array(e_scores, dtype=float)  # Float bc posible NaNs
         smokers = np.array(smokers, dtype=bool)
@@ -104,6 +104,8 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
         meta.create_dataset('elixhauser', data=e_scores, dtype=int)
         meta.create_dataset('charlson_components', data=charls, dtype=int)
         meta.create_dataset('elixhauser_components', data=elixs, dtype=int)
+        meta.create_dataset('diabetic', data=diabetics, dtype=int)
+        meta.create_dataset('hypertensive', data=hypertensives, dtype=int)
 
     if 'bmi' not in list(meta):
         print('Getting clinical others...')
@@ -126,12 +128,12 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
     if 'septic' not in list(meta):
         print('Getting diagnoses...')
         septics, diabetics, hypertensives = get_uky_diagnoses(ids, data_path)
-        septics = np.array(septics, dtype=int)
-        diabetics = np.array(diabetics, dtype=int)
-        hypertensives = np.array(hypertensives, int)
+        # septics = np.array(septics, dtype=int)
+        # diabetics = np.array(diabetics, dtype=int)
+        # hypertensives = np.array(hypertensives, int)
         meta.create_dataset('septic', data=septics, dtype=int)
-        meta.create_dataset('diabetic', data=diabetics, dtype=int)
-        meta.create_dataset('hypertensive', data=hypertensives, dtype=int)
+        # meta.create_dataset('diabetic', data=diabetics, dtype=int)
+        # meta.create_dataset('hypertensive', data=hypertensives, dtype=int)
 
     if 'net_fluid' not in list(meta):
         print('Getting fluid IO...')
@@ -185,17 +187,19 @@ def summarize_stats(f, ids, kdigos, days, scrs, icu_windows, hosp_windows, data_
 
     if 'vad' not in list(meta):
         print('Getting other organ support...')
-        mv_flags, mv_days, mv_frees, ecmos, vads, iabps, mhs = get_uky_organsupp(ids, died_inps, icu_windows, data_path)
+        mv_flags, mv_days, mv_frees_win, mv_frees_28d, ecmos, vads, iabps, mhs = get_uky_organsupp(ids, died_inps, icu_windows, data_path)
         mv_flags = np.array(mv_flags, dtype=int)
         mv_days = np.array(mv_days, dtype=float)
-        mv_frees = np.array(mv_frees, dtype=float)
+        mv_frees_win = np.array(mv_frees_win, dtype=float)
+        mv_frees_28d = np.array(mv_frees_28d, dtype=float)
         ecmos = np.array(ecmos, dtype=int)
         iabps = np.array(iabps, dtype=int)
         vads = np.array(vads, dtype=int)
 
         meta.create_dataset('mv_flag', data=mv_flags, dtype=int)
         meta.create_dataset('mv_days', data=mv_days, dtype=float)
-        meta.create_dataset('mv_free_days', data=mv_frees, dtype=float)
+        meta.create_dataset('mv_free_days_win', data=mv_frees_win, dtype=float)
+        meta.create_dataset('mv_free_days_28d', data=mv_frees_28d, dtype=float)
         meta.create_dataset('ecmo', data=ecmos, dtype=int)
         meta.create_dataset('iabp', data=iabps, dtype=int)
         meta.create_dataset('vad', data=vads, dtype=int)
@@ -554,6 +558,8 @@ def get_uky_comorbidities(ids, dataPath=''):
     charls = np.full((len(ids), 14), np.nan)
     elixs = np.full((len(ids), 31), np.nan)
     smokers = np.zeros(len(ids))
+    diabetics = np.zeros(len(ids))  # elixs[:, [10, 11]]
+    hypertensives = np.zeros(len(ids))  # elixs[:, [5, 6]]
     for i in range(len(ids)):
         tid = ids[i]
         charl_idx = np.where(charl_m['STUDY_PATIENT_ID'].values == tid)[0]
@@ -573,6 +579,10 @@ def get_uky_comorbidities(ids, dataPath=''):
                 elix = elix_m['ELIXHAUSER_INDEX'][elix_idx]
             for j in range(31):
                 elixs[i, j] = elix_m['ELX_GRP_%d' % (j + 1)][elix_idx]
+                if elixs[i, j] and j in [10, 11]:
+                    diabetics[i] = 1
+                if elixs[i, j] and j in [5, 6]:
+                    hypertensives[i] = 1
         charl_idxs[i] = charl
         elix_idxs[i] = elix
 
@@ -586,7 +596,7 @@ def get_uky_comorbidities(ids, dataPath=''):
                 smoker = 1
         smokers[i] = smoker
     del charl_m, elix_m, smoke_m
-    return charl_idxs, elix_idxs, smokers, charls, elixs
+    return charl_idxs, elix_idxs, smokers, charls, elixs, diabetics, hypertensives
 
 
 def get_uky_fluids(ids, weights, dataPath='', maxDay=1):
@@ -752,7 +762,7 @@ def get_uky_organsupp(ids, dieds, windows, dataPath='', maxDay=1, tlim=14):
 
     mhs = np.max(np.vstack((ecmos, vads, iabps)), axis=0).T
     del organ_sup_mv, organ_sup_iabp, organ_sup_vad, organ_sup_ecmo
-    return mech_flags, mech_days, mech_frees_win, ecmos, vads, iabps, mhs
+    return mech_flags, mech_days, mech_frees_win, mech_frees_28d, ecmos, vads, iabps, mhs
 
 
 def get_uky_clinical_others(ids, dataPath=''):
@@ -895,25 +905,29 @@ def get_uky_rrt(ids, dieds, windows, dataPath='', t_lim=7):
                 if start != 'nan' and stop != 'nan':
                     wstart = max(admit, start)
                     wstop = min(disch, stop)
-                    if wstop > wstart and wstart < endwin:
-                        rrt_flag = 1
-                        crrt_flag = 1
-                        crrt_days_win += (wstop - wstart).total_seconds() / (60 * 60 * 24)
-                    if wstart < end28d:
-                        crrt_days += (wstop - wstart).total_seconds() / (60 * 60 * 24)
+                    if wstop > wstart:
+                        if wstart < endwin:
+                            rrt_flag = 1
+                            crrt_flag = 1
+                            tend = min(wstop, endwin)
+                            crrt_days_win += (tend - wstart).total_seconds() / (60 * 60 * 24)
+                        if wstart < end28d:
+                            crrt_days += (wstop - wstart).total_seconds() / (60 * 60 * 24)
                 # hd
                 start = get_date(rrt_m['HD_START_DATE'][row])
                 stop = get_date(rrt_m['HD_STOP_DATE'][row])
                 if start != 'nan' and stop != 'nan':
                     wstart = max(admit, start)
                     wstop = min(disch, stop)
-                    if wstop > wstart and wstart < endwin:
-                        rrt_flag = 1
-                        hd_flag = 1
-                        hd_days_win += (wstop - wstart).total_seconds() / (60 * 60 * 24)
-                        hd_trtmt += rrt_m['HD_TREATMENTS'][row]
-                    if wstart < end28d:
-                        hd_days += (wstop - wstart).total_seconds() / (60 * 60 * 24)
+                    if wstop > wstart:
+                        if wstart < endwin:
+                            rrt_flag = 1
+                            hd_flag = 1
+                            tend = min(wstop, endwin)
+                            hd_days_win += (tend - wstart).total_seconds() / (60 * 60 * 24)
+                            hd_trtmt += rrt_m['HD_TREATMENTS'][row]
+                        if wstart < end28d:
+                            hd_days += (wstop - wstart).total_seconds() / (60 * 60 * 24)
     
         hd_free_win = min(0, t_lim - hd_days_win)
         hd_free_28d = min(0, 28 - hd_days)
@@ -940,7 +954,8 @@ def get_uky_rrt(ids, dieds, windows, dataPath='', t_lim=7):
         crrt_flags[i] = crrt_flag
         hd_flags[i] = hd_flag
     del rrt_m
-    return rrt_flags, hd_dayss, crrt_dayss, hd_dayss_win, crrt_dayss_win, hd_frees_7d, hd_frees_28d, hd_trtmts, crrt_frees_7d, crrt_frees_28d, crrt_flags, hd_flags
+    rrt_dayss = hd_dayss + crrt_dayss
+    return rrt_flags, hd_dayss, crrt_dayss, hd_dayss_win, crrt_dayss_win, hd_frees_7d, hd_frees_28d, hd_trtmts, crrt_frees_7d, crrt_frees_28d, crrt_flags, hd_flags, rrt_dayss
 
 
 def get_uky_diagnoses(ids, dataPath=''):
@@ -1174,8 +1189,10 @@ def summarize_stats_dallas(ids, kdigos, days, scrs, icu_windows, hosp_windows,
                            f, base_path, grp_name='meta', tlim=7, v=False):
 
     n_eps = []
+
     for i in range(len(kdigos)):
-        n_eps.append(count_eps(kdigos[i]))
+        count, numPeaks = count_eps(kdigos[i])
+        n_eps.append(count)
 
     date_m = pd.read_csv(os.path.join(base_path, 'tIndexedIcuAdmission.csv'))
     hosp_locs = [date_m.columns.get_loc('HSP_ADMSN_TIME'), date_m.columns.get_loc('HSP_DISCH_TIME')]
@@ -1291,7 +1308,8 @@ def summarize_stats_dallas(ids, kdigos, days, scrs, icu_windows, hosp_windows,
 
     if 'weight' not in list(meta):
         print('Getting clinical others...')
-        heights, weights, bmis, temps, net_fluids, gros_fluids, cfbs, glasgows, resps, hrs, maps, fos, urine_outs, urine_flows = get_utsw_flw(ids, base_path)
+        heights, weights, bmis, temps, net_fluids, gros_fluids, cfbs, glasgows,\
+        resps, hrs, maps, fos, urine_outs, urine_flows = get_utsw_flw(ids, base_path)
         meta.create_dataset('bmi', data=bmis, dtype=float)
         meta.create_dataset('weight', data=weights, dtype=float)
         meta.create_dataset('height', data=heights, dtype=float)
@@ -1807,12 +1825,15 @@ def get_utsw_flw(ids, dataPath):
     hrs = np.full((len(ids), 3, 2), np.nan)
     maps = np.full((len(ids), 3, 2), np.nan)
     temps = np.full((len(ids), 3, 2), np.nan)
-    fos = np.full((len(ids), 3), np.nan)
+    fos = np.full((len(ids)), np.nan)
     uops = np.full((len(ids), 3), np.nan)
     uflows = np.full((len(ids), 3), np.nan)
 
-    drows = np.union1d(np.union1d(np.where(flw_m['DAY_NO'].values == 'D0')[0], np.where(flw_m['DAY_NO'].values == 'D1')[0]),
-                       np.union1d(np.where(flw_m['DAY_NO'].values == 'D2')[0], np.where(flw_m['DAY_NO'].values == 'D3')[0]))
+    drows = np.union1d(np.union1d(np.where(flw_m['DAY_NO'].values == 'D0')[0],
+                                  np.where(flw_m['DAY_NO'].values == 'D1')[0]),
+                       np.union1d(np.where(flw_m['DAY_NO'].values == 'D2')[0],
+                                  np.where(flw_m['DAY_NO'].values == 'D3')[0]))
+
     hrows = np.where(flw_m['TERM_GRP_NAME'].values == 'HEIGHT')[0]
     wrows = np.where(flw_m['TERM_GRP_NAME'].values == 'WEIGHT')[0]
     uoprows = np.where(flw_m['TERM_GRP_NAME'].values == 'UOP')[0]
@@ -1968,15 +1989,15 @@ def get_utsw_flw(ids, dataPath):
         d2_out_idx = np.intersect1d(d2_idx, out_idx)
 
         try:
-            net0 = float(flw_m['D_SUM_VAL'][d0_in_idx] - flw_m['D_SUM_VAL'][d0_out_idx])
+            net0 = float(flw_m['D_SUM_VAL'][d0_in_idx].values - flw_m['D_SUM_VAL'][d0_out_idx].values)
         except:
             net0 = np.nan
         try:
-            net1 = float(flw_m['D_SUM_VAL'][d1_in_idx] - flw_m['D_SUM_VAL'][d1_out_idx])
+            net1 = float(flw_m['D_SUM_VAL'][d1_in_idx].values - flw_m['D_SUM_VAL'][d1_out_idx].values)
         except:
             net1 = np.nan
         try:
-            net2 = float(flw_m['D_SUM_VAL'][d2_in_idx] - flw_m['D_SUM_VAL'][d2_out_idx])
+            net2 = float(flw_m['D_SUM_VAL'][d2_in_idx].values - flw_m['D_SUM_VAL'][d2_out_idx].values)
         except:
             net2 = np.nan
 
@@ -1991,15 +2012,15 @@ def get_utsw_flw(ids, dataPath):
             cfb = np.nan
 
         try:
-            tot0 = float(flw_m['D_SUM_VAL'][d0_in_idx] + flw_m['D_SUM_VAL'][d0_out_idx])
+            tot0 = float(flw_m['D_SUM_VAL'][d0_in_idx].values + flw_m['D_SUM_VAL'][d0_out_idx].values)
         except:
             tot0 = np.nan
         try:
-            tot1 = float(flw_m['D_SUM_VAL'][d1_in_idx] + flw_m['D_SUM_VAL'][d1_out_idx])
+            tot1 = float(flw_m['D_SUM_VAL'][d1_in_idx].values + flw_m['D_SUM_VAL'][d1_out_idx].values)
         except:
             tot1 = np.nan
         try:
-            tot2 = float(flw_m['D_SUM_VAL'][d2_in_idx] + flw_m['D_SUM_VAL'][d2_out_idx])
+            tot2 = float(flw_m['D_SUM_VAL'][d2_in_idx].values + flw_m['D_SUM_VAL'][d2_out_idx].values)
         except:
             tot2 = np.nan
 
@@ -5786,25 +5807,45 @@ def get_even_pos_neg(target, method='under'):
 #     return cNRI_e, cNRI_ne, cNRI, IDI, (new_auc - old_auc)
 
 
-def eval_reclassification(basePath):
-    lbls = np.loadtxt(os.path.join(basePath, 'labels.txt'))[:, None]
-    probs1 = np.loadtxt(os.path.join(basePath, 'model1.txt'))[:, None]
-    probs2 = np.loadtxt(os.path.join(basePath, 'model2.txt'))[:, None]
+# def eval_reclassification(basePath):
+#     lbls = np.loadtxt(os.path.join(basePath, 'labels.txt'))[:, None]
+#     probs1 = np.loadtxt(os.path.join(basePath, 'model1.txt'))[:, None]
+#     probs2 = np.loadtxt(os.path.join(basePath, 'model2.txt'))[:, None]
+#     h = importr('Hmisc')
+#     pa = importr('PredictABEL')
+#     base = importr('base')
+#
+#     probs1 = n2r.py2ro(probs1)
+#     probs2 = n2r.py2ro(probs2)
+#     data = n2r.py2ro(np.hstack((lbls, lbls, lbls)))
+#     idx = base.integer(1)
+#     idx[0] = 0
+#     cutoffs = n2r.py2ro(np.array([0, 0.05, 0.1, 0.2, 1.0]))
+#     pa.reclassification(data, idx, probs1, probs2, cutoffs)
+
+
+def eval_reclassification(lbls, probs1, probs2):
     h = importr('Hmisc')
     pa = importr('PredictABEL')
     base = importr('base')
 
+    lbls = lbls[:, None]
+    probs1 = probs1[:, None]
+    probs2 = probs2[:, None]
+
     probs1 = n2r.py2ro(probs1)
     probs2 = n2r.py2ro(probs2)
-    data = n2r.py2ro(np.hstack((lbls, lbls, lbls)))
+    data = n2r.py2ro(lbls)
+    # data = n2r.py2ro(np.hstack((lbls, lbls, lbls)))
     idx = base.integer(1)
     idx[0] = 0
-    cutoffs = n2r.py2ro(np.array([0, 0.05, 0.1, 0.2, 1.0]))
+    cutoffs = n2r.py2ro(np.array([0, 0.4, 1.0]))
     pa.reclassification(data, idx, probs1, probs2, cutoffs)
 
 
 def eval_classification(probs, ground_truth, thresh=0.5):
     preds = np.array(probs >= thresh, dtype=int)
+    acc = accuracy_score(ground_truth, preds)
     tn, fp, fn, tp = confusion_matrix(ground_truth, preds).ravel()
     precision, recall, f1, support = precision_recall_fscore_support(ground_truth, preds, average='micro')
     sensitivity = tp / np.sum(ground_truth)
@@ -5812,4 +5853,4 @@ def eval_classification(probs, ground_truth, thresh=0.5):
     auc = roc_auc_score(ground_truth, probs)
     ppv = tp / (tp + fp)
     npv = tn / (tn + fn)
-    return auc, sensitivity, specificity, ppv, npv, precision, recall, f1, support
+    return auc, acc, sensitivity, specificity, ppv, npv, precision, recall, f1, support, tn, fp, fn, tp
