@@ -1,0 +1,401 @@
+/*!
+ * Start Bootstrap - Business Frontpage HTML Template (http://startbootstrap.com)
+ * Code licensed under the Apache License v2.0.
+ * For details, see http://www.apache.org/licenses/LICENSE-2.0.
+ */
+
+@media print {
+    a[href]:after {
+        content: none !important;
+    }
+}
+
+body {
+    padding-top: 0px; /* Required padding for .navbar-fixed-top. Remove if using .navbar-static-top. Change if height of navigation changes. */
+    position: relative;
+    padding-bottom: 0px;
+}
+
+
+.business-header {
+    height: 400px;
+    background: url("../figures/background.png") center center no-repeat scroll;
+    -webkit-background-size: cover;
+    -moz-background-size: cover;
+    background-size: cover;
+    -o-background-size: cover;
+    position:relative;
+    /*text-align: center*/
+}
+
+/*#kidney-img {*/
+    /*!*display: block;*!*/
+    /*!*width: auto;*!*/
+    /*!*max-height: 20px;*!*/
+    /*!*margin-top:-50px;*!*/
+    /*color:black;*/
+/*}*/
+
+/*Solution for Navbar hides initial content when jumping to in-page anchor*/
+div #Description:before, div #Team:before {
+    display: block;
+    content: " ";
+    margin-top: -75px;
+    height: 75px;
+    visibility: hidden;
+}
+
+.vertical-align {
+    display: flex;
+    align-items: center;
+}
+
+.bottom-align-text {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+}
+
+/* Customize the text color and shadow color and to optimize text legibility. */
+
+.tagline {
+    text-shadow: 0 0 10px #000;
+    color: #fff;
+    /*color:#f0ad4e;*/
+}
+
+.img-center {
+    margin: 0 auto;
+}
+
+.img-container {
+    border-style: solid;
+    border-width: 8px 8px;
+    border-image-outset: 8px;
+    border-color: #f0ad4e;
+}
+
+.is-bold{
+    font-weight: bold;
+}
+
+
+.bg-orange {
+    /*background: url("../figures/background_part2.png") center center repeat scroll;*/
+    /*background-color: #fff2e5;*/
+    /*backgroud-color: #f2f2f2;*/
+}
+
+p {
+    font-family: sans-serif;
+    font-weight: 500;
+    font-size: 15px;
+    color: #727272;
+}
+
+#person p {
+    font-family: sans-serif;
+    font-weight: 500;
+    font-size: 15px;
+    color: #404040;
+}
+
+.reference p{
+    /*color: #5e5e5e;*/
+    font-size: 14px;
+}
+
+.reference .title{
+    color: #5e5e5e;
+    font-weight: bold;
+}
+
+h2 {
+    color: #404040;
+}
+
+
+div#person {
+    padding-bottom: 20px;
+}
+
+footer {
+    margin: 50px 0;
+}
+
+
+/****** AKI PREDICTOR PAGE ******/
+
+.btn-full-width {
+    display: block;
+    width: 100%;
+}
+.results{
+    border: 2px;
+    border-color: #eea236;
+    border-radius: 8px;
+    /*background-color: #f0ad4e;*/
+    background-color: #f2f2f2;
+    padding: 10px;
+    /*color: white;*/
+    color: #ed9d2b ;
+    font-size: 30px;
+}
+
+.advanced_results{
+    border: 2px;
+    border-color: #eea236;
+    border-radius: 8px;
+    /*background-color: #f0ad4e;*/
+    background-color: #f2f2f2;
+    padding: 10px;
+    /*color: white;*/
+    color: #ed9d2b ;
+    font-size: 14px;
+    margin: 10px;
+}
+
+.vcenter {
+    display: inline-block;
+    vertical-align: middle;
+    float: none;
+}
+
+#result_id:before, #admission_form_id:before, #day1_form_id:before {
+    display: block;
+    content: " ";
+    margin-top: -75px;
+    height: 75px;
+    visibility: hidden;
+}
+
+/****** LOGIN PAGE ******/
+
+.business-header2 {
+    height: 83%;
+    min-height: 500px;
+    background: url("../figures/background.png") center center no-repeat scroll;
+    -webkit-background-size: cover;
+    -moz-background-size: cover;
+    background-size: cover;
+    -o-background-size: cover;
+    position:relative;
+    /*width: 100%*/
+    /*text-align: center*/
+}
+
+.form-box {
+    margin-top: 5%;
+    /*margin-top: 55px;*/
+    /*background-color: #0f0f0f;*/
+    /*opacity: 0.4;*/
+    /*filter: alpha(opacity=40); !* For IE8 and earlier *!*/
+}
+
+.form-top {
+    height: auto;
+    overflow: hidden;
+    padding: 0 25px 15px 25px;
+    background: #444;
+    background: rgba(0, 0, 0, 0.45);
+    -moz-border-radius: 4px 4px 0 0; -webkit-border-radius: 4px 4px 0 0; border-radius: 4px 4px 0 0;
+    text-align: left;
+}
+
+.form-top-left {
+    float: left;
+    /*width: 85%;*/
+    padding-top: 25px;
+    margin-left: -15px;
+}
+
+.form-top-left h1 { margin-top: 0; color: #fff; }
+.form-top-left p { opacity: 0.8; color: #fff; }
+
+.form-top-right {
+    float: left;
+    /*width: 15%;*/
+    padding-top: 10px;
+    font-size: 100px;
+    color: #fff;
+    line-height: 100px;
+    text-align: right;
+    opacity: 0.3;
+    /*font-size: 5.5vw;*/
+}
+
+.form-bottom {
+    height: auto;
+    padding: 10px 25px 30px 25px;
+    background: #444;
+    background: rgba(0, 0, 0, 0.45);
+    -moz-border-radius: 0 0 4px 4px; -webkit-border-radius: 0 0 4px 4px; border-radius: 0 0 4px 4px;
+    text-align: left;
+}
+
+.form-bottom form textarea {
+    height: 100px;
+}
+
+.form-bottom form button.btn {
+    width: 100%;
+}
+
+.form-bottom form .input-error {
+    border-color: #de615e;
+}
+
+.uppercase {
+    text-transform: uppercase;
+}
+
+.control-label {
+    color: white;
+}
+
+/***** PROCESS BAR ******/
+
+.bs-wizard {margin-top: 40px;}
+.bs-wizard {border-bottom: solid 1px #e0e0e0; padding: 0 0 10px 0;}
+.bs-wizard > .bs-wizard-step {padding: 0; position: relative;}
+.bs-wizard > .bs-wizard-step + .bs-wizard-step {}
+.bs-wizard > .bs-wizard-step .bs-wizard-stepnum {color: #595959; font-size: 16px; margin-bottom: 5px;}
+.bs-wizard > .bs-wizard-step .bs-wizard-info {color: #999; font-size: 14px;}
+.bs-wizard > .bs-wizard-step > .bs-wizard-dot {position: absolute; width: 30px; height: 30px; display: block; background: #f9deb8; top: 45px; left: 50%; margin-top: -15px; margin-left: -15px; border-radius: 50%;}
+.bs-wizard > .bs-wizard-step > .bs-wizard-dot:after {content: ' '; width: 14px; height: 14px; background: #ed9d2b; border-radius: 50px; position: absolute; top: 8px; left: 8px; }
+.bs-wizard > .bs-wizard-step > .progress {position: relative; border-radius: 0px; height: 8px; box-shadow: none; margin: 20px 0;}
+.bs-wizard > .bs-wizard-step > .progress > .progress-bar {width:0px; box-shadow: none; background: #f9deb8;}
+.bs-wizard > .bs-wizard-step.complete > .progress > .progress-bar {width:100%;}
+.bs-wizard > .bs-wizard-step.active > .progress > .progress-bar {width:50%;}
+.bs-wizard > .bs-wizard-step:first-child.active > .progress > .progress-bar {width:0%;}
+.bs-wizard > .bs-wizard-step:last-child.active > .progress > .progress-bar {width: 100%;}
+.bs-wizard > .bs-wizard-step.disabled > .bs-wizard-dot {background-color: #f5f5f5;}
+.bs-wizard > .bs-wizard-step.disabled > .bs-wizard-dot:after {opacity: 0;}
+.bs-wizard > .bs-wizard-step:first-child  > .progress {left: 50%; width: 50%;}
+.bs-wizard > .bs-wizard-step:last-child  > .progress {width: 50%;}
+.bs-wizard > .bs-wizard-step.disabled a.bs-wizard-dot{ pointer-events: none; }
+
+/****** FOOTER ******/
+
+.footer {
+    position: absolute;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    /* Set the fixed height of the footer here */
+    height: 50px;
+    /*background-color: #f5f5f5;*/
+}
+
+html {
+  position: relative;
+  min-height: 100%;
+}
+
+/****** SCROLL TO TOP BUTTON *****/
+
+.scroll-top-wrapper {
+position: fixed;
+opacity: 0;
+visibility: hidden;
+overflow: hidden;
+text-align: center;
+z-index: 99999999;
+background-color: #777777;
+color: #eeeeee;
+width: 50px;
+height: 48px;
+line-height: 48px;
+right: 30px;
+bottom: 30px;
+padding-top: 2px;
+border-top-left-radius: 10px;
+border-top-right-radius: 10px;
+border-bottom-right-radius: 10px;
+border-bottom-left-radius: 10px;
+-webkit-transition: all 0.5s ease-in-out;
+-moz-transition: all 0.5s ease-in-out;
+-ms-transition: all 0.5s ease-in-out;
+-o-transition: all 0.5s ease-in-out;
+transition: all 0.5s ease-in-out;
+}
+
+.scroll-top-wrapper:hover {
+background-color: #888888;
+}
+
+.scroll-top-wrapper.show {
+visibility:visible;
+cursor:pointer;
+opacity: 1.0;
+}
+.scroll-top-wrapper i.fa {
+line-height: inherit;
+}
+
+/****** INTRODUCTION ******/
+
+a.kdigo , a.kdigo:link, a.kdigo:visited {
+    color: #eea236;
+}
+
+a.kdigo:hover {
+    color: #a5660e;
+}
+
+/****** CONTACT US *******/
+
+.contacts{
+    border: 2px;
+    border-color: #eea236;
+    border-radius: 8px;
+    /*background-color: #f0ad4e;*/
+    background-color: #f2f2f2;
+    padding: 10px;
+    /*color: white;*/
+    color: #ed9d2b ;
+    font-size: 30px;
+}
+
+.contact a , .contacts a:link, .contacts a:visited {
+    color: #eea236;
+}
+
+.contacts a:hover {
+    color: #a5660e;
+}
+
+/****** DESCRIPTION ****/
+#timeline {
+    vertical-align: middle;
+    display:inline-block;
+    float: none;
+}
+
+/****** LEGAL TERMS *****/
+.tab-pane{
+    height:60%;
+    overflow-y:scroll;
+}
+
+/***** NEWS LETTER FORM ******/
+.NewsLetterform {
+    margin-top: 3%;
+    height: auto;
+    padding: 5px 25px 10px 25px;
+    background: #444;
+    background: rgba(0, 0, 0, 0.45);
+    text-align: left;
+}
+
+.NewsLetterform form textarea {
+    height: 100px;
+}
+
+.NewsLetterform form button.btn {
+    width: 100%;
+}
+
+.NewsLetterform form .input-error {
+    border-color: #de615e;
+}

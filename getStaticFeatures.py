@@ -20,17 +20,11 @@ parser.add_argument('--data_file', '-df', action='store', type=str, dest='df',
                     default='stats.h5')
 parser.add_argument('--print_statistics', '-ps', action='store_true', dest='ps')
 parser.add_argument('--overwrite_results', '-ovwt', action='store_true', dest='ovwt')
+parser.add_argument('--clin_features_mort', '-cfm', action='store', type=str, dest='ffname_mort',
+                    default='clinical_model_features_mortality.csv')
+parser.add_argument('--clin_features_make', '-cfma', action='store', type=str, dest='ffname_make',
+                    default='clinical_model_features_make.csv')
 args = parser.parse_args()
-
-#
-# class args:
-#     avgpts = 2
-#     df = "stats.h5"
-#     meta = "meta_imputed"
-#     cfpath = ""
-#     cfname = "test_conf3.json"
-#     ps = True
-#     ovwt = False
 
 grp_name = args.meta
 statFileName = args.df
@@ -54,6 +48,9 @@ resPath = os.path.join(basePath, 'RESULTS', analyze, cohortName)
 
 f = h5py.File(os.path.join(resPath, statFileName), 'r')
 ids = f[grp_name]['ids'][:]
+stats = f[grp_name]
+dieds = stats["died_inp"][:][:, None]
+makes = stats["make90_disch_30dbuf_2pts_d50"][:][:, None]
 
 kdigos = load_csv(os.path.join(dataPath, 'kdigo_icu_2ptAvg.csv'), ids, int)
 days = load_csv(os.path.join(dataPath, 'days_interp_icu_2ptAvg.csv'), ids, int)
@@ -61,39 +58,45 @@ scrs = load_csv(os.path.join(dataPath, 'scr_interp_icu_2ptAvg.csv'), ids, float)
 icu_windows = load_csv(os.path.join(dataPath, 'icu_admit_discharge.csv'), ids, 'date', struct='dict')
 hosp_windows = load_csv(os.path.join(dataPath, 'hosp_admit_discharge.csv'), ids, 'date', struct='dict')
 
-stats = f[grp_name]
 
-header = 'STUDY_PATIENT_ID,AdmitScr,Age,Albumin,Anemia,baseline_scr,Bicarbonate_Low,Bicarbonate_High,Bilirubin,BMI,BUN,' \
+
+header = 'STUDY_PATIENT_ID,Admit_Scr,Age,Albumin,Anemia,baseline_scr,Bicarbonate_Low,Bicarbonate_High,Bilirubin,BMI,BUN,' \
          'FiO2_Low,FiO2_High,FluidOverload,Gender,' \
          'HeartRate_Low,HeartRate_High,Hematocrit_low,Hematocrit_high,Hemoglobin_low,Hemoglobin_High,' \
          'ECMO,IABP,MechanicalVentilation,VAD,MAP_low,MAP_high,AdmitKDIGO,Nephrotox_exp,' \
          'Vasopress_exp,pCO2_low,pCO2_high,Peak_SCr,pH_low,pH_high,Platelets,pO2_low,pO2_high,Potassium_low,' \
          'Potassium_high,Race,Respiration_low,Respiration_high,Septic,Sodium_low,Sodium_high,' \
-         'Temperature_low,Temperature_high,Urine_output,WBC_low,WBC_high,Height,Weight,hrsInICU_48hr,' \
-         'MechHemodynamicSupport,unPlannedAdmission,MaxKDIGO'
+         'Temperature_low,Temperature_high,Urine_output,Urine_flow,WBC_low,WBC_high,Height,Weight,hrsInICU_72hr,' \
+         'MechHemodynamicSupport,unPlannedAdmission,MaxKDIGO_D03,RRT_Flag_D03,LastKDIGO_D03'
 
 feats = np.zeros((len(ids), (len(header.split(',')) + len(elixIdxs) - 1)))
 admit_scrs = np.zeros(len(ids))
 admit_kdigos = np.zeros(len(ids))
 peak_scrs = np.zeros(len(ids))
+last_kdigos = np.zeros(len(ids))
+mkd03 = np.zeros(len(ids))
 
 hosp_admits = get_array_dates(stats['hosp_dates'][:, 0].astype(str))
 icu_admits = get_array_dates(stats['icu_dates'][:, 0].astype(str))
 for i in range(len(ids)):
+    mkd03[i] = np.max(kdigos[i][np.where(days[i] <= 3)[0]])
     admit_scrs[i] = scrs[i][0]
     admit_kdigos[i] = kdigos[i][0]
     peak_scrs[i] = np.max(scrs[i][np.where(days[i] <= 3)])
+    last_kdigos[i] = kdigos[i][np.where(days[i] <= 3)[0][-1]]
 
 
 tstats = {'AdmitScr': admit_scrs, 'AdmitKDIGO': admit_kdigos,
-          'Peak_SCr': peak_scrs, 'Dopamine': stats['dopa'][:],
+          'Peak_SCr': peak_scrs, 'Dopamine': stats['dopa_d03'][:],
           'FluidOverload': stats['fluid_overload'][:], 'GCS': stats['glasgow'][:, 0],
           'HeartRate_Low': stats['heart_rate'][:, 0], 'HeartRate_High': stats['heart_rate'][:, 1],
-          'MechanicalVentilation': stats['mv_flag'][:], 'Urine_output': stats['urine_out'][:],
-          'VAD': stats['vad'][:], "Anemia": stats['anemia'][:, 0],
-          'ECMO': stats['ecmo'], 'IABP': stats['iabp'], 'MechHemodynamicSupport': stats['mhs'],
+          'MechanicalVentilation': stats['mv_flag_d03'][:], 'Urine_output': stats['urine_out'][:],
+          'VAD': stats['vad_d03'][:], "Anemia": stats['anemia'][:, 0],
+          'ECMO': stats['ecmo_d03'], 'IABP': stats['iabp_d03'], 'MechHemodynamicSupport': stats['mhs_d03'],
           'unPlannedAdmission': stats['unPlannedAdmissions'],
-          "MaxKDIGO": stats["max_kdigo_d03"][:], "MaxKDIGO_%dd" % t_lim: stats['max_kdigo_win'][:]}
+          "MaxKDIGO_D03": mkd03,
+          "BUN": np.nanmax(stats["bun"][:], axis=1), "RRT_Flag_D03": stats['rrt_flag_d03'][:], "LastKDIGO_D03": last_kdigos,
+          "Nephrotox_exp": stats["nephrotox_exp_d03"], "Vasopress_exp": stats["vasopress_exp_d03"]}
 
 col = 0
 ct = 0
@@ -129,51 +132,12 @@ for idx in elixIdxs:
     header += "," + "Elixhauser_%d" % idx
 
 indFeatPath = os.path.join(resPath, 'features', 'individual')
-if args.ps or args.ovwt:
-    contStr = 'FeatureName,Mean,StdDev,Median,IQ-1,IQ-3,Min,Max,Missing_#(%)\n'
-    catStr = 'FeatureName,n (%),Missing_#(%)\n'
-    # print('FeatureName,ColNum,Min,Max,MedianmMean,StDev,Missing_#(%)')
-    for i in range(col):
-        if len(np.unique(feats[:, i])) <= 2:
-            catStr += '%s,%d (%.2f),%d (%.2f)\n' % (header.split(',')[i + 1], len(np.where(feats[:, i])[0]),
-                                                    len(np.where(feats[:, i])[0]) / len(ids) * 100,
-                                                    len(np.where(np.isnan(feats[:, i]))[0]),
-                                                    len(np.where(np.isnan(feats[:, i]))[0]) / len(ids) * 100)
-        elif len(np.unique(feats[:, i])) < 10:
-            for val in np.unique(feats[:, i]):
-                if np.isnan(val):
-                    continue
-                catStr += '%s-%d,%d (%.2f),%d (%.2f)\n' % (header.split(',')[i + 1], val, len(np.where(feats[:, i] == val)[0]),
-                                                          len(np.where(feats[:, i] == val)[0]) / len(ids) * 100,
-                                                          len(np.where(np.isnan(feats[:, i]))[0]),
-                                                          len(np.where(np.isnan(feats[:, i]))[0]) / len(ids) * 100)
-        else:
-            contStr += '%s,%.4g,%.4g,%.4g,%.4g,%.4g,%.4g,%.4g,%d (%.2f)\n' % \
-                       (header.split(',')[i + 1], np.nanmean(feats[:, i]), np.nanstd(feats[:, i]),
-                        np.nanmedian(feats[:, i]), np.nanpercentile(feats[:, i], 25), np.nanpercentile(feats[:, i], 75),
-                        np.nanmin(feats[:, i]), np.nanmax(feats[:, i]), len(np.where(np.isnan(feats[:, i]))[0]),
-                        len(np.where(np.isnan(feats[:, i]))[0]) / len(ids) * 100)
-
-    # print(contStr)
-    # print(catStr)
-    if args.ovwt:
-        tf = open(os.path.join(indFeatPath, "descriptiveStats_baseModel_continuousFeatures.csv"), "w")
-        tf.write(contStr + "\n")
-        tf.close()
-
-        tf = open(os.path.join(indFeatPath, "descriptiveStats_baseModel_categoricalFeatures.csv"), "w")
-        tf.write(catStr + "\n")
-        tf.close()
-if args.ps:
-    print(contStr)
-    print(catStr)
-
 
 # Save feature table before normalization
-if not os.path.exists(os.path.join(indFeatPath, 'base_model_NoNorm.csv')) or args.ovwt:
-    arr2csv(os.path.join(indFeatPath, 'base_model_NoNorm.csv'), feats, ids, fmt='%.5g', header=header)
+if not os.path.exists(os.path.join(indFeatPath, 'base_model_noNorm.csv')) or args.ovwt:
+    arr2csv(os.path.join(indFeatPath, 'base_model_noNorm.csv'), feats, ids, fmt='%.5g', header=header)
 else:
-    fname = "base_model_NoNorm"
+    fname = "base_model_noNorm"
     print("File named: '%s' already saved. To overwrite with new results,\nspecify the"
           "command line argument '-ovwt' when running." % fname)
 
@@ -187,35 +151,81 @@ else:
     print("File named: '%s' already saved. To overwrite with new results,\nspecify the"
           "command line argument '-ovwt' when running." % fname)
 
-# Add maximum KDIGO up to 14 days
-mkfeats = np.hstack([feats, stats['max_kdigo_win'][:][:, None]])
-mkheader = header + "," + "MaxKDIGO_%dd" % t_lim
-if not os.path.exists(os.path.join(indFeatPath, 'base_model_14dKDIGO_originalValues.csv')) or args.ovwt:
-    arr2csv(os.path.join(indFeatPath, 'base_model_14dKDIGO_originalValues.csv'), mkfeats, ids, fmt='%.5g', header=mkheader)
-else:
-    fname = "base_model_14dKDIGO_originalValues"
-    print("File named: '%s' already saved. To overwrite with new results,\nspecify the"
-          "command line argument '-ovwt' when running." % fname)
-
-# Save normalized of previous version
-mkfnorm = mms.fit_transform(mkfeats)
-if not os.path.exists(os.path.join(indFeatPath, 'base_model_14dKDIGO.csv')) or args.ovwt:
-    arr2csv(os.path.join(indFeatPath, 'base_model_14dKDIGO.csv'), mkfnorm, ids, fmt='%.5g', header=mkheader)
-else:
-    fname = "base_model_14dKDIGO"
-    print("File named: '%s' already saved. To overwrite with new results,\nspecify the"
-          "command line argument '-ovwt' when running." % fname)
 
 # Load trajectory features and add
 desc, descHdr = load_csv(os.path.join(indFeatPath, "descriptive_features.csv"), ids, skip_header="keep")
 
 dnorm = mms.fit_transform(desc)
+feats_noNorm = np.hstack([feats, desc])
 feats = np.hstack([fnorm, dnorm])
 header += "," + ",".join(descHdr)
 
 if not os.path.exists(os.path.join(indFeatPath, 'base_model_withTrajectory.csv')) or args.ovwt:
     arr2csv(os.path.join(indFeatPath, 'base_model_withTrajectory.csv'), feats, ids, fmt='%.5g', header=header)
+    arr2csv(os.path.join(indFeatPath, 'base_model_withTrajectory_noNorm.csv'), feats_noNorm, ids, fmt='%.5g', header=header)
 else:
     fname = "base_model_withTrajectory"
     print("File named: '%s' already saved. To overwrite with new results,\nspecify the"
           "command line argument '-ovwt' when running." % fname)
+
+
+if os.path.exists(args.ffname_mort):
+
+    with open(args.ffname_mort, "r") as tf:
+        clinModelFeats = []
+        for line in tf:
+            clinModelFeats.append(line.rstrip())
+
+    clinFeats = np.zeros((len(ids), len(clinModelFeats)))
+    clinFeats_noNorm = np.zeros((len(ids), len(clinModelFeats)))
+    ct = 0
+    chdr = "STUDY_PATIENT_ID"
+    for i, k in enumerate(header.split(",")[1:]):
+        if k in clinModelFeats:
+            clinFeats[:, ct] = feats[:, i]
+            clinFeats_noNorm[:, ct] = feats_noNorm[:, i]
+            ct += 1
+            chdr += "," + k
+
+    assert ct == len(clinModelFeats)
+    arr2csv(os.path.join(indFeatPath, 'clinical_model_mortality.csv'), clinFeats, ids, fmt='%.5g', header=chdr)
+    arr2csv(os.path.join(indFeatPath, 'clinical_model_mortality_noNorm.csv'), clinFeats_noNorm, ids, fmt='%.5g', header=chdr)
+
+    dhdr = chdr + "," + ",".join(descHdr)
+    arr2csv(os.path.join(indFeatPath, 'clinical_model_mortality_wTrajectory.csv'), np.hstack([clinFeats, dnorm]), ids, fmt='%.5g',
+            header=dhdr)
+
+    chdr += ",Died"
+    arr2csv(os.path.join(indFeatPath, 'clinical_model_mortality_noNorm_wOutcome.csv'), np.hstack([clinFeats_noNorm, dieds]), ids, fmt='%.5g',
+            header=chdr)
+
+if os.path.exists(args.ffname_make):
+
+    with open(args.ffname_make, "r") as tf:
+        clinModelFeats = []
+        for line in tf:
+            clinModelFeats.append(line.rstrip())
+
+    clinFeats = np.zeros((len(ids), len(clinModelFeats)))
+    clinFeats_noNorm = np.zeros((len(ids), len(clinModelFeats)))
+    ct = 0
+    chdr = "STUDY_PATIENT_ID"
+    for i, k in enumerate(header.split(",")[1:]):
+        if k in clinModelFeats:
+            clinFeats[:, ct] = feats[:, i]
+            clinFeats_noNorm[:, ct] = feats_noNorm[:, i]
+            ct += 1
+            chdr += "," + k
+
+    assert ct == len(clinModelFeats)
+    arr2csv(os.path.join(indFeatPath, 'clinical_model_make.csv'), clinFeats, ids, fmt='%.5g', header=chdr)
+    arr2csv(os.path.join(indFeatPath, 'clinical_model_make_noNorm.csv'), clinFeats_noNorm, ids, fmt='%.5g', header=chdr)
+
+    dhdr = chdr + "," + ",".join(descHdr)
+    arr2csv(os.path.join(indFeatPath, 'clinical_model_make_wTrajectory.csv'), np.hstack([clinFeats, dnorm]), ids,
+            fmt='%.5g',
+            header=dhdr)
+
+    chdr += ",Died,MAKE"
+    arr2csv(os.path.join(indFeatPath, 'clinical_model_make_noNorm_wOutcome.csv'), np.hstack([clinFeats_noNorm, dieds, makes]), ids, fmt='%.5g',
+            header=chdr)

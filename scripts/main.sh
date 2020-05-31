@@ -1,69 +1,18 @@
 #!/usr/bin/env bash
 
-python3 preprocess_uky_conf.py
-python3 calc_dm.py -ext -mism -pc -dfunc braycurtis
-python3 calc_dm.py -ext -mism -pc -dfunc braycurtis -agg
-python3 calc_dm.py -ext -mism -pc -dfunc braycurtis -lt individual
-python3 calc_dm.py -ext -mism -pc -dfunc braycurtis -lt aggregated
-python3 calc_dm.py -ext -mism -pc -dfunc braycurtis -alpha 0.5
-python3 calc_dm.py -ext -mism -pc -dfunc braycurtis -lt individual -alpha 0.5
-python3 calc_dm.py -ext -mism -pc -dfunc braycurtis -lt aggregated -alpha 0.5
+export CONFIG_FILENAME=superConf.json
 
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -n 16
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -n 32
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -n 48
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -n 96
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -n -agg 16
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -n -agg 32
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -n -agg 48
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -n -agg 96
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt individual -n 16
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt individual -n 32
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt individual -n 48
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt individual -n 96
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt aggregated -n 16
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt aggregated -n 32
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt aggregated -n 48
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt aggregated -n 96
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -alpha 0.5 -n 16
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -alpha 0.5 -n 32
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -alpha 0.5 -n 48
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -alpha 0.5 -n 96
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt individual -alpha 0.5 -n 16
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt individual -alpha 0.5 -n 32
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt individual -alpha 0.5 -n 48
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt individual -alpha 0.5 -n 96
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt aggregated -alpha 0.5 -n 16
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt aggregated -alpha 0.5 -n 32
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt aggregated -alpha 0.5 -n 48
-python3 get_flat_clusters.py -ext -mism -pc -dfunc braycurtis -lt aggregated -alpha 0.5 -n 96
+python3 preprocess_uky_conf.py --config_file $CONFIG_FILENAME -agvPts 2
+python3 cleanStats.py --config_file $CONFIG_FILENAME -agvPts 2
+python3 getStaticFeatures.py --config_file $CONFIG_FILENAME -agvPts 2 -ps
 
-#python3 merge_clusters.py -ext -mism -pc -dfunc braycurtis -fname merged --baseClustNum 96
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -n 16
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -n 32
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -n 48
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -n 96
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -n -agg 16
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -n -agg 32
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -n -agg 48
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -n -agg 96
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt individual -n 16
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt individual -n 32
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt individual -n 48
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt individual -n 96
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt aggregated -n 16
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt aggregated -n 32
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt aggregated -n 48
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt aggregated -n 96
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -alpha 0.5 -n 16
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -alpha 0.5 -n 32
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -alpha 0.5 -n 48
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -alpha 0.5 -n 96
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt individual -alpha 0.5 -n 16
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt individual -alpha 0.5 -n 32
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt individual -alpha 0.5 -n 48
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt individual -alpha 0.5 -n 96
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt aggregated -alpha 0.5 -n 16
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt aggregated -alpha 0.5 -n 32
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt aggregated -alpha 0.5 -n 48
-python3 gen_centers.py -ext -mism -pc -dfunc braycurtis -lt aggregated -alpha 0.5 -n 96
+for TARGET in "died_inp" "make90_d50"
+do
+for MODEL in "log" "rf" "svm"
+do
+for FEATURE in "sofa_apache_norm" "max_kdigo_d03_norm" "base_model" "base_model_withTrajectory"
+do
+python3 classify.py --config_file $CONFIG_FILENAME -agvPts 2 -f $FEATURE -t $TARGET -class $MODEL
+done
+done
+done

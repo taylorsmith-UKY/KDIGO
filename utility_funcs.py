@@ -82,6 +82,7 @@ def load_csv(fname, ids=None, dt=float, skip_header=False, idxs=None, targets=No
                         res = np.squeeze(res)
         except (ValueError, TypeError):
             res = res
+    f.close()
     if ids is not None:
         if len(rid) != len(ids):
             print('Missing ids in file: ' + fname)
@@ -206,6 +207,20 @@ def get_array_dates(array, date_fmt='%Y-%m-%d %H:%M:%S'):
                 temp.append(get_date(array[i][j], format_str=date_fmt))
             out.append(np.array(temp, dtype=np.object))
     return out
+
+
+def get_tdiff(t1, t2, unit="s"):
+    tdiff = (t2 - t1).total_seconds()
+    if unit == "s" or unit == "sec":
+        return tdiff
+    elif unit == "m" or unit == "min":
+        return tdiff / 60
+    elif unit == "h" or unit == "hr" or unit == "hour" or unit == "hours":
+        return tdiff / (60 * 60)
+    elif unit == "d" or unit == "day" or unit == "days":
+        return tdiff / (60 * 60 * 24)
+    elif unit == "y" or unit == "yr" or unit == "yrs" or unit == "year" or unit == "years":
+        return tdiff / (60 * 60 * 24 * 365)
 
 
 def perf_measure(y_actual, y_hat):

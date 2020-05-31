@@ -5,20 +5,19 @@ import pandas as pd
 import json
 import h5py
 from utility_funcs import arr2csv, load_csv, dict2csv, get_array_dates
-from kdigo_funcs import get_admit_disch, extract_scr_data, extract_window_data, get_baselines, extract_masked_data,\
-    get_exclusion_criteria_dallas, linear_interpo, scr2kdigo, get_transition_weights, rolling_average
-from classification_funcs import descriptive_trajectory_features
-from stat_funcs import get_utsw_demographics, summarize_stats_dallas, get_sofa, get_apache, formatted_stats
+from kdigo_funcs import get_admit_disch, extract_scr_data, get_baselines, extract_masked_data, \
+    get_exclusion_criteria_dallas, linear_interpo, scr2kdigo, rolling_average
+from stat_funcs import get_utsw_demographics, summarize_stats_dallas, get_sofa, get_apache, get_MAKE90_dallas
 from sklearn.preprocessing import MinMaxScaler
 
 # Parser takes command line arguments, in this case the location and name of the configuration file.
 parser = argparse.ArgumentParser(description='Preprocess Data and Construct KDIGO Vectors.')
-parser.add_argument('--config_file', action='store', nargs=1, type=str, dest='cfname',
-                    default='utsw_conf.json')
-parser.add_argument('--config_path', action='store', nargs=1, type=str, dest='cfpath',
+parser.add_argument('--config_file', '-cf', action='store', type=str, dest='cfname',
+                    default='final.json')
+parser.add_argument('--config_path', '-cfp', action='store', type=str, dest='cfpath',
                     default='')
-parser.add_argument('--averagePoints', '-agvPts', action='store', nargs=1, type=int, dest='avgpts',
-                    default=1)
+parser.add_argument('--averagePoints', '-agvPts', action='store', type=int, dest='avgpts',
+                    default=2)
 args = parser.parse_args()
 
 configurationFileName = os.path.join(args.cfpath, args.cfname)
@@ -27,14 +26,14 @@ conf = json.load(fp)
 fp.close()
 
 # Load base configuration from file
-basePath = conf['basePath']         # Path containing the DATA and RESULTS directories
-cohortName = conf['cohortName']     # Will be used for folder name
-t_lim = conf['analysisDays']        # How long to consider in the analysis
-tRes = conf['timeResolutionHrs']    # Resolution after imputation in hours
-analyze = conf['analyze']           # Time period to analyze (hospital/ICU/all)
+basePath = conf['basePath']  # Path containing the DATA and RESULTS directories
+cohortName = conf['cohortName']  # Will be used for folder name
+t_lim = conf['analysisDays']  # How long to consider in the analysis
+tRes = conf['timeResolutionHrs']  # Resolution after imputation in hours
+analyze = conf['analyze']  # Time period to analyze (hospital/ICU/all)
 
 # Build paths and create if don't already exist
-baseDataPath = os.path.join(basePath, 'DATA', 'dallas', 'csv')         # folder containing all raw data
+baseDataPath = os.path.join(basePath, 'DATA', 'dallas', 'csv')  # folder containing all raw data
 dataPath = os.path.join(basePath, 'DATA', 'dallas', analyze, cohortName)
 resPath = os.path.join(basePath, 'RESULTS', 'dallas', analyze, cohortName)
 if not os.path.exists(dataPath):
@@ -45,13 +44,19 @@ if not os.path.exists(resPath):
 # Get mask for all SCr indicating whether each point was in hospital or ICU, or neither
 if not os.path.exists(os.path.join(dataPath, 'icu_admit_discharge.csv')):
     print('Getting Indexed Hospital and ICU admissions...')
-    hosp_windows, icu_windows = get_admit_disch(baseDataPath, scr_fname='all_scr_data.csv', date_fname='tIndexedIcuAdmission.csv', scr_dcol='SPECIMN_TEN_TIME', id_col='PATIENT_NUM')
+    # ddf = pd.read_csv(os.path.join(baseDataPath, ""))
+
+    hosp_windows, icu_windows = get_admit_disch(baseDataPath, scr_fname='all_scr_data.csv',
+                                                date_fname='tIndexedIcuAdmission.csv', scr_dcol='SPECIMN_TEN_TIME',
+                                                id_col='PATIENT_NUM')
+
     dict2csv(os.path.join(dataPath, 'icu_admit_discharge.csv'), icu_windows, fmt='%s')
     dict2csv(os.path.join(dataPath, 'hosp_admit_discharge.csv'), hosp_windows, fmt='%s')
 else:
     print('Loaded previously determined Indexed Hospital and ICU admissions.')
     icu_windows, iids = load_csv(os.path.join(dataPath, 'icu_admit_discharge.csv'), ids=None, dt='date', struct='dict')
-    hosp_windows, hids = load_csv(os.path.join(dataPath, 'hosp_admit_discharge.csv'), ids=None, dt='date', struct='dict')
+    hosp_windows, hids = load_csv(os.path.join(dataPath, 'hosp_admit_discharge.csv'), ids=None, dt='date',
+                                  struct='dict')
 
 # We will initially consider all patients who have any hospital admission
 ids = np.sort(np.array(list(hosp_windows), dtype=int))
@@ -61,7 +66,9 @@ males = None
 if not os.path.exists(os.path.join(baseDataPath, 'all_baseline_info.csv')):
     print('Determining all patient baseline SCr.')
     males, races, ages, dods, dtds = get_utsw_demographics(ids, hosp_windows, baseDataPath)
-    get_baselines(baseDataPath, hosp_windows, males, races, ages, outp_rng=(1, 365), inp_rng=(7, 365), scr_fname='all_scr_data.csv', scr_dcol='SPECIMN_TEN_TIME', scr_vcol='ORD_VALUE', scr_typecol='IP_FLAG', id_col='PATIENT_NUM')
+    get_baselines(baseDataPath, hosp_windows, males, races, ages, outp_rng=(1, 365), inp_rng=(7, 365),
+                  scr_fname='all_scr_data.csv', scr_dcol='SPECIMN_TEN_TIME', scr_vcol='ORD_VALUE',
+                  scr_typecol='IP_FLAG', id_col='PATIENT_NUM')
 
     bsln_m = pd.read_csv(os.path.join(baseDataPath, 'all_baseline_info.csv'))
     bsln_scr_loc = bsln_m.columns.get_loc('bsln_val')
@@ -69,10 +76,18 @@ if not os.path.exists(os.path.join(baseDataPath, 'all_baseline_info.csv')):
     bsln_m = bsln_m.values
     print('Finished calculated baselines.')
 
+
 # Extract raw SCr data and corresponding masks for each patient individually
 if not os.path.exists(os.path.join(dataPath, 'scr_raw.csv')):
     print('Extracting patient SCr data...')
-    scrs, dates, tmasks, hd_masks, crrt_masks, pd_masks, rrt_masks = extract_scr_data(icu_windows, hosp_windows, baseDataPath, scr_fname='all_scr_data.csv', rrt_fname='tDialysis.csv', scr_dcol='SPECIMN_TEN_TIME', scr_vcol='ORD_VALUE', id_col='PATIENT_NUM', rrtSep='row')
+    scrs, dates, tmasks, hd_masks, crrt_masks, pd_masks, rrt_masks = extract_scr_data(icu_windows, hosp_windows,
+                                                                                      baseDataPath,
+                                                                                      scr_fname='all_scr_data.csv',
+                                                                                      rrt_fname='tDialysis.csv',
+                                                                                      scr_dcol='SPECIMN_TEN_TIME',
+                                                                                      scr_vcol='ORD_VALUE',
+                                                                                      id_col='PATIENT_NUM',
+                                                                                      rrtSep='row')
     dates = get_array_dates(dates)
     arr2csv(os.path.join(dataPath, 'scr_raw.csv'), scrs, ids, fmt='%.3f')
     arr2csv(os.path.join(dataPath, 'dates.csv'), dates, ids, fmt='%s')
@@ -110,24 +125,53 @@ else:
 # If computing rolling average, compute on the raw values
 if not os.path.exists(os.path.join(dataPath, 'scr_raw_%s_%dptAvg.csv' % (analyze, args.avgpts))) and args.avgpts > 1:
     avgd = rolling_average(scrs, masks=[rrt_masks], times=dates)
-    ascrs = avgd[0]
-    admasks = avgd[1][0]
-    adates = avgd[2]
-    arr2csv(os.path.join(dataPath, 'scr_raw_%s_%dptAvg.csv' % (analyze, args.avgpts)), ascrs, ids, fmt='%f')
-    arr2csv(os.path.join(dataPath, 'dates_%s_%dptAvg.csv' % (analyze, args.avgpts)), adates, ids, fmt='%s')
-    arr2csv(os.path.join(dataPath, 'ind_rrt_masks_%s_%dptAvg.csv' % (analyze, args.avgpts)), admasks, ids, fmt='%d')
+    scrs = avgd[0]
+    dmasks = avgd[1][0]
+    dates = avgd[2]
+    arr2csv(os.path.join(dataPath, 'scr_raw_%s_%dptAvg.csv' % (analyze, args.avgpts)), scrs, ids, fmt='%f')
+    arr2csv(os.path.join(dataPath, 'dates_%s_%dptAvg.csv' % (analyze, args.avgpts)), dates, ids, fmt='%s')
+    arr2csv(os.path.join(dataPath, 'ind_rrt_masks_%s_%dptAvg.csv' % (analyze, args.avgpts)), dmasks, ids, fmt='%d')
 else:
     if not os.path.exists(os.path.join(dataPath, 'scr_interp_%s_%dptAvg.csv' % (analyze, args.avgpts))):
-        ascrs = load_csv(os.path.join(dataPath, 'scr_raw_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
-        adates = load_csv(os.path.join(dataPath, 'dates_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids, 'date')
-        admasks = load_csv(os.path.join(dataPath, 'ind_rrt_masks_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids, int)
+        scrs = load_csv(os.path.join(dataPath, 'scr_raw_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
+        dates = load_csv(os.path.join(dataPath, 'dates_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids, 'date')
+        dmasks = load_csv(os.path.join(dataPath, 'ind_rrt_masks_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids, int)
 
-# Evaluate all exclusion criteria and select patients who don't match any
+# Interpolate averaged sequence
+if not os.path.exists(os.path.join(dataPath, 'scr_interp_%s_%dptAvg.csv' % (analyze, args.avgpts))) and args.avgpts > 1:
+    post_interpo, dmasks_interp, days_interp, interp_masks = linear_interpo(scrs, ids, dates, dmasks,
+                                                                            icu_windows, tRes)
+    arr2csv(os.path.join(dataPath, 'scr_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), post_interpo, ids)
+    arr2csv(os.path.join(dataPath, 'days_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), days_interp, ids, fmt='%d')
+    arr2csv(os.path.join(dataPath, 'interp_masks_%s_%dptAvg.csv' % (analyze, args.avgpts)), interp_masks, ids,
+            fmt='%d')
+    arr2csv(os.path.join(dataPath, 'dmasks_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), dmasks_interp, ids,
+            fmt='%d')
+else:
+    if not os.path.exists(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv' % (analyze, args.avgpts))):
+        post_interpo = load_csv(os.path.join(dataPath, 'scr_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
+        dmasks_interp = load_csv(os.path.join(dataPath, 'dmasks_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
+        days_interp = load_csv(os.path.join(dataPath, 'days_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
+        interp_masks = load_csv(os.path.join(dataPath, 'interp_masks_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
+
+# KDIGO for averaged sequence
+if not os.path.exists(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv') % (analyze, args.avgpts)) and args.avgpts:
+    baselines = pd.read_csv(os.path.join(baseDataPath, 'all_baseline_info.csv'))['bsln_val'].values
+    kdigos = scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
+    arr2csv(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv') % (analyze, args.avgpts), kdigos, ids, fmt='%d')
+else:
+    kdigos = load_csv(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv') % (analyze, args.avgpts), ids, int)
+    post_interpo = load_csv(os.path.join(dataPath, 'scr_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
+    dmasks_interp = load_csv(os.path.join(dataPath, 'dmasks_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
+    days_interp = load_csv(os.path.join(dataPath, 'days_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
+    interp_masks = load_csv(os.path.join(dataPath, 'interp_masks_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
+
 if not os.path.exists(os.path.join(dataPath, 'exclusion_criteria.csv')):
     print('Evaluating exclusion criteria...')
     if males is None:
         males, races, ages, dods, dtds = get_utsw_demographics(ids, hosp_windows, baseDataPath)
-    exc, hdr = get_exclusion_criteria_dallas(ids, dates, icu_windows, males, races, ages, baseDataPath)
+    exc, hdr = get_exclusion_criteria_dallas(ids, kdigos, days_interp, dates, icu_windows, males, races, ages,
+                                             baseDataPath)
     arr2csv(os.path.join(dataPath, 'exclusion_criteria.csv'), exc, ids, fmt='%d', header=hdr)
     excluded = np.max(exc, axis=1)
     keep = np.where(excluded == 0)[0]
@@ -136,75 +180,6 @@ else:
     exc = load_csv(os.path.join(dataPath, 'exclusion_criteria.csv'), ids, int, skip_header=True)
     excluded = np.max(exc, axis=1)
     keep = np.where(excluded == 0)[0]
-
-if not os.path.exists(os.path.join(dataPath, 'exclusion_criteria_avg.csv')):
-    print('Evaluating exclusion criteria...')
-    if males is None:
-        males, races, ages, dods, dtds = get_utsw_demographics(ids, hosp_windows, baseDataPath)
-    aexc, hdr = get_exclusion_criteria_dallas(ids, adates, icu_windows, males, races, ages, baseDataPath)
-    arr2csv(os.path.join(dataPath, 'exclusion_criteria_avg.csv'), aexc, ids, fmt='%d', header=hdr)
-    excluded = np.max(exc, axis=1)
-    keep = np.where(excluded == 0)[0]
-else:
-    print('Loaded exclusion criteria.')
-    exc = load_csv(os.path.join(dataPath, 'exclusion_criteria_avg.csv'), ids, int, skip_header=True)
-    excluded = np.max(exc, axis=1)
-    keep = np.where(excluded == 0)[0]
-
-# Interpolate raw SCr values in the analysis window
-if not os.path.exists(os.path.join(dataPath, 'scr_interp_%s.csv' % analyze)):
-    # Interpolate missing values
-    print('Interpolating missing values')
-    post_interpo, dmasks_interp, days_interp, interp_masks = linear_interpo(scrs, ids, dates, rrt_masks, tRes)
-    arr2csv(os.path.join(dataPath, 'scr_interp_%s.csv' % analyze), post_interpo, ids)
-    arr2csv(os.path.join(dataPath, 'days_interp_%s.csv' % analyze), days_interp, ids, fmt='%d')
-    arr2csv(os.path.join(dataPath, 'interp_masks_%s.csv' % analyze), interp_masks, ids, fmt='%d')
-    arr2csv(os.path.join(dataPath, 'dmasks_interp_%s.csv' % analyze), dmasks_interp, ids, fmt='%d')
-else:
-    print('Loaded previously interpolated SCrs')
-    post_interpo = load_csv(os.path.join(dataPath, 'scr_interp_%s.csv' % analyze), ids, float)
-    dmasks_interp = load_csv(os.path.join(dataPath, 'dmasks_interp_%s.csv' % analyze), ids, int)
-    days_interp = load_csv(os.path.join(dataPath, 'days_interp_%s.csv' % analyze), ids, int)
-    interp_masks = load_csv(os.path.join(dataPath, 'interp_masks_%s.csv' % analyze), ids, int)
-
-# Interpolate averaged sequence
-if not os.path.exists(os.path.join(dataPath, 'scr_interp_%s_%dptAvg.csv' % (analyze, args.avgpts))) and args.avgpts > 1:
-    apost_interpo, admasks_interp, adays_interp, ainterp_masks = linear_interpo(ascrs, ids, adates, admasks, tRes)
-    arr2csv(os.path.join(dataPath, 'scr_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), apost_interpo, ids)
-    arr2csv(os.path.join(dataPath, 'days_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), adays_interp, ids, fmt='%d')
-    arr2csv(os.path.join(dataPath, 'interp_masks_%s_%dptAvg.csv' % (analyze, args.avgpts)), ainterp_masks, ids, fmt='%d')
-    arr2csv(os.path.join(dataPath, 'dmasks_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), admasks_interp, ids, fmt='%d')
-else:
-    if not os.path.exists(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv' % (analyze, args.avgpts))):
-        apost_interpo = load_csv(os.path.join(dataPath, 'scr_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
-        admasks_interp = load_csv(os.path.join(dataPath, 'dmasks_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
-        adays_interp = load_csv(os.path.join(dataPath, 'days_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
-        ainterp_masks = load_csv(os.path.join(dataPath, 'interp_masks_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
-
-# Compute KDIGO scores for the analysis window using interpolated SCr and previously determined baselines
-if not os.path.exists(os.path.join(dataPath, 'kdigo_%s.csv' % analyze)):
-    # Convert SCr to KDIGO
-    baselines = pd.read_csv(os.path.join(baseDataPath, 'all_baseline_info.csv'))['bsln_val'].values
-    print('Converting to KDIGO')
-    kdigos = scr2kdigo(post_interpo, baselines, dmasks_interp, days_interp, interp_masks)
-    arr2csv(os.path.join(dataPath, 'kdigo_%s.csv' % analyze), kdigos, ids, fmt='%d')
-else:
-    print('Loaded KDIGO scores')
-    kdigos = load_csv(os.path.join(dataPath, 'kdigo_%s.csv' % analyze), ids, int)
-
-# KDIGO for averaged sequence
-if not os.path.exists(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv') % (analyze, args.avgpts)) and args.avgpts:
-    baselines = pd.read_csv(os.path.join(baseDataPath, 'all_baseline_info.csv'))['bsln_val'].values
-    akdigos = scr2kdigo(apost_interpo, baselines, admasks_interp, adays_interp, ainterp_masks)
-    arr2csv(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv') % (analyze, args.avgpts), akdigos, ids, fmt='%d')
-else:
-    if not os.path.exists(os.path.join(resPath, 'stats.h5')):
-        akdigos = load_csv(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv') % (analyze, args.avgpts), ids, int)
-        apost_interpo = load_csv(os.path.join(dataPath, 'scr_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
-        admasks_interp = load_csv(os.path.join(dataPath, 'dmasks_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
-        adays_interp = load_csv(os.path.join(dataPath, 'days_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
-        ainterp_masks = load_csv(os.path.join(dataPath, 'interp_masks_%s_%dptAvg.csv' % (analyze, args.avgpts)), ids)
-
 
 # File to store non-temporal patient data
 if not os.path.exists(os.path.join(resPath, 'stats.h5')):
@@ -215,28 +190,17 @@ else:
 # Extract all static data of interest and store in f
 # Note: group "meta_all" contains all patients, regardless of exclusion, while "meta" only contains those patients
 # who remain following application of exclusion criteria, INCLUDING the requirement of AKI in the analysis window
-if 'meta_all' not in list(f):
+if 'meta' not in list(f):
     try:
-        f = summarize_stats_dallas(ids, akdigos, adays_interp, apost_interpo, icu_windows, hosp_windows, dataPath,
+        # (ids, kdigos, days, scrs, icu_windows, hosp_windows,
+        #                            f, base_path, grp_name='meta', tlim=7, v=False):
+        f = summarize_stats_dallas(ids, kdigos, days_interp, post_interpo, icu_windows, hosp_windows,
                                    f, baseDataPath, grp_name='meta_all', tlim=t_lim)
         all_stats = f['meta_all']
-        # max_kdigo = all_stats['max_kdigo_win'][:]
-        max_kdigo = np.zeros(len(ids))
-        max_kdigo_avg = np.zeros(len(ids))
-        for i in range(len(kdigos)):
-            try:
-                max_kdigo[i] = np.max(kdigos[i][np.where(days_interp[i] <= t_lim)[0]])
-            except (IndexError, TypeError):
-                pass
-            try:
-                max_kdigo_avg[i] = np.max(akdigos[i][np.where(adays_interp[i] <= t_lim)[0]])
-            except (IndexError, TypeError):
-                pass
-            
-        pt_sel = np.where(max_kdigo > 0)[0]
-        assert len(max_kdigo) == len(excluded)
+        # mk = all_stats['max_kdigo_d03'][:]
 
-        pt_sel = np.intersect1d(keep, pt_sel)
+        pt_sel = keep
+        # pt_sel = np.intersect1d(keep, pt_sel)
         stats = f.create_group('meta')
         for i in range(len(list(all_stats))):
             name = list(all_stats)[i]
@@ -246,18 +210,6 @@ if 'meta_all' not in list(f):
                 stats.create_dataset(name, data=all_stats[name][:][pt_sel, :], dtype=all_stats[name].dtype)
             elif all_stats[name].ndim == 3:
                 stats.create_dataset(name, data=all_stats[name][:][pt_sel, :, :], dtype=all_stats[name].dtype)
-                
-        pt_sel_avg = np.where(max_kdigo_avg > 0)[0]
-        pt_sel_avg = np.intersect1d(keep, pt_sel_avg)
-        stats_avg = f.create_group('meta_avg')
-        for i in range(len(list(all_stats))):
-            name = list(all_stats)[i]
-            if all_stats[name].ndim == 1:
-                stats_avg.create_dataset(name, data=all_stats[name][:][pt_sel_avg], dtype=all_stats[name].dtype)
-            elif all_stats[name].ndim == 2:
-                stats_avg.create_dataset(name, data=all_stats[name][:][pt_sel_avg, :], dtype=all_stats[name].dtype)
-            elif all_stats[name].ndim == 3:
-                stats_avg.create_dataset(name, data=all_stats[name][:][pt_sel_avg, :, :], dtype=all_stats[name].dtype)
     finally:
         f.close()
 else:
@@ -267,197 +219,128 @@ else:
 f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r+')
 all_stats = f['meta_all']
 stats = f['meta']
-stats_avg = f['meta_avg']
 all_ids = all_stats['ids'][:]
 cohort_ids = stats['ids'][:]
-cohort_ids_avg = stats_avg['ids'][:]
 pt_sel = np.array([x in cohort_ids for x in all_ids])
-pt_sel_avg = np.array([x in cohort_ids_avg for x in all_ids])
-
-if not os.path.exists(os.path.join(resPath, 'kdigo_%s.csv' % analyze)):
-    kdigo_dist = load_csv(os.path.join(dataPath, 'kdigo_%s.csv' % analyze), cohort_ids, int)
-    days_dist = load_csv(os.path.join(dataPath, 'days_interp_%s.csv' % analyze), cohort_ids, int)
-    for i in range(len(kdigo_dist)):
-        if type(kdigo_dist[i]) == np.ndarray and len(days_dist[i]) > 1:
-            kdigo_dist[i] = kdigo_dist[i][np.where(days_dist[i] <= t_lim)[0]]
-    arr2csv(os.path.join(resPath, 'kdigo_%s.txt' % analyze), kdigo_dist, ids, fmt='%d', delim=' ')
-
-    kdigo_dist = load_csv(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv' % (analyze, args.avgpts)), cohort_ids_avg, int)
-    days_dist = load_csv(os.path.join(dataPath, 'days_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), cohort_ids_avg,
-                         int)
-    for i in range(len(kdigo_dist)):
-        if hasattr(days_dist[i], "__len__") and len(days_dist[i]) > 1:
-            kdigo_dist[i] = kdigo_dist[i][np.where(days_dist[i] <= t_lim)[0]]
-    arr2csv(os.path.join(resPath, 'kdigo_%s_%dptAvg.txt' % (analyze, args.avgpts)), kdigo_dist, cohort_ids_avg,
-            fmt='%d', delim=' ')
+mkd03 = stats['max_kdigo_d03'][:]
 
 # Calculate clinical mortality prediction scores
 # For each, returns the normal categorical scores, as well as the raw values used for each
 sofa = None
 if not os.path.exists(os.path.join(dataPath, 'sofa.csv')):
     print('Getting SOFA scores')
-    sofa, sofa_hdr, sofa_raw, sofa_raw_hdr = get_sofa(ids, all_stats, post_interpo, days_interp,
+    sofa, sofa_hdr, sofa_raw, sofa_raw_hdr = get_sofa(all_ids, all_stats, post_interpo, days_interp,
                                                       out_name=os.path.join(dataPath, 'sofa.csv'))
-    arr2csv(os.path.join(dataPath, 'sofa_raw.csv'), sofa_raw, ids, fmt='%.3f', header=sofa_raw_hdr)
-    arr2csv(os.path.join(dataPath, 'sofa.csv'), sofa, ids, fmt='%d', header=sofa_hdr)
+    arr2csv(os.path.join(dataPath, 'sofa_raw.csv'), sofa_raw, all_ids, fmt='%.3f', header=sofa_raw_hdr)
+    arr2csv(os.path.join(dataPath, 'sofa.csv'), sofa, all_ids, fmt='%d', header=sofa_hdr)
 else:
-    sofa, sofa_hdr = load_csv(os.path.join(dataPath, 'sofa.csv'), ids, dt=int, skip_header='keep')
-    sofa_raw, sofa_raw_hdr = load_csv(os.path.join(dataPath, 'sofa_raw.csv'), ids, dt=float, skip_header='keep')
+    sofa, sofa_hdr = load_csv(os.path.join(dataPath, 'sofa.csv'), all_ids, dt=int, skip_header='keep')
+    sofa_raw, sofa_raw_hdr = load_csv(os.path.join(dataPath, 'sofa_raw.csv'), all_ids, dt=float, skip_header='keep')
 
 apache = None
 if not os.path.exists(os.path.join(dataPath, 'apache.csv')):
     print('Getting APACHE-II Scores')
-    apache, apache_hdr, apache_raw, apache_raw_hdr = get_apache(ids, all_stats, post_interpo, days_interp,
+    apache, apache_hdr, apache_raw, apache_raw_hdr = get_apache(all_ids, all_stats, post_interpo, days_interp,
                                                                 out_name=os.path.join(dataPath, 'apache.csv'))
-    arr2csv(os.path.join(dataPath, 'apache_raw.csv'), apache_raw, ids, fmt='%.3f', header=apache_raw_hdr)
-    arr2csv(os.path.join(dataPath, 'apache.csv'), apache, ids, fmt='%d', header=apache_hdr)
+    arr2csv(os.path.join(dataPath, 'apache_raw.csv'), apache_raw, all_ids, fmt='%.3f', header=apache_raw_hdr)
+    arr2csv(os.path.join(dataPath, 'apache.csv'), apache, all_ids, fmt='%d', header=apache_hdr)
 else:
-    apache, apache_hdr = load_csv(os.path.join(dataPath, 'apache.csv'), ids, dt=int, skip_header='keep')
-    apache_raw, apache_raw_hdr = load_csv(os.path.join(dataPath, 'apache_raw.csv'), ids, dt=float, skip_header='keep')
+    apache, apache_hdr = load_csv(os.path.join(dataPath, 'apache.csv'), all_ids, dt=int, skip_header='keep')
+    apache_raw, apache_raw_hdr = load_csv(os.path.join(dataPath, 'apache_raw.csv'), all_ids, dt=float, skip_header='keep')
 
 # Make sure composite scores are stored in the static data file
 if 'sofa' not in list(all_stats):
     sofa_sum = np.sum(sofa, axis=1)
     all_stats.create_dataset('sofa', data=sofa_sum, dtype=int)
     stats.create_dataset('sofa', data=sofa_sum[pt_sel], dtype=int)
-    stats_avg.create_dataset('sofa', data=sofa_sum[pt_sel_avg], dtype=int)
 if 'apache' not in list(all_stats):
     apache_sum = np.sum(apache, axis=1)
     all_stats.create_dataset('apache', data=apache_sum, dtype=int)
     stats.create_dataset('apache', data=apache_sum[pt_sel], dtype=int)
-    stats_avg.create_dataset('apache', data=apache_sum[pt_sel_avg], dtype=int)
 
 # Close now to make sure that it is saved.
 f.close()
 
 # Load KDIGO in the analysis window for the cohort
-f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r')
-cohort_kdigos = load_csv(os.path.join(dataPath, 'kdigo_%s.csv' % analyze), cohort_ids, int)
-cohort_days = load_csv(os.path.join(dataPath, 'days_interp_%s.csv' % analyze), cohort_ids, int)
-cohort_kdigos_avg = load_csv(os.path.join(dataPath, 'kdigo_%s.csv' % analyze), cohort_ids_avg, int)
-cohort_days_avg = load_csv(os.path.join(dataPath, 'days_interp_%s.csv' % analyze), cohort_ids_avg, int)
-if not os.path.exists(os.path.join(resPath, 'clusters')):
-    os.mkdir(os.path.join(resPath, 'clusters'))
-    os.mkdir(os.path.join(resPath, 'clusters', 'died_inp'))
-    os.mkdir(os.path.join(resPath, 'clusters', 'died_inp', 'raw'))
-    os.mkdir(os.path.join(resPath, 'clusters', 'died_inp', 'avg'))
-died = stats['died_inp'][:]
-died[np.where(died)] = 1
-arr2csv(os.path.join(resPath, 'clusters', 'died_inp', 'raw', 'clusters.csv'), died, cohort_ids, fmt='%d')
+cohort_kdigos = load_csv(os.path.join(dataPath, 'kdigo_%s_%dptAvg.csv' % (analyze, args.avgpts)), cohort_ids, int)
+cohort_days = load_csv(os.path.join(dataPath, 'days_interp_%s_%dptAvg.csv' % (analyze, args.avgpts)), cohort_ids, int)
 
-# Construct a table of patient characteristics grouped by mortality
-formatted_stats(stats, os.path.join(resPath, 'clusters', 'raw', 'died_inp'))
-
-died = stats_avg['died_inp'][:]
-died[np.where(died)] = 1
-arr2csv(os.path.join(resPath, 'clusters', 'died_inp', 'avg', 'clusters.csv'), died, cohort_ids_avg, fmt='%d')
-
-# Construct a table of patient characteristics grouped by mortality
-formatted_stats(stats_avg, os.path.join(resPath, 'clusters', 'avg', 'died_inp'))
-
-# Calculate individual trajectory based features
 if not os.path.exists(os.path.join(resPath, 'features')):
     os.mkdir(os.path.join(resPath, 'features'))
 
 if not os.path.exists(os.path.join(resPath, 'features', 'individual')):
-    mms = MinMaxScaler()
     os.mkdir(os.path.join(resPath, 'features', 'individual'))
-    os.mkdir(os.path.join(resPath, 'features', 'individual', 'raw'))
-    desc, desc_hdr = descriptive_trajectory_features(cohort_kdigos, cohort_ids, days=cohort_days, t_lim=t_lim,
-                                                     filename=os.path.join(resPath, 'features', 'individual',
-                                                                           'raw', 'descriptive_features.csv'))
-    desc_norm = mms.fit_transform(desc)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'raw', 'new_descriptive_norm.csv'), desc_norm, cohort_ids,
-            fmt='%.3f', header=desc_hdr)
+    arr2csv(os.path.join(resPath, 'features', 'individual', "max_kdigo_d03.csv"), mkd03, cohort_ids,
+            fmt="%d", header="STUDY_PATIENT_ID,MaxKDIGOd03")
+    arr2csv(os.path.join(resPath, 'features', 'individual', "max_kdigo_d03_norm.csv"), mkd03 / 4, cohort_ids,
+            fmt="%.2f", header="STUDY_PATIENT_ID,MaxKDIGOd03")
 
-    os.mkdir(os.path.join(resPath, 'features', 'individual', 'avg'))
-    desc, desc_hdr = descriptive_trajectory_features(cohort_kdigos_avg, cohort_ids_avg, days=cohort_days_avg,
-                                                     t_lim=t_lim,
-                                                     filename=os.path.join(resPath, 'features', 'individual',
-                                                                           'avg', 'descriptive_features.csv'))
-    desc_norm = mms.fit_transform(desc)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'avg', 'new_descriptive_norm.csv'), desc_norm, cohort_ids,
-            fmt='%.3f', header=desc_hdr)
+if not os.path.isfile(os.path.join(resPath, 'features', 'individual', 'sofa.csv')):
+    # Normalize values in SOFA and APACHE scores for classification
+    mms = MinMaxScaler()
 
-# Normalize values in SOFA and APACHE scores for classification
-sofa_na = sofa[pt_sel, :]
-sofa_norm_na = mms.fit_transform(sofa_na)
-sofa_raw_na = sofa_raw[pt_sel, :]
-sofa_raw_norm_na = mms.fit_transform(sofa_raw_na)
+    sofa = sofa[pt_sel, :]
+    sofa_norm = mms.fit_transform(sofa)
+    sofa_raw = sofa_raw[pt_sel, :]
+    sofa_raw_norm = mms.fit_transform(sofa_raw)
 
-apache_na = apache[pt_sel, :]
-apache_norm_na = mms.fit_transform(apache_na)
-apache_raw_na = apache_raw[pt_sel, :]
-apache_raw_norm_na = mms.fit_transform(apache_raw_na)
+    apache = apache[pt_sel, :]
+    apache_norm = mms.fit_transform(apache)
+    apache_raw = apache_raw[pt_sel, :]
+    apache_raw_norm = mms.fit_transform(apache_raw)
 
-sofa_avg = sofa[pt_sel_avg, :]
-sofa_norm_avg = mms.fit_transform(sofa_avg)
-sofa_raw_avg = sofa_raw[pt_sel_avg, :]
-sofa_raw_norm_avg = mms.fit_transform(sofa_raw_avg)
+    sa = np.hstack([sofa, apache])
+    sa_norm = np.hstack([sofa_norm, apache_norm])
 
-apache_avg = apache[pt_sel_avg, :]
-apache_norm_avg = mms.fit_transform(apache_avg)
-apache_raw_avg = apache_raw[pt_sel_avg, :]
-apache_raw_norm_avg = mms.fit_transform(apache_raw_avg)
+    sa_hdr = 'STUDY_PATIENT_ID,' + ','.join(sofa_hdr) + "," + ','.join(apache_hdr)
 
-sofa_hdr = 'STUDY_PATIENT_ID,' + ','.join(sofa_hdr)
-apache_hdr = 'STUDY_PATIENT_ID,' + ','.join(apache_hdr)
-sofa_raw_hdr = 'STUDY_PATIENT_ID,' + ','.join(sofa_raw_hdr)
-apache_raw_hdr = 'STUDY_PATIENT_ID,' + ','.join(apache_raw_hdr)
+    sofa_hdr = 'STUDY_PATIENT_ID,' + ','.join(sofa_hdr)
+    apache_hdr = 'STUDY_PATIENT_ID,' + ','.join(apache_hdr)
+    sofa_raw_hdr = 'STUDY_PATIENT_ID,' + ','.join(sofa_raw_hdr)
+    apache_raw_hdr = 'STUDY_PATIENT_ID,' + ','.join(apache_raw_hdr)
 
-# Save SOFA and APACHE features for use in classification
-if not os.path.isfile(os.path.join(resPath, 'features', 'individual', 'raw', 'sofa.csv')):
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'raw', 'sofa.csv'),
-            sofa_na, cohort_ids, fmt='%d', header=sofa_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'raw', 'sofa_norm.csv'),
-            sofa_norm_na, cohort_ids, fmt='%.4f', header=sofa_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'raw', 'sofa_raw.csv'),
-            sofa_raw_na, cohort_ids, fmt='%.4f', header=sofa_raw_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'raw', 'sofa_raw_norm.csv'),
-            sofa_raw_norm_na, cohort_ids, fmt='%.4f', header=sofa_raw_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'raw', 'apache.csv'),
-            apache_na, cohort_ids, fmt='%d', header=apache_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'raw', 'apache_norm.csv'),
-            apache_norm_na, cohort_ids, fmt='%.4f', header=apache_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'raw', 'apache_raw.csv'),
-            apache_raw_na, cohort_ids, fmt='%.4f', header=apache_raw_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'raw', 'apache_raw_norm.csv'),
-            apache_raw_norm_na, cohort_ids, fmt='%.4f', header=apache_raw_hdr)
+    arr2csv(os.path.join(resPath, 'features', 'individual', 'sofa.csv'),
+            sofa, cohort_ids, fmt='%d', header=sofa_hdr)
+    arr2csv(os.path.join(resPath, 'features', 'individual', 'sofa_norm.csv'),
+            sofa_norm, cohort_ids, fmt='%.4f', header=sofa_hdr)
+    arr2csv(os.path.join(resPath, 'features', 'individual', 'sofa_raw.csv'),
+            sofa_raw, cohort_ids, fmt='%.4f', header=sofa_raw_hdr)
+    arr2csv(os.path.join(resPath, 'features', 'individual', 'sofa_raw_norm.csv'),
+            sofa_raw_norm, cohort_ids, fmt='%.4f', header=sofa_raw_hdr)
+    arr2csv(os.path.join(resPath, 'features', 'individual', 'apache.csv'),
+            apache, cohort_ids, fmt='%d', header=apache_hdr)
+    arr2csv(os.path.join(resPath, 'features', 'individual', 'apache_norm.csv'),
+            apache_norm, cohort_ids, fmt='%.4f', header=apache_hdr)
+    arr2csv(os.path.join(resPath, 'features', 'individual', 'apache_raw.csv'),
+            apache_raw, cohort_ids, fmt='%.4f', header=apache_raw_hdr)
+    arr2csv(os.path.join(resPath, 'features', 'individual', 'apache_raw_norm.csv'),
+            apache_raw_norm, cohort_ids, fmt='%.4f', header=apache_raw_hdr)
 
-if not os.path.isfile(os.path.join(resPath, 'features', 'individual', 'avg', 'sofa.csv')):
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'avg', 'sofa.csv'),
-            sofa_avg, cohort_ids_avg, fmt='%d', header=sofa_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'avg', 'sofa_norm.csv'),
-            sofa_norm_avg, cohort_ids_avg, fmt='%.4f', header=sofa_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'avg', 'sofa_raw.csv'),
-            sofa_raw_avg, cohort_ids_avg, fmt='%.4f', header=sofa_raw_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'avg', 'sofa_raw_norm.csv'),
-            sofa_raw_norm_avg, cohort_ids_avg, fmt='%.4f', header=sofa_raw_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'avg', 'apache.csv'),
-            apache_avg, cohort_ids_avg, fmt='%d', header=apache_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'avg', 'apache_norm.csv'),
-            apache_norm_avg, cohort_ids_avg, fmt='%.4f', header=apache_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'avg', 'apache_raw.csv'),
-            apache_raw_avg, cohort_ids_avg, fmt='%.4f', header=apache_raw_hdr)
-    arr2csv(os.path.join(resPath, 'features', 'individual', 'avg', 'apache_raw_norm.csv'),
-            apache_raw_norm_avg, cohort_ids_avg, fmt='%.4f', header=apache_raw_hdr)
+    arr2csv(os.path.join(resPath, 'features', 'individual', 'sofa_apache.csv'),
+            sa, cohort_ids, fmt='%d', header=sa_hdr)
+    arr2csv(os.path.join(resPath, 'features', 'individual', 'sofa_apache_norm.csv'),
+            sa_norm, cohort_ids, fmt='%.4f', header=sa_hdr)
 
-# Compute the 'transition probabiliy' between adjacent KDIGO scores for the cohort and construct the
-# corresponding transition weights.
-# Tw_unscaled(k) = log(Total # transitions between any scores / # transitions between k and k-1)
-if not os.path.exists(os.path.join(dataPath, 'kdigo_transition_weights.csv')):
-    tweights = get_transition_weights(cohort_kdigos)
-    arr2csv(os.path.join(dataPath, 'kdigo_transition_weights.csv'), tweights,
-            ['0-1', '1-2', '2-3', '3-3D'], header='Transition,Weight')
-
-mk = stats_avg['max_kdigo_win'][:]
-if not os.path.exists(os.path.join(resPath, 'clusters')):
-    os.mkdir(os.path.join(resPath, 'clusters'))
-if not os.path.exists(os.path.join(resPath, 'clusters', 'max_kdigo')):
-    os.mkdir(os.path.join(resPath, 'clusters', 'max_kdigo'))
-
-arr2csv(os.path.join(resPath, 'clusters', 'max_kdigo', 'clusters.csv'), mk, ids, fmt='%d')
-formatted_stats(stats_avg, os.path.join(resPath, 'clusters', 'max_kdigo'))
-
-
-print('Ready for distance matrix calculation. Please run script \'calc_dms.py\'')
+if not os.path.exists(os.path.join(dataPath, "make90_disch_30dbuf_2pts.csv")):
+    print("Evaluating MAKE-90 outcome variants...")
+    f = h5py.File(os.path.join(resPath, 'stats.h5'), 'r+')
+    stats = f['meta']
+    # for ref in ["admit", "disch"]:
+    #     for buf in [0, 30]:
+    #         for npts in [1, 2]:
+    #             print("Reference: %s\tDay Buffer: %d\t GFR Drop Number of Records: %d" % (ref, buf, npts))
+    #             baseName = "make90_%s_%ddbuf_%dpts" % (ref, buf, npts)
+    #             outName = os.path.join(dataPath, "%s.csv" % baseName)
+    #             # outFile = open(outName, "w")
+    #             m90 = get_MAKE90_dallas(cohort_ids, stats, baseDataPath, dataPath, ref=ref, buffer=buf, ct=npts,
+    #                                     label=baseName)
+    ref = "disch"
+    buf = 30
+    npts = 2
+    print("Reference: %s\tDay Buffer: %d\t GFR Drop Number of Records: %d" % (ref, buf, npts))
+    baseName = "make90_%s_%ddbuf_%dpts" % (ref, buf, npts)
+    outName = os.path.join(dataPath, "%s.csv" % baseName)
+    # outFile = open(outName, "w")
+    m90 = get_MAKE90_dallas(cohort_ids, stats, baseDataPath, dataPath, ref=ref, buffer=buf, ct=npts,
+                            label=baseName)
+    f.close()

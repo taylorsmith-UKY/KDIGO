@@ -15,6 +15,10 @@ from scipy import interp
 from utility_funcs import arr2csv, cartesian, get_date, get_array_dates, load_csv
 from scipy.spatial.distance import squareform
 from copy import copy
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment
+import statsmodels.api as sm
+from joblib import load, dump
 
 svm_tuned_parameters = [{'kernel': ['rbf', 'linear'],
                          'C': [0.05, 0.1, 0.25, 0.5, 0.75],
@@ -35,7 +39,7 @@ rf_params = {'n_estimators': 100,
 def descriptive_trajectory_features(kdigos, ids, days, t_lim=None, filename='descriptive_features.csv', tRes=6):
     npts = len(kdigos)
     features = np.zeros((npts, 17))
-    header = 'id,peak_KDIGO,KDIGO_at_admit,KDIGO_at_EndOfWindow,Min_KDIGO,AKI_first_3days,AKI_after_3days,' + \
+    header = 'STUDY_PATIENT_ID,peak_KDIGO,KDIGO_at_admit,KDIGO_at_EndOfWindow,Min_KDIGO,AKI_first_3days,AKI_after_3days,' + \
              'multiple_hits,KDIGO1+_gt_24hrs,KDIGO2+_gt_24hrs,KDIGO3+_gt_24hrs,KDIGO4_gt_24hrs,' + \
              'flat,strictly_increase,strictly_decrease,slope_posTOneg,slope_negTOpos,numPeaks'
     PEAK_KDIGO = 0
@@ -129,18 +133,24 @@ def descriptive_trajectory_features(kdigos, ids, days, t_lim=None, filename='des
         # Slope changes sign
         direction = 0
         temp = kdigo[0]
+        posCount = 0
+        negCount = 0
         for j in range(len(kdigo)):
             if kdigo[j] < temp:
                 # Pos to neg
                 if direction == 1:
-                    features[i, POStoNEG] += 1
+                    posCount += 1
+                    # features[i, POStoNEG] += 1
                 direction = -1
             elif kdigo[j] > temp:
                 # Neg to pos
                 if direction == -1:
-                    features[i, NEGtoPOS] += 1
+                    negCount += 1
+                    # features[i, NEGtoPOS] += 1
                 direction = 1
             temp = kdigo[j]
+        features[i, POStoNEG] = posCount
+        features[i, NEGtoPOS] = negCount
     if filename is not None:
         arr2csv(filename, features, ids, fmt='%d', header=header)
     return features, header
@@ -370,7 +380,316 @@ def getStaticFeatures(ids, scrs, kdigos, days, stats, dataPath):
 
 
 # %%
-def classify(X, y, classification_model, out_path, feature_name, gridsearch=False, sample_method='under', cv_num=5):
+def classify(X, y, classification_model, out_path, feature_name, gridsearch=False, sample_method='under', cv_num=5,
+             pretrained=False, engine="sklearn", extX=None, exty=None, extPath=""):
+
+    # 'criterion': ['gini', ],
+    # 'max_features': ['sqrt', ]}]
+
+    if X.ndim == 1:
+        X = X.reshape(-1, 1)
+
+    if not pretrained:
+        if engine == "sklearn":
+            if classification_model == 'rf':
+                clf = RandomForestClassifier()
+                params = rf_params
+                tuned_params = rf_tuned_parameters
+            elif classification_model == 'svm':
+                clf = SVC()
+                params = svm_params
+                tuned_params = svm_tuned_parameters
+            elif classification_model == 'mvr':
+                clf = LinearRegression()
+                coef = []
+            elif classification_model == 'log':
+                clf = LogisticRegression(n_jobs=-1)
+                params = {}
+            elif classification_model == 'XBG':
+                clf = XGBClassifier()
+                params = {}
+
+            if gridsearch and classification_model != 'mvr':
+                params = param_gridsearch(clf, X, y, tuned_params, out_path, cv_num=cv_num)
+
+            clf.set_params(**params)
+        else:
+            if classification_model != 'log':
+                print("Statsmodels not implemented for anything other than logistic regression.")
+                exit()
+    else:
+        clf = pretrained
+
+    log_file = open(os.path.join(out_path, 'classification_log.csv'), 'w')
+    log_file.write('Fold_#,ROC_AUC,Accuracy,Sensitivity,Specificity,Precision,Recall,F1-Score,PPV,NPV,TP,FP,TN,FN\n')
+
+    # auc, acc, sensitivity, specificity, ppv, npv, precision, recall, f1, support, tn, fp, fn, tp
+
+    skf = StratifiedKFold(n_splits=cv_num, shuffle=True, random_state=1)
+
+    tprs = []
+    aucs = []
+    probs = np.zeros(len(y))
+    mean_fpr = np.linspace(0, 1, 100)
+    fold_probs = []
+    val_lbls = []
+    imports = []
+    coeffs = []
+    intercepts = []
+    slopes = []
+
+    testExternal = False
+    efold_probs = []
+    if extX is not None and exty is not None:
+        # eskf = StratifiedKFold(n_splits=cv_num, shuffle=True, random_state=1)
+        # extSplitter = eskf.split(n_splits=cv_num, shuffle=True, random_state=1)
+        etprs = []
+        eaucs = []
+        eprobs = np.zeros(len(y))
+        emean_fpr = np.linspace(0, 1, 100)
+        eval_lbls = []
+        eimports = []
+        ecoeffs = []
+        testExternal = True
+        elog_file = open(os.path.join(extPath, 'classification_log.csv'), 'w')
+        elog_file.write(
+            'Fold_#,ROC_AUC,Accuracy,Sensitivity,Specificity,Precision,Recall,F1-Score,PPV,NPV,TP,FP,TN,FN\n')
+
+    for i, (train_idx, val_idx) in enumerate(skf.split(X, y)):
+        print('Evaluating on Fold ' + str(i + 1) + ' of ' + str(cv_num) + '.')
+        # Get the training and test sets
+        X_train = X[train_idx]
+        y_train = y[train_idx]
+        X_val = X[val_idx]
+        y_val = y[val_idx]
+
+        sel = get_even_pos_neg(y_train, sample_method)
+        X_train = X_train[sel]
+        y_train = y_train[sel]
+
+        if engine == "sklearn":
+            if not pretrained:
+                # Load and fit the model
+                if classification_model == 'rf':
+                    clf = RandomForestClassifier()
+                    clf.set_params(**params)
+                elif classification_model == 'svm':
+                    clf = SVC(probability=True)
+                    clf.set_params(**params)
+                elif classification_model == 'mvr':
+                    clf = LinearRegression()
+                    # clf.set_params(**params)
+                elif classification_model == 'log':
+                    clf = LogisticRegression(solver='lbfgs', max_iter=300)
+                elif classification_model == 'xbg':
+                    clf = XGBClassifier()
+
+                clf.fit(X_train, y_train)
+        else:
+            clf = sm.Logit(y_train, X_train,).fit(method="lbfgs")
+
+        # Plot the precision vs. recall curve
+        if engine == "sklearn":
+            probas = clf.predict_proba(X_val)[:, 1]
+        else:
+            probas = clf.predict(X_val)
+
+        pcurve, rcurve, _ = precision_recall_curve(y_val, probas)
+        fig = plt.figure(figsize=(8, 4))
+        plt.subplot(121)
+        plt.step(rcurve, pcurve, color='b', alpha=0.2,
+                 where='post')
+        plt.fill_between(rcurve, pcurve, where=None, alpha=0.2,
+                         color='b')
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.ylim([0.0, 1.05])
+        plt.xlim([0.0, 1.0])
+        plt.title(
+            'Precision-Recall Curve: AP=%0.2f' % average_precision_score(y_val,
+                                                                         probas))
+
+        # Plot ROC curve
+        fpr, tpr, thresholds = roc_curve(y_val, probas)
+        roc_auc = auc(fpr, tpr)
+        plt.subplot(122)
+        plt.plot(fpr, tpr)
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('ROC Curve (area = %0.2f)' % roc_auc)
+        # plt.legend(loc="lower right")
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_path, 'fold' + str(i + 1) + '_evaluation.png'))
+        plt.close(fig)
+        tprs.append(interp(mean_fpr, fpr, tpr))
+        tprs[-1][0] = 0.0
+        aucs.append(roc_auc)
+
+        roc_auc, acc, sensitivity, specificity, ppv, \
+        npv, precision, recall, f1, support, tn, fp, fn, tp = eval_classification(probas, y_val)
+
+        log_file.write('%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d\n' % (
+            i + 1, roc_auc, acc, sensitivity, specificity, precision, recall, f1, ppv, npv, tp, fp, tn, fn))
+
+        probs[val_idx] = probas
+        fold_probs.append(probas)
+        val_lbls.append(y_val)
+        if hasattr(clf, "coef_"):
+            imports.append(clf.coef_[0])
+
+        elif hasattr(clf, "feature_importances_"):
+            imports.append(clf.feature_importances_)
+
+        if testExternal:
+            if engine == "sklearn":
+                probas = clf.predict_proba(extX)[:, 1]
+            else:
+                probas = clf.predict(extX)
+
+            pos_idx = np.where(exty)[0]
+            neg_idx = np.where(exty == 0)[0]
+
+            pos_avg_score = np.nanmean(probas[pos_idx])
+            neg_avg_score = np.nanmean(probas[neg_idx])
+
+            slope = pos_avg_score - neg_avg_score
+            intercept = clf.intercept_
+
+            slopes.append(slope)
+            intercepts.append(intercept)
+
+            pcurve, rcurve, _ = precision_recall_curve(exty, probas)
+            fig = plt.figure(figsize=(8, 4))
+            plt.subplot(121)
+            plt.step(rcurve, pcurve, color='b', alpha=0.2,
+                     where='post')
+            plt.fill_between(rcurve, pcurve, where=None, alpha=0.2,
+                             color='b')
+            plt.xlabel('Recall')
+            plt.ylabel('Precision')
+            plt.ylim([0.0, 1.05])
+            plt.xlim([0.0, 1.0])
+            plt.title(
+                'Precision-Recall Curve: AP=%0.2f' % average_precision_score(exty,
+                                                                             probas))
+
+            # Plot ROC curve
+            fpr, tpr, thresholds = roc_curve(exty, probas)
+            roc_auc = auc(fpr, tpr)
+            plt.subplot(122)
+            plt.plot(fpr, tpr)
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            plt.xlabel('False Positive Rate')
+            plt.ylabel('True Positive Rate')
+            plt.title('ROC Curve (area = %0.2f)' % roc_auc)
+            # plt.legend(loc="lower right")
+            plt.tight_layout()
+            plt.savefig(os.path.join(extPath, 'fold' + str(i + 1) + '_evaluation_external.png'))
+            plt.close(fig)
+            etprs.append(interp(emean_fpr, fpr, tpr))
+            etprs[-1][0] = 0.0
+            eaucs.append(roc_auc)
+
+            roc_auc, acc, sensitivity, specificity, ppv, \
+            npv, precision, recall, f1, support, tn, fp, fn, tp = eval_classification(probas, exty)
+
+            elog_file.write('%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d\n' % (
+                i + 1, roc_auc, acc, sensitivity, specificity, precision, recall, f1, ppv, npv, tp, fp, tn, fn))
+
+            efold_probs.append(probas)
+        else:
+            pos_idx = np.where(y_val)[0]
+            neg_idx = np.where(y_val == 0)[0]
+
+            pos_avg_score = np.nanmean(probas[pos_idx])
+            neg_avg_score = np.nanmean(probas[neg_idx])
+
+            slope = pos_avg_score - neg_avg_score
+            intercept = clf.intercept_
+
+            slopes.append(slope)
+            intercepts.append(intercept)
+
+        if engine == "sklearn":
+            coeffs.append(clf.coef_[0])
+        else:
+            coeffs.append(clf.params)
+
+        # dump(clf, os.path.join(out_path, "classifier_fold%d.joblib" % i))
+
+    fig = plt.figure()
+    for i in range(cv_num):
+        plt.plot(mean_fpr, tprs[i], lw=1, alpha=0.3)
+    plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r',
+             label='Luck', alpha=.8)
+    mean_tpr = np.mean(tprs, axis=0)
+    mean_tpr[-1] = 1.0
+    mean_auc = auc(mean_fpr, mean_tpr)
+    std_auc = np.std(aucs)
+    plt.plot(mean_fpr, mean_tpr, color='b',
+             label=r'Mean ROC (AUC = %0.2f $\pm$ %0.2f)' % (mean_auc, std_auc),
+             lw=2, alpha=.8)
+    std_tpr = np.std(tprs, axis=0)
+    tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+    tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+    plt.fill_between(mean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2,
+                     label=r'$\pm$ 1 std. dev.')
+
+    plt.xlim([-0.05, 1.05])
+    plt.ylim([-0.05, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.legend(loc="lower right")
+    plt.title(classification_model.upper() + ' Classification Performance\n' + feature_name)
+    plt.savefig(os.path.join(out_path, 'evaluation_summary.png'))
+    plt.close(fig)
+
+    if testExternal:
+        fig = plt.figure()
+        for i in range(cv_num):
+            plt.plot(emean_fpr, tprs[i], lw=1, alpha=0.3)
+        plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r',
+                 label='Luck', alpha=.8)
+        emean_tpr = np.mean(etprs, axis=0)
+        emean_tpr[-1] = 1.0
+        mean_auc = auc(emean_fpr, emean_tpr)
+        std_auc = np.std(eaucs)
+        plt.plot(emean_fpr, emean_tpr, color='b',
+                 label=r'Mean ROC (AUC = %0.2f $\pm$ %0.2f)' % (mean_auc, std_auc),
+                 lw=2, alpha=.8)
+        std_tpr = np.std(etprs, axis=0)
+        tprs_upper = np.minimum(emean_tpr + std_tpr, 1)
+        tprs_lower = np.maximum(emean_tpr - std_tpr, 0)
+        plt.fill_between(emean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2,
+                         label=r'$\pm$ 1 std. dev.')
+
+        plt.xlim([-0.05, 1.05])
+        plt.ylim([-0.05, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.legend(loc="lower right")
+        plt.title(classification_model.upper() + ' Classification Performance\n' + feature_name)
+        plt.savefig(os.path.join(extPath, 'evaluation_summary.png'))
+        plt.close(fig)
+        elog_file.close()
+        if engine == "sklearn":
+            clf = clf.fit(extX, exty)
+        else:
+            clf = sm.Logit(exty, extX).fit(method="lbfgs")
+    else:
+        if engine == "sklearn":
+            clf = clf.fit(X, y)
+        else:
+            clf = sm.Logit(y, X).fit(method="lbfgs")
+    log_file.close()
+    return clf, probs, fold_probs, val_lbls, imports, np.array(coeffs), efold_probs, intercepts, slopes
+
+
+def classify_ie(X, y, classification_model, out_path, feature_name, extX, exty, sample_method='under', cv_num=5,
+             engine="sklearn", extPath=""):
 
     # 'criterion': ['gini', ],
     # 'max_features': ['sqrt', ]}]
@@ -381,14 +700,11 @@ def classify(X, y, classification_model, out_path, feature_name, gridsearch=Fals
     if classification_model == 'rf':
         clf = RandomForestClassifier()
         params = rf_params
-        tuned_params = rf_tuned_parameters
     elif classification_model == 'svm':
         clf = SVC()
         params = svm_params
-        tuned_params = svm_tuned_parameters
     elif classification_model == 'mvr':
         clf = LinearRegression()
-        coef = []
     elif classification_model == 'log':
         clf = LogisticRegression(n_jobs=-1)
         params = {}
@@ -396,149 +712,263 @@ def classify(X, y, classification_model, out_path, feature_name, gridsearch=Fals
         clf = XGBClassifier()
         params = {}
 
-    if gridsearch and classification_model != 'mvr':
-        params = param_gridsearch(clf, X, y, tuned_params, out_path, cv_num=cv_num)
+    clf.set_params(**params)
 
-    if classification_model != 'mvr':
-        clf.set_params(**params)
-        log_file = open(os.path.join(out_path, 'classification_log.txt'), 'w')
-        log_file.write('Fold_#,ROC_AUC,Accuracy,Sensitivity,Specificity,Precision,Recall,F1-Score,PPV,NPV,TP,FP,TN,FN\n')
+    log_file = open(os.path.join(out_path, 'classification_log.csv'), 'w')
+    log_file.write('Fold_#,ROC_AUC,Accuracy,Sensitivity,Specificity,Precision,Recall,F1-Score,PPV,NPV,TP,FP,TN,FN\n')
 
-        # auc, acc, sensitivity, specificity, ppv, npv, precision, recall, f1, support, tn, fp, fn, tp
+    # auc, acc, sensitivity, specificity, ppv, npv, precision, recall, f1, support, tn, fp, fn, tp
 
-        skf = StratifiedKFold(n_splits=cv_num, shuffle=True, random_state=1)
+    skf = StratifiedKFold(n_splits=cv_num, shuffle=True, random_state=1)
 
-        tprs = []
-        aucs = []
-        probs = np.zeros(len(y))
-        mean_fpr = np.linspace(0, 1, 100)
-        pre_probs = []
-        val_lbls = []
-        imports = []
-        for i, (train_idx, val_idx) in enumerate(skf.split(X, y)):
-            print('Evaluating on Fold ' + str(i + 1) + ' of ' + str(cv_num) + '.')
-            # Get the training and test sets
-            X_train = X[train_idx]
-            y_train = y[train_idx]
-            X_val = X[val_idx]
-            y_val = y[val_idx]
+    tprs = []
+    aucs = []
+    probs = np.zeros(len(y))
+    mean_fpr = np.linspace(0, 1, 100)
+    fold_probs = []
+    val_lbls = []
+    coeffs = []
+    intercepts = []
+    slopes = []
 
-            sel = get_even_pos_neg(y_train, sample_method)
-            X_train = X_train[sel]
-            y_train = y_train[sel]
+    exttprs = []
+    extaucs = []
+    extmean_fpr = np.linspace(0, 1, 100)
+    extfold_probs = []
+    extintercepts = []
+    extslopes = []
 
-            # Load and fit the model
-            if classification_model == 'rf':
-                clf = RandomForestClassifier()
-                clf.set_params(**params)
-            elif classification_model == 'svm':
-                clf = SVC(probability=True)
-                clf.set_params(**params)
-            elif classification_model == 'mvr':
-                clf = LinearRegression()
-                # clf.set_params(**params)
-            elif classification_model == 'log':
-                clf = LogisticRegression(solver='lbfgs')
-            elif classification_model == 'xbg':
-                clf = XGBClassifier()
+    elog_file = open(os.path.join(extPath, 'classification_log.csv'), 'w')
+    elog_file.write(
+        'Fold_#,ROC_AUC,Accuracy,Sensitivity,Specificity,Precision,Recall,F1-Score,PPV,NPV,TP,FP,TN,FN\n')
 
-            clf.fit(X_train, y_train)
+    for i, (train_idx, val_idx) in enumerate(skf.split(X, y)):
+        print('Evaluating on Fold ' + str(i + 1) + ' of ' + str(cv_num) + '.')
+        # Get the training and test sets
+        X_train = X[train_idx]
+        y_train = y[train_idx]
+        X_val = X[val_idx]
+        y_val = y[val_idx]
 
-            if classification_model == 'mvr':
-                coef.append(clf.coef_)
-            else:
-                # Plot the precision vs. recall curve
-                probas = clf.predict_proba(X_val)[:, 1]
-                pred = clf.predict(X_val)
-                pcurve, rcurve, _ = precision_recall_curve(y_val, probas)
-                fig = plt.figure(figsize=(8, 4))
-                plt.subplot(121)
-                plt.step(rcurve, pcurve, color='b', alpha=0.2,
-                         where='post')
-                plt.fill_between(rcurve, pcurve, where=None, alpha=0.2,
-                                 color='b')
-                plt.xlabel('Recall')
-                plt.ylabel('Precision')
-                plt.ylim([0.0, 1.05])
-                plt.xlim([0.0, 1.0])
-                plt.title(
-                    'Precision-Recall Curve: AP=%0.2f' % average_precision_score(y_val,
-                                                                                 probas))
+        sel = get_even_pos_neg(y_train, sample_method)
+        X_train = X_train[sel]
+        y_train = y_train[sel]
 
-                # Plot ROC curve
-                fpr, tpr, thresholds = roc_curve(y_val, probas)
-                roc_auc = auc(fpr, tpr)
-                plt.subplot(122)
-                plt.plot(fpr, tpr)
-                plt.xlim([0.0, 1.0])
-                plt.ylim([0.0, 1.05])
-                plt.xlabel('False Positive Rate')
-                plt.ylabel('True Positive Rate')
-                plt.title('ROC Curve (area = %0.2f)' % roc_auc)
-                # plt.legend(loc="lower right")
-                plt.tight_layout()
-                plt.savefig(os.path.join(out_path, 'fold' + str(i + 1) + '_evaluation.png'))
-                plt.close(fig)
-                tprs.append(interp(mean_fpr, fpr, tpr))
-                tprs[-1][0] = 0.0
-                aucs.append(roc_auc)
+        # Instantiate model
+        if classification_model == 'rf':
+            clf = RandomForestClassifier()
+            clf.set_params(**params)
+        elif classification_model == 'svm':
+            clf = SVC(probability=True)
+            clf.set_params(**params)
+        elif classification_model == 'mvr':
+            clf = LinearRegression()
+            # clf.set_params(**params)
+        elif classification_model == 'log':
+            clf = LogisticRegression(solver='lbfgs', max_iter=300)
+        elif classification_model == 'xbg':
+            clf = XGBClassifier()
 
-                # acc = accuracy_score(y_val, pred)
-                # prec = precision_score(y_val, pred)
-                # rec = recall_score(y_val, pred)
-                # f1 = f1_score(y_val, pred)
+        # Fit on internal cohort
+        clf.fit(X_train, y_train)
 
-                # tp, fp, tn, fn = perf_measure(y_val, pred)
-                # 'Fold_#,ROC_AUC,Accuracy,Sensitivity,Specificity,Precision,Recall,F1-Score,PPV,NPV,TP,FP,TN,FN\n'
+        # Plot the precision vs. recall curve
+        probas = clf.predict_proba(X_val)[:, 1]
 
-                roc_auc, acc, sensitivity, specificity, ppv, \
-                npv, precision, recall, f1, support, tn, fp, fn, tp = eval_classification(probas, y_val)
+        pcurve, rcurve, _ = precision_recall_curve(y_val, probas)
+        fig = plt.figure(figsize=(8, 4))
+        plt.subplot(121)
+        plt.step(rcurve, pcurve, color='b', alpha=0.2,
+                 where='post')
+        plt.fill_between(rcurve, pcurve, where=None, alpha=0.2,
+                         color='b')
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.ylim([0.0, 1.05])
+        plt.xlim([0.0, 1.0])
+        plt.title(
+            'Precision-Recall Curve: AP=%0.2f' % average_precision_score(y_val,
+                                                                         probas))
 
-                log_file.write('%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d\n' % (
-                    i + 1, roc_auc, acc, sensitivity, specificity, precision, recall, f1, ppv, npv, tp, fp, tn, fn))
-
-                probs[val_idx] = probas
-                pre_probs.append(probas)
-                val_lbls.append(y_val)
-                if hasattr(clf, "coef_"):
-                    imports.append(clf.coef_[0])
-
-                elif hasattr(clf, "feature_importances_"):
-                    imports.append(clf.feature_importances_)
-
-        log_file.close()
-
-        fig = plt.figure()
-        for i in range(cv_num):
-            plt.plot(mean_fpr, tprs[i], lw=1, alpha=0.3)
-        plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r',
-                 label='Luck', alpha=.8)
-        mean_tpr = np.mean(tprs, axis=0)
-        mean_tpr[-1] = 1.0
-        mean_auc = auc(mean_fpr, mean_tpr)
-        std_auc = np.std(aucs)
-        plt.plot(mean_fpr, mean_tpr, color='b',
-                 label=r'Mean ROC (AUC = %0.2f $\pm$ %0.2f)' % (mean_auc, std_auc),
-                 lw=2, alpha=.8)
-        std_tpr = np.std(tprs, axis=0)
-        tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
-        tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
-        plt.fill_between(mean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2,
-                         label=r'$\pm$ 1 std. dev.')
-
-        plt.xlim([-0.05, 1.05])
-        plt.ylim([-0.05, 1.05])
+        # Plot ROC curve
+        fpr, tpr, thresholds = roc_curve(y_val, probas)
+        roc_auc = auc(fpr, tpr)
+        plt.subplot(122)
+        plt.plot(fpr, tpr)
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
-        plt.legend(loc="lower right")
-        plt.title(classification_model.upper() + ' Classification Performance\n' + feature_name)
-        plt.savefig(os.path.join(out_path, 'evaluation_summary.png'))
+        plt.title('ROC Curve (area = %0.2f)' % roc_auc)
+        # plt.legend(loc="lower right")
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_path, 'fold' + str(i + 1) + '_evaluation.png'))
         plt.close(fig)
+        tprs.append(interp(mean_fpr, fpr, tpr))
+        tprs[-1][0] = 0.0
+        aucs.append(roc_auc)
+
+        roc_auc, acc, sensitivity, specificity, ppv, \
+        npv, precision, recall, f1, support, tn, fp, fn, tp = eval_classification(probas, y_val)
+
+        log_file.write('%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d\n' % (
+            i + 1, roc_auc, acc, sensitivity, specificity, precision, recall, f1, ppv, npv, tp, fp, tn, fn))
+
+        probs[val_idx] = probas
+        fold_probs.append(probas)
+        val_lbls.append(y_val)
+
+        pos_idx = np.where(y_val)[0]
+        neg_idx = np.where(y_val == 0)[0]
+
+        pos_avg_score = np.nanmean(probas[pos_idx])
+        neg_avg_score = np.nanmean(probas[neg_idx])
+
+        slope = pos_avg_score - neg_avg_score
+        intercept = clf.intercept_
+
+        slopes.append(slope)
+        intercepts.append(neg_avg_score)
+
+        coeffs.append(clf.coef_[0])
+
+
+        # Save results for external cohort
+        extprobas = clf.predict_proba(extX)[:, 1]
+
+        pcurve, rcurve, _ = precision_recall_curve(exty, extprobas)
+        fig = plt.figure(figsize=(8, 4))
+        plt.subplot(121)
+        plt.step(rcurve, pcurve, color='b', alpha=0.2,
+                 where='post')
+        plt.fill_between(rcurve, pcurve, where=None, alpha=0.2,
+                         color='b')
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.ylim([0.0, 1.05])
+        plt.xlim([0.0, 1.0])
+        plt.title(
+            'Precision-Recall Curve: AP=%0.2f' % average_precision_score(exty,
+                                                                         extprobas))
+
+        # Plot ROC curve
+        fpr, tpr, thresholds = roc_curve(exty, extprobas)
+        roc_auc = auc(fpr, tpr)
+        plt.subplot(122)
+        plt.plot(fpr, tpr)
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('ROC Curve (area = %0.2f)' % roc_auc)
+        # plt.legend(loc="lower right")
+        plt.tight_layout()
+        plt.savefig(os.path.join(extPath, 'fold' + str(i + 1) + '_evaluation_external.png'))
+        plt.close(fig)
+        exttprs.append(interp(extmean_fpr, fpr, tpr))
+        exttprs[-1][0] = 0.0
+        extaucs.append(roc_auc)
+
+        roc_auc, acc, sensitivity, specificity, ppv, \
+        npv, precision, recall, f1, support, tn, fp, fn, tp = eval_classification(extprobas, exty)
+
+        elog_file.write('%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d\n' % (
+            i + 1, roc_auc, acc, sensitivity, specificity, precision, recall, f1, ppv, npv, tp, fp, tn, fn))
+
+        extfold_probs.append(extprobas)
+
+        pos_idx = np.where(exty)[0]
+        neg_idx = np.where(exty == 0)[0]
+
+        extpos_avg_score = np.nanmean(extprobas[pos_idx])
+        extneg_avg_score = np.nanmean(extprobas[neg_idx])
+
+        extslope = extpos_avg_score - extneg_avg_score
+        extintercept = clf.intercept_
+
+        extslopes.append(extslope)
+        extintercepts.append(extneg_avg_score)
+
+        # dump(clf, os.path.join(out_path, "classifier_fold%d.joblib" % i))
+
+    fig = plt.figure()
+    for i in range(cv_num):
+        plt.plot(mean_fpr, tprs[i], lw=1, alpha=0.3)
+    plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r',
+             label='Luck', alpha=.8)
+    mean_tpr = np.mean(tprs, axis=0)
+    mean_tpr[-1] = 1.0
+    mean_auc = auc(mean_fpr, mean_tpr)
+    std_auc = np.std(aucs)
+    plt.plot(mean_fpr, mean_tpr, color='b',
+             label=r'Mean ROC (AUC = %0.2f $\pm$ %0.2f)' % (mean_auc, std_auc),
+             lw=2, alpha=.8)
+    std_tpr = np.std(tprs, axis=0)
+    tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+    tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+    plt.fill_between(mean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2,
+                     label=r'$\pm$ 1 std. dev.')
+
+    plt.xlim([-0.05, 1.05])
+    plt.ylim([-0.05, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.legend(loc="lower right")
+    plt.title(classification_model.upper() + ' Classification Performance\n' + feature_name)
+    plt.savefig(os.path.join(out_path, 'evaluation_summary.png'))
+    plt.close(fig)
+
+    fig = plt.figure()
+    for i in range(cv_num):
+        plt.plot(extmean_fpr, tprs[i], lw=1, alpha=0.3)
+    plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r',
+             label='Luck', alpha=.8)
+    extmean_tpr = np.mean(exttprs, axis=0)
+    extmean_tpr[-1] = 1.0
+    mean_auc = auc(extmean_fpr, extmean_tpr)
+    std_auc = np.std(extaucs)
+    plt.plot(extmean_fpr, extmean_tpr, color='b',
+             label=r'Mean ROC (AUC = %0.2f $\pm$ %0.2f)' % (mean_auc, std_auc),
+             lw=2, alpha=.8)
+    std_tpr = np.std(exttprs, axis=0)
+    tprs_upper = np.minimum(extmean_tpr + std_tpr, 1)
+    tprs_lower = np.maximum(extmean_tpr - std_tpr, 0)
+    plt.fill_between(extmean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2,
+                     label=r'$\pm$ 1 std. dev.')
+
+    plt.xlim([-0.05, 1.05])
+    plt.ylim([-0.05, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.legend(loc="lower right")
+    plt.title(classification_model.upper() + ' Classification Performance\n' + feature_name)
+    plt.savefig(os.path.join(extPath, 'evaluation_summary.png'))
+    plt.close(fig)
+    elog_file.close()
+
+    if engine == "sklearn":
         clf = clf.fit(X, y)
-        return clf, probs, pre_probs, val_lbls, imports
     else:
-        np.savetxt(os.path.join(out_path, 'mvr_coefficients.csv'), coef, delimiter=',')
-    return clf
+        clf = sm.Logit(y, X).fit(method="lbfgs")
+    log_file.close()
+
+    return clf, probs, fold_probs, val_lbls, np.array(coeffs), extfold_probs, intercepts, slopes, extintercepts, extslopes
+
+# %%
+def getStatmodelsCoefficients(fileName, nFeatures):
+    f = open(fileName, "r")
+    for i in range(12):
+        _ = f.readline()
+    coeffs = []
+    lowers = []
+    uppers = []
+    for i in range(nFeatures):
+        tokens = f.readline().rstrip().split()
+        coeffs.append(float(tokens[1]))
+        lowers.append(float(tokens[-2]))
+        uppers.append(float(tokens[-1]))
+    return coeffs, lowers, uppers
+
 
 # %%
 def param_gridsearch(m, X, y, tuned_parameters, out_path, cv_num=8):
@@ -627,16 +1057,16 @@ def feature_selection(X, y, featNames, selectionModel, path):
             tX = X[:, support]
             print('Loaded previous feature selection.')
         else:
-            estimator = selectionModel[1]
-            if estimator == 'ExtraTrees':
+            estimator = selectionModel[1].lower()
+            if estimator == 'extratrees':
                 estimator = ExtraTreesClassifier(n_estimators=100,
                                      n_jobs=-1,
                                      random_state=0)
-            elif estimator == 'SVM':
+            elif estimator == 'svm':
                 estimator = SVC(kernel='linear')
-            elif estimator == 'LogReg':
+            elif estimator == 'logreg' or estimator == 'log' or estimator == 'lr':
                 estimator = LogisticRegression(solver='lbfgs')
-            elif estimator == 'XBG':
+            elif estimator == 'xbg':
                 estimator = XGBClassifier()
             rfecv = RFECV(estimator=estimator, step=1, cv=StratifiedKFold(4),
                           scoring=featureEliminationScore, verbose=1, n_jobs=-1)
@@ -739,3 +1169,151 @@ def feature_selection(data, lbls, method='univariate', params=[]):
     else:
         print("Please select one of the following methods:")
         print("[variance, univariate, recursive, linear, tree")
+
+
+def build_blank_performance_spreadsheets(models, n_predictors=10):
+    getCell = lambda col, row: "%s%d" % (chr(ord("A") + col), row + 1)
+
+    wb = Workbook()
+    pred_ws = wb.active
+    pred_ws.title = "PredictorTable"
+    perf_ws = wb.create_sheet(title="PerformanceTable")
+
+    # Set up global alignments and fonts
+    perfFont = Font(sz=16)
+    predFont = Font(sz=14)
+    al = Alignment(horizontal="center", vertical="center")
+    # All font sizes the same, columns B+ center alignment
+    for colNum in range(len(models) + 1):
+        colLet = getCell(colNum, 0)[0]
+        col = perf_ws.column_dimensions[colLet]
+        col.data_type = "s"
+        col.font = perfFont
+        if colNum > 0:
+            col.alignment = al
+        col = pred_ws.column_dimensions[colLet]
+        col.data_type = "s"
+        col.font = predFont
+        col.alignment = al
+        if colNum > 0:
+            col.alignment = al
+
+    # First row and column both bold
+    perfFont = Font(b=True, sz=16)
+    predFont = Font(b=True, sz=14)
+    col = pred_ws.column_dimensions["A"]
+    col.font = predFont
+    row = pred_ws.row_dimensions["1"]
+    row.font = predFont
+
+    col = perf_ws.column_dimensions["A"]
+    col.font = perfFont
+    row = perf_ws.row_dimensions["1"]
+    row.font = perfFont
+
+    cell = getCell(0, 0)
+    pred_ws[cell] = "Model"
+    perf_ws[cell] = "Model"
+    # Fill in model names
+    for colNum, model in enumerate(models):
+        cell = getCell(colNum + 1, 0)
+        pred_ws[cell] = model
+        perf_ws[cell] = model
+
+
+    # Set up predictor table
+    cell = getCell(0, 1)
+    pred_ws[cell] = "Predictors"
+
+    row = n_predictors
+    cell = getCell(0, row)
+    pred_ws[cell] = "Model Performance Measures"
+
+    row += 1
+    cell = getCell(0, row)
+    pred_ws[cell] = "C statistic (95%CI)"
+
+    row += 1
+    cell = getCell(0, row)
+    pred_ws[cell] = "  -  Difference"
+
+    row += 1
+    cell = getCell(0, row)
+    pred_ws[cell] = "  -  P Value"
+
+    row += 1
+    cell = getCell(0, row)
+    pred_ws[cell] = "Integrated discrimination improvement (IDI) (95%CI)"
+
+    row += 1
+    cell = getCell(0, row)
+    pred_ws[cell] = "  -  P Value"
+
+    row += 1
+    cell = getCell(0, row)
+    pred_ws[cell] = "Sensitivity (95%CI)"
+
+    row += 1
+    cell = getCell(0, row)
+    pred_ws[cell] = "Specificity (95%CI)"
+
+    row += 1
+    cell = getCell(0, row)
+    pred_ws[cell] = "PPV (95%CI)"
+
+    row += 1
+    cell = getCell(0, row)
+    pred_ws[cell] = "NPV (95%CI)"
+
+    # Set up performance table
+    row = 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "AUC (95%CI)"
+
+    row += 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "Difference in AUC (95%CI)"
+
+    row += 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "  -  P Value"
+
+    row += 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "IDI (95%CI) %"
+
+    row += 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "  -  P Value"
+
+    row += 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "NRI (95%CI) %"
+
+    row += 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "  - Continuous"
+
+    row += 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "  -  P Value"
+
+    row += 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "  - Categorical"
+
+    row += 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "  -  P Value"
+
+    row += 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "  - Events No. (%)"
+
+    row += 1
+    cell = getCell(0, row)
+    perf_ws[cell] = "  - Nonevents No. (%)"
+    return wb
+
+def plot_odds_ratios():
+    pass

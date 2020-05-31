@@ -421,7 +421,7 @@ def get_admit_disch(dataPath='', scr_fname='SCR_ALL_VALUES.csv', date_fname = 'A
     return hosp_windows, icu_windows
 
 
-def get_exclusion_criteria(ids, dates, icu_windows, genders, races, ages, dataPath='', id_col='STUDY_PATIENT_ID'):
+def get_exclusion_criteria(ids, kdigos, days, dates, icu_windows, genders, races, ages, dataPath='', id_col='STUDY_PATIENT_ID', t_lim=14, akiMinDay=3):
     diag_m = pd.read_csv(os.path.join(dataPath, 'DIAGNOSIS.csv'))
     scm_esrd_m = pd.read_csv(os.path.join(dataPath, 'ESRD_STATUS.csv'))
     usrds_esrd_m = pd.read_csv(os.path.join(dataPath, 'USRDS_ESRD.csv'))
@@ -431,7 +431,16 @@ def get_exclusion_criteria(ids, dates, icu_windows, genders, races, ages, dataPa
     surg_m = pd.read_csv(os.path.join(dataPath, 'SURGERY_INDX.csv'))
     mort_m = pd.read_csv(os.path.join(dataPath, 'OUTCOMES_COMBINED.csv'))
 
-    hdr = 'patientID,No values in first 7 days, Only 1 value, Last SCr - First SCr < 6hrs, Missing Demographics, Missing DOB, Missing Admit Info, Baseline SCr > 4, Age < 18, Died < 48 hrs after ICU admission, ESRD, Baseline eGFR < 15, Kidney Transplant'
+    criteria = ["NoValues_ICU_D0-%d" % t_lim,
+                "Only1Val_ICU_D0-%d" % t_lim,
+                "LastSCr-FirstSCr_LT6Hrs",
+                "Missing Demographics",
+                "Missing DOB", "MissingAdmitInfo", "BslnSCrGt4", "AgeLt18",
+                "Died_ICUD03", "ESRD", "BslnGFRLt15", "KidneyTransplant", "NoAKI%dd" % t_lim]
+
+    hdr = 'STUDY_PATIENT_ID,' + ",".join(criteria)
+
+    # hdr = 'STUDY_PATIENT_ID,No values in first 7 days, Only 1 value, Last SCr - First SCr < 6hrs, Missing Demographics, Missing DOB, Missing Admit Info, Baseline SCr > 4, Age < 18, Died < 48 hrs after ICU admission, ESRD, Baseline eGFR < 15, Kidney Transplant'
     # NOT_ENOUGH = 0
     NO_VALS_ICU = 0
     ONLY_1VAL = 1
@@ -441,11 +450,12 @@ def get_exclusion_criteria(ids, dates, icu_windows, genders, races, ages, dataPa
     NO_ADMIT = 5
     SCR_GT4 = 6
     AGE_LT18 = 7
-    DIED_LT48 = 8
+    DIED_ICUD03 = 8
     ESRD = 9
     GFR_LT15 = 10
     KID_TPLT = 11
-    exclusions = np.zeros((len(ids), 12))
+    NOAKI = 12
+    exclusions = np.zeros((len(ids), 13))
     for i in tqdm(range(len(ids)), desc='Getting Exclusion Criteria'):
         tid = ids[i]
         # Ensure this patient has values in time period of interest
@@ -502,10 +512,18 @@ def get_exclusion_criteria(ids, dates, icu_windows, genders, races, ages, dataPa
                 mort_date = get_date(str(mort_m['DECEASED_DATE'][midx]).split('.')[0])
                 if mort_date != 'nan':
                     break
+        # if mort_date != 'nan' and icu_admit != 'nan':
+        #     death_dur = (mort_date - icu_admit).total_seconds() / (60 * 60 * 24)
+        #     if death_dur < 2:
+        #         exclusions[i][DIED_ICUD03] = 1
+
         if mort_date != 'nan' and icu_admit != 'nan':
-            death_dur = (mort_date - icu_admit).total_seconds() / (60 * 60 * 24)
-            if death_dur < 2:
-                exclusions[i][DIED_LT48] = 1
+            day_num = mort_date.toordinal() - icu_admit.toordinal()
+            if day_num <= 3:
+                exclusions[i][DIED_ICUD03] = 1
+            # death_dur = (mort_date - icu_admit).total_seconds() / (60 * 60 * 24)
+            # if death_dur < 2:
+            #     exclusions[i][DIED_D03] = 1
 
         # Check scm flags
         esrd_idx = np.where(scm_esrd_m['STUDY_PATIENT_ID'].values == tid)[0]
@@ -579,6 +597,14 @@ def get_exclusion_criteria(ids, dates, icu_windows, genders, races, ages, dataPa
                     exclusions[i][KID_TPLT] = 1
                     break
 
+        if len(days[i]) > 0:
+            tidx = np.where(days[i] <= akiMinDay)[0]
+            if tidx.size > 0:
+                if np.max(kdigos[i][tidx]) == 0:
+                    exclusions[i][NOAKI] = 1
+            else:
+                exclusions[i][NOAKI] = 1
+
     del bsln_m
     del diag_m
     del date_m
@@ -586,7 +612,7 @@ def get_exclusion_criteria(ids, dates, icu_windows, genders, races, ages, dataPa
     return exclusions, hdr
 
 
-def get_exclusion_criteria_dallas(ids, dates, icu_windows, genders, races, ages, dataPath='', id_col='PATIENT_NUM'):
+def get_exclusion_criteria_dallas(ids, kdigos, days, dates, icu_windows, genders, races, ages, dataPath='', id_col='PATIENT_NUM', t_lim=14):
     diag_m = pd.read_csv(os.path.join(dataPath, 'tHospitalFinalDiagnoses.csv'))
     scm_esrd_m = pd.read_csv(os.path.join(dataPath, 'tESRDSummary.csv'))
     usrds_m = pd.read_csv(os.path.join(dataPath, 'tUSRDS.csv'))
@@ -594,7 +620,13 @@ def get_exclusion_criteria_dallas(ids, dates, icu_windows, genders, races, ages,
     date_m = pd.read_csv(os.path.join(dataPath, 'tIndexedIcuAdmission.csv'))
     pat_m = pd.read_csv(os.path.join(dataPath, 'tPatients.csv'))
 
-    hdr = 'patientID,No values in first 7 days, Only 1 value, Last SCr - First SCr < 6hrs, Missing Demographics, Missing DOB, Missing Admit Info, Baseline SCr > 4, Age < 18, Died < 48 hrs after ICU admission, ESRD, Baseline eGFR < 15, Kidney Transplant'
+    criteria = ["NoValues_ICU_D0-%d" % t_lim,
+                "Only1Val_ICU_D0-%d" % t_lim,
+                "LastSCr-FirstSCr_LT6Hrs",
+                "Missing Demographics",
+                "Missing DOB", "MissingAdmitInfo", "BslnSCrGt4", "AgeLt18", "Died_D03_ICU", "ESRD", "BslnGFRLt15", "KidneyTransplant", "NoAKID03"]
+
+    hdr = 'PATIENT_NUM,' + ",".join(criteria)
     # NOT_ENOUGH = 0
     NO_VALS_ICU = 0
     ONLY_1VAL = 1
@@ -604,38 +636,30 @@ def get_exclusion_criteria_dallas(ids, dates, icu_windows, genders, races, ages,
     NO_ADMIT = 5
     SCR_GT4 = 6
     AGE_LT18 = 7
-    DIED_LT48 = 8
+    DIED_D03 = 8
     ESRD = 9
     GFR_LT15 = 10
     KID_TPLT = 11
-    exclusions = np.zeros((len(ids), 12))
+    NOAKI = 12
+    exclusions = np.zeros((len(ids), 13))
     for i in tqdm(range(len(ids)), desc='Getting Exclusion Criteria'):
         tid = ids[i]
+        admit, disch = icu_windows[tid]
         # Ensure this patient has values in time period of interest
         if len(dates[i]) == 0:
             exclusions[i][NO_VALS_ICU] = 1
-        elif len(dates[i]) == 1:
-            exclusions[i][ONLY_1VAL] = 1
         else:
-            try:
-                dif = (dates[i][-1] - dates[i][0]).total_seconds() / (60 * 60)
-                if dif < 6:
-                    exclusions[i][TOO_SHORT] = 1
-            except TypeError:
-                if len(dates) > 2:
-                    try:
-                        if dates[i][0] == 'nan':
-                            dif = (dates[i][-1] - dates[i][1]).total_seconds() / (60 * 60)
-                            if dif < 6:
-                                exclusions[i][TOO_SHORT] = 1
-                        else:
-                            dif = (dates[i][-2] - dates[i][0]).total_seconds() / (60 * 60)
-                            if dif < 6:
-                                exclusions[i][TOO_SHORT] = 1
-                    except TypeError:
-                        exclusions[i][TOO_SHORT] = 1
-                else:
-                    exclusions[i][TOO_SHORT] = 1
+            firstDate = datetime.datetime(3000, 1, 1)
+            lastDate = datetime.datetime(1000, 1, 1)
+            for tdate in dates[i]:
+                if tdate != "nan":
+                    if admit < tdate < admit + datetime.timedelta(14) and tdate < disch:
+                        firstDate = min(firstDate, tdate)
+                        lastDate = max(lastDate, tdate)
+            if firstDate == lastDate:
+                exclusions[i][ONLY_1VAL] = 1
+            elif ((lastDate - firstDate).total_seconds() / (60 * 60)) < 6:
+                exclusions[i][TOO_SHORT] = 1
 
         sex = genders[i]
         race = races[i]
@@ -698,9 +722,12 @@ def get_exclusion_criteria_dallas(ids, dates, icu_windows, genders, races, ages,
             tdate = get_date(str(usrds_m['FIRST_SE'][uidx]).split('.')[0])
 
         if mort_date != 'nan' and icu_admit != 'nan':
-            death_dur = (mort_date - icu_admit).total_seconds() / (60 * 60 * 24)
-            if death_dur < 2:
-                exclusions[i][DIED_LT48] = 1
+            day_num = mort_date.toordinal() - icu_admit.toordinal()
+            if day_num <= 3:
+                exclusions[i][DIED_D03] = 1
+            # death_dur = (mort_date - icu_admit).total_seconds() / (60 * 60 * 24)
+            # if death_dur < 2:
+            #     exclusions[i][DIED_D03] = 1
 
         # Check scm flags
         if scm:
@@ -738,6 +765,13 @@ def get_exclusion_criteria_dallas(ids, dates, icu_windows, genders, races, ages,
             if icd_code in ['Z94.0', 'T86.10', 'T86.11', 'T86.12', 'T86.13', 'T86.19']:
                 exclusions[i][KID_TPLT] = 1
                 break
+        if len(days[i]) > 0:
+            tidx = np.where(days[i] <= 3)[0]
+            if tidx.size > 0:
+                if np.max(kdigos[i][tidx]) == 0:
+                    exclusions[i][NOAKI] = 1
+            else:
+                exclusions[i][NOAKI] = 1
 
     del bsln_m
     del diag_m
@@ -798,8 +832,9 @@ def get_patients_dallas(scr_all_m, scr_val_loc, scr_date_loc,
     ESRD = 9
     GFR_LT15 = 10
     KID_TPLT = 11
+    NO_AKI = 11
     for tid in tqdm(ids, desc='Getting Patient Data'):
-        exc = np.zeros(12, dtype=int)
+        exc = np.zeros(13, dtype=int)
         exc_name = ''
         all_rows = np.where(scr_all_m[:, 0] == tid)[0]
         sel = np.where(mask[all_rows])[0]
@@ -989,6 +1024,8 @@ def get_patients_dallas(scr_all_m, scr_val_loc, scr_date_loc,
                         exc[KID_TPLT] = 1
                         break
 
+
+
         if np.any(exc):
             exc = ','.join(exc.astype(str))
             exc_log.write('%d,%s\n' % (tid, exc))
@@ -1086,7 +1123,9 @@ def linear_interpo(scrs, ids, dates, dmasks, windows, scale):
             interp_scr = tscrs
             interp_dia = tdmask
             if len(tscrs) == 1:
-                interp_days = [0]
+                interp_days = np.array([0])
+            else:
+                interp_days = np.array([])
             interp_mask = np.ones(len(interp_scr))
 
         else:
@@ -1268,8 +1307,15 @@ def get_baselines(dataPath, hosp_windows, genders, races, ages, scr_fname='SCR_A
                 delta = admit - this_date
             # if valid point found save it
             if out_lim[0] < delta < out_lim[1]:
-                bsln_date = get_date(str(this_date).split('.')[0])
-                bsln_val = scr_all_m[scr_vcol][row]
+                bsln_date = this_date
+                if len(pre_out_rows) > 0:
+                    nextRow = pre_out_rows.pop(-1)
+                    if this_date == get_date(scr_all_m[scr_dcol][nextRow]):
+                        bsln_val = (scr_all_m[scr_vcol][row] + scr_all_m[scr_vcol][nextRow]) / 2
+                    else:
+                        bsln_val = scr_all_m[scr_vcol][row]
+                else:
+                    bsln_val = scr_all_m[scr_vcol][row]
                 bsln_type = 'OUTPATIENT'
                 bsln_delta = delta.total_seconds() / (60 * 60 * 24)
         # BASLINE CRITERIUM B
@@ -1285,8 +1331,15 @@ def get_baselines(dataPath, hosp_windows, genders, races, ages, scr_fname='SCR_A
                 delta = admit - this_date
             # if valid point found save it
             if inp_lim[0] < delta < inp_lim[1]:
-                bsln_date = get_date(str(this_date).split('.')[0])
-                bsln_val = scr_all_m[scr_vcol][row]
+                bsln_date = this_date
+                if len(pre_inp_rows) > 0:
+                    nextRow = pre_inp_rows.pop(-1)
+                    if this_date == get_date(scr_all_m[scr_dcol][nextRow]):
+                        bsln_val = (scr_all_m[scr_vcol][row] + scr_all_m[scr_vcol][nextRow]) / 2
+                    else:
+                        bsln_val = scr_all_m[scr_vcol][row]
+                else:
+                    bsln_val = scr_all_m[scr_vcol][row]
                 bsln_type = 'INPATIENT'
                 bsln_delta = delta.total_seconds() / (60 * 60 * 24)
         # BASELINE CRITERIUM C
@@ -1316,7 +1369,7 @@ def calc_gfr(scr, sex, race, age):
         race_val = 1.212
     else:
         race_val = 1.0
-    gfr = 174 * math.pow(scr, -1.154) * math.pow(age, -0.203) * sex_val * race_val
+    gfr = 175 * math.pow(scr, -1.154) * math.pow(age, -0.203) * sex_val * race_val
     return gfr
 
 
@@ -1368,43 +1421,37 @@ def baseline_est_gfr_mdrd(gfr, sex, race, age):
 
 
 # %%
-def scr2kdigo(scr, base, masks, days, valid, onlyRel=False, rolling=False, ptsPerDay=4):
+def scr2kdigo(scr, base, masks, days, valid):
     kdigos = []
     for i in range(len(scr)):
         kdigo = np.zeros(len(scr[i]), dtype=int)
         for j in range(len(scr[i])):
-            if days[i][j] < 0:
-                continue
-            if rolling:
-                if j > 7:
-                    bsln = min(scr[i][j-8:j])
-                else:
-                    bsln = min(scr[i][:8])
-            else:
-                bsln = base[i]
             if masks[i][j] > 0:
                 kdigo[j] = 4
                 continue
-            if not onlyRel:
+            elif scr[i][j] <= (1.5 * base[i]):
                 if j > 7:
                     window = np.where(days[i] >= days[i][j] - 2)[0]
                     window = window[np.where(window < j)[0]]
                     window = np.intersect1d(window, np.where(valid[i])[0])
+                    if window.size > 0:
+                        if scr[i][j] >= np.min(scr[i][window]) + 0.3:
+                            kdigo[j] = 1
+                        else:
+                            kdigo[j] = 0
+                    else:
+                        kdigo[j] = 0
                 else:
-                    window = np.array(range(2 * ptsPerDay), dtype=int)
-                    window = np.intersect1d(window, np.where(valid[i])[0])
-                if window.size > 0:
-                    if scr[i][j] >= np.min(scr[i][window]) + 0.3:
-                        kdigo[j] = 1
-            if scr[i][j] >= (1.5 * bsln):
-                if scr[i][j] < (2 * bsln):
-                    kdigo[j] = 1
-                elif scr[i][j] < (3 * bsln):
-                    kdigo[j] = 2
-                elif (scr[i][j] >= (3 * bsln)) or (scr[i][j] >= 4.0):
-                    kdigo[j] = 3
-                elif scr[i][j] >= 4.0:
-                    kdigo[j] = 3
+                    kdigo[j] = 0
+
+            elif scr[i][j] < (2 * base[i]):
+                kdigo[j] = 1
+            elif scr[i][j] < (3 * base[i]):
+                kdigo[j] = 2
+            elif (scr[i][j] >= (3 * base[i])) or (scr[i][j] >= 4.0):
+                kdigo[j] = 3
+            elif scr[i][j] >= 4.0:
+                kdigo[j] = 3
         kdigos.append(kdigo)
     return kdigos
 

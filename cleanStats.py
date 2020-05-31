@@ -7,11 +7,14 @@ from utility_funcs import arr2csv, load_csv, dict2csv, get_array_dates
 from stat_funcs import summarize_stats, formatted_stats, get_uky_urine, get_uky_fluids
 from copy import copy
 from sklearn.preprocessing import MinMaxScaler
+from scipy.constants import convert_temperature
 import argparse
 
 parser = argparse.ArgumentParser(description='Preprocess Data and Construct KDIGO Vectors.')
 parser.add_argument('--config_file', action='store', type=str, dest='cfname',
                     default='kdigo_conf.json')
+parser.add_argument('--config_path', action='store', type=str, dest='cfpath',
+                    default='')
 parser.add_argument('--averagePoints', '-agvPts', action='store', type=int, dest='avgpts',
                     default=2)
 parser.add_argument('--meta_group', '-meta', action='store', type=str, dest='meta',
@@ -65,7 +68,7 @@ lims = {'bicarbonate': (5, 50),
 # bothpercents = ['map', 'height']
 
 bottomcents = ['map_low', 'height']
-toppercents = ['urine_out', 'wbc_low', 'wbc_high', 'map_high', 'height']
+toppercents = ['urine_out', 'wbc_low', 'wbc_high', 'map_high', 'height', 'potassium_high', 'potassium_low']
 
 # Remove  bad values
 # By provided explicit ranges:
@@ -79,7 +82,7 @@ for k in list(lims):
     if lims[k][1] is not None:
         highCount = len(np.where(temp > lims[k][1])[0])
         temp[np.where(temp > lims[k][1])] = np.nan
-    # stats[k][:] = temp
+    stats[k][:] = temp
     # print(k, lowCount, highCount)
 
 
@@ -91,7 +94,7 @@ for k in bottomcents:
         std = np.nanstd(temp)
         ct = len(np.where(temp < (m - (std * 1.96)))[0])
         temp[np.where(temp < (m - (std * 1.96)))] = np.nan
-        # stats[k][:] = temp
+        stats[k][:] = temp
     else:
         tk = k.split("_")[0]
         if k.split("_")[1] == "low":
@@ -103,8 +106,7 @@ for k in bottomcents:
         std = np.nanstd(temp)
         ct = len(np.where(temp < (m - (std * 1.96)))[0])
         temp[np.where(temp < (m - (std * 1.96)))] = np.nan
-        # stats[tk][:, idx] = temp
-    # print(k, ct)
+        stats[tk][:, idx] = temp
 
 for k in toppercents:
     if k in list(stats):
@@ -113,7 +115,7 @@ for k in toppercents:
         std = np.nanstd(temp)
         ct = len(np.where(temp > (m + (std * 1.96)))[0])
         temp[np.where(temp > (m + (std * 1.96)))] = np.nan
-        # stats[k][:] = temp
+        stats[k][:] = temp
     else:
         tk = k.split("_")[0]
         if k.split("_")[1] == "low":
@@ -125,12 +127,13 @@ for k in toppercents:
         std = np.nanstd(temp)
         ct = len(np.where(temp > (m + (std * 1.96)))[0])
         temp[np.where(temp > (m + (std * 1.96)))] = np.nan
+        stats[tk][:, idx] = temp
 
 # It is OK to replace height and weight with imputed values
 temp = stats['height'][:]
+temp[np.where(temp == 0)[0]] = np.nan
 tm = np.nanmedian(temp)
 temp[np.where(np.isnan(temp))] = tm
-temp[np.where(temp == 0)[0]] = tm
 stats['height'][:] = temp
 
 temp = stats['weight'][:]
@@ -142,30 +145,36 @@ stats['weight'][:] = temp
 stats['bmi'][:] = stats['weight'][:] / (stats['height'][:] * stats['height'][:])
 
 # Recalculate urine out and urine flow with imputed weights
-urine_outs, urine_flows = get_uky_urine(ids, stats['weight'][:], baseDataPath)
-temp = urine_outs
+urine_outs, urine_flows = get_uky_urine(ids, icu_windows, stats['weight'][:], baseDataPath, maxDay=3)
+temp = stats['urine_out'][:]
 m = np.nanmean(temp)
 std = np.nanstd(temp)
 temp[np.where(temp > (m + (std * 1.96)))] = np.nan
-urine_outs = temp
+stats['urine_out'][:] = temp
 
-stats['urine_out'][:] = urine_outs
-stats['urine_flow'][:] = urine_flows
+# urine_outs = temp
+
+# /stats['urine_out'][:] = urine_outs
+# stats['urine_flow'][:] = urine_flows
 
 # Recalculate fluid overloads using imputed weights
-nets, tots, fos, cfbs = get_uky_fluids(ids, stats['weight'][:], baseDataPath)
-
+nets, tots, fos, cfbs = get_uky_fluids(ids, stats['weight'][:], icu_windows, baseDataPath, maxDay=3)
+#
 stats['fluid_overload'][:] = fos
+#
+# if 'sofa' not in list(stats):
+#     sofa = load_csv(os.path.join(dataPath, 'sofa.csv'), ids, int, skip_header=True)
+#     sofa = np.sum(sofa, axis=1)
+#     stats['sofa'] = sofa
+#
+# if 'apache' not in list(stats):
+#     apache = load_csv(os.path.join(dataPath, 'apache.csv'), ids, int, skip_header=True)
+#     apache = np.sum(apache, axis=1)
+#     stats['apache'] = apache
 
-if 'sofa' not in list(stats):
-    sofa = load_csv(os.path.join(dataPath, 'sofa.csv'), ids, int, skip_header=True)
-    sofa = np.sum(sofa, axis=1)
-    stats['sofa'] = sofa
-
-if 'apache' not in list(stats):
-    apache = load_csv(os.path.join(dataPath, 'apache.csv'), ids, int, skip_header=True)
-    apache = np.sum(apache, axis=1)
-    stats['apache'] = apache
+temp = stats["temperature"][:]
+temp = convert_temperature(temp, "f", "c")
+stats["temperature"][:] = temp
 
 f.copy(f['%s_cleaned' % grp_name], '/%s_imputed' % grp_name)
 nstats = f['%s_imputed' % grp_name]
