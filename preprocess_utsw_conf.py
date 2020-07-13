@@ -105,16 +105,32 @@ else:
 
 # Extract masked data corresponding to the selected analysis windo for each patient
 if not os.path.exists(os.path.join(dataPath, 'scr_raw_%s.csv' % analyze)):
-    print('Extracting SCr records in ICU...')
-    if analyze == 'icu':
-        (scrs, dates, rrt_masks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=2)
-        # [scrs, dates, rrt_masks] = extract_window_data(ids, [scrs, dates, rrt_masks], dates, icu_windows, 2)
-    if analyze == 'hosp':
-        (scrs, dates, rrt_masks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=[1, 2])
-        # [scrs, dates, rrt_masks] = extract_window_data(ids, [scrs, dates, rrt_masks], dates, hosp_windows, 2)
-    arr2csv(os.path.join(dataPath, 'scr_raw_%s.csv' % analyze), scrs, ids, fmt='%.3f')
-    arr2csv(os.path.join(dataPath, 'dates_%s.csv' % analyze), dates, ids, fmt='%s')
-    arr2csv(os.path.join(dataPath, 'ind_rrt_masks_%s.csv' % analyze), rrt_masks, ids, fmt='%d')
+    (iscrs, idates, idmasks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=2)
+
+    arr2csv(os.path.join(dataPath, 'scr_raw_icu.csv'), iscrs, ids, fmt='%.3f')
+    arr2csv(os.path.join(dataPath, 'dates_icu.csv'), idates, ids, fmt='%s')
+    arr2csv(os.path.join(dataPath, 'ind_rrt_masks_icu.csv'), idmasks, ids, fmt='%d')
+
+    (hscrs, hdates, hdmasks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=[1, 2])
+    arr2csv(os.path.join(dataPath, 'scr_raw_hosp.csv'), hscrs, ids, fmt='%.3f')
+    arr2csv(os.path.join(dataPath, 'dates_hosp.csv'), hdates, ids, fmt='%s')
+    arr2csv(os.path.join(dataPath, 'ind_rrt_masks_hosp.csv'), hdmasks, ids, fmt='%d')
+
+    scrs = iscrs
+    dates = idates
+    dmasks = idmasks
+
+
+    # print('Extracting SCr records in ICU...')
+    # if analyze == 'icu':
+    #     (scrs, dates, rrt_masks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=2)
+    #     # [scrs, dates, rrt_masks] = extract_window_data(ids, [scrs, dates, rrt_masks], dates, icu_windows, 2)
+    # if analyze == 'hosp':
+    #     (scrs, dates, rrt_masks) = extract_masked_data([scrs, dates, rrt_masks], tmasks, sel=[1, 2])
+    #     # [scrs, dates, rrt_masks] = extract_window_data(ids, [scrs, dates, rrt_masks], dates, hosp_windows, 2)
+    # arr2csv(os.path.join(dataPath, 'scr_raw_%s.csv' % analyze), scrs, ids, fmt='%.3f')
+    # arr2csv(os.path.join(dataPath, 'dates_%s.csv' % analyze), dates, ids, fmt='%s')
+    # arr2csv(os.path.join(dataPath, 'ind_rrt_masks_%s.csv' % analyze), rrt_masks, ids, fmt='%d')
 else:
     if not os.path.exists(os.path.join(dataPath, 'scr_interp%s.csv' % analyze)):
         print('Loaded ICU data.')
@@ -233,6 +249,9 @@ if not os.path.exists(os.path.join(dataPath, 'sofa.csv')):
                                                       out_name=os.path.join(dataPath, 'sofa.csv'))
     arr2csv(os.path.join(dataPath, 'sofa_raw.csv'), sofa_raw, all_ids, fmt='%.3f', header=sofa_raw_hdr)
     arr2csv(os.path.join(dataPath, 'sofa.csv'), sofa, all_ids, fmt='%d', header=sofa_hdr)
+    sofa_hdr = sofa_hdr.split(',')[1:]
+    sofa_raw_hdr = sofa_raw_hdr.split(',')[1:]
+
 else:
     sofa, sofa_hdr = load_csv(os.path.join(dataPath, 'sofa.csv'), all_ids, dt=int, skip_header='keep')
     sofa_raw, sofa_raw_hdr = load_csv(os.path.join(dataPath, 'sofa_raw.csv'), all_ids, dt=float, skip_header='keep')
@@ -244,6 +263,8 @@ if not os.path.exists(os.path.join(dataPath, 'apache.csv')):
                                                                 out_name=os.path.join(dataPath, 'apache.csv'))
     arr2csv(os.path.join(dataPath, 'apache_raw.csv'), apache_raw, all_ids, fmt='%.3f', header=apache_raw_hdr)
     arr2csv(os.path.join(dataPath, 'apache.csv'), apache, all_ids, fmt='%d', header=apache_hdr)
+    apache_hdr = apache_hdr.split(',')[1:]
+    apache_raw_hdr = apache_raw_hdr.split(',')[1:]
 else:
     apache, apache_hdr = load_csv(os.path.join(dataPath, 'apache.csv'), all_ids, dt=int, skip_header='keep')
     apache_raw, apache_raw_hdr = load_csv(os.path.join(dataPath, 'apache_raw.csv'), all_ids, dt=float, skip_header='keep')

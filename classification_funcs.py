@@ -825,12 +825,14 @@ def classify_ie(X, y, classification_model, out_path, feature_name, extX, exty, 
         neg_avg_score = np.nanmean(probas[neg_idx])
 
         slope = pos_avg_score - neg_avg_score
-        intercept = clf.intercept_
 
         slopes.append(slope)
         intercepts.append(neg_avg_score)
 
-        coeffs.append(clf.coef_[0])
+        if hasattr(clf, "coef_"):
+            coeffs.append(clf.coef_[0])
+        else:
+            coeffs.append(clf.feature_importances_)
 
 
         # Save results for external cohort
@@ -884,7 +886,6 @@ def classify_ie(X, y, classification_model, out_path, feature_name, extX, exty, 
         extneg_avg_score = np.nanmean(extprobas[neg_idx])
 
         extslope = extpos_avg_score - extneg_avg_score
-        extintercept = clf.intercept_
 
         extslopes.append(extslope)
         extintercepts.append(extneg_avg_score)

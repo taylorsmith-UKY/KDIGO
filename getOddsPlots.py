@@ -90,11 +90,13 @@ ct = 0
 for k in np.array(list(df))[order]:
     coef = np.mean(cdf[k].values)
     odds = np.mean(df[k].values)
-    lower = np.percentile(df[k].values, 5)
-    upper = np.percentile(df[k].values, 95)
+    odds_lower = np.percentile(df[k].values, 5)
+    odds_upper = np.percentile(df[k].values, 95)
+    coef_lower = np.percentile(cdf[k].values, 5)
+    coef_upper = np.percentile(cdf[k].values, 95)
     if ct < 20:
-        of20.write("%s,%.3f,%.2f (%.2f-%.2f)\n" % (k, coef, odds, lower, upper))
-    ofall.write("%s,%.3f,%.2f (%.2f-%.2f)\n" % (k, coef, odds, lower, upper))
+        of20.write("%s,%.2f (%.2f-%.2f),%.2f (%.2f-%.2f)\n" % (k, coef, coef_lower, coef_upper, odds, odds_lower, odds_upper))
+    ofall.write("%s,%.2f (%.2f-%.2f),%.2f (%.2f-%.2f)\n" % (k, coef, coef_lower, coef_upper, odds, odds_lower, odds_upper))
     ct += 1
 of20.close()
 ofall.close()

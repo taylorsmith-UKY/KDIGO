@@ -7,6 +7,7 @@ from utility_funcs import arr2csv, load_csv, get_array_dates
 from copy import copy
 from sklearn.preprocessing import MinMaxScaler
 from classification_funcs import descriptive_trajectory_features
+from stat_funcs import get_utsw_rrt_flags
 import argparse
 
 parser = argparse.ArgumentParser(description='Preprocess Data and Construct KDIGO Vectors.')
@@ -80,6 +81,8 @@ scrs = load_csv(os.path.join(ndataPath, 'scr_interp_icu_2ptAvg.csv'), nids, floa
 icu_windows = load_csv(os.path.join(ndataPath, 'icu_admit_discharge.csv'), nids, 'date', struct='dict')
 hosp_windows = load_csv(os.path.join(ndataPath, 'hosp_admit_discharge.csv'), nids, 'date', struct='dict')
 
+rrt_flag, hd_flags, crrt_flags, hd_days, crrt_days, rrt_days = get_utsw_rrt_flags(nids, icu_windows, nbaseDataPath, 3)
+
 for i in range(len(kdigos)):
     idx = np.where(days[i] <= 14)[0]
     kdigos[i] = kdigos[i][idx]
@@ -99,25 +102,32 @@ for i in range(len(nids)):
 uop_tot = df["UOP_wmissing"].values[sel]
 hrs = df["ICU_stay_hours"].values[sel]
 weights = df["Weight"].values[sel]
+races = df["RACE"].values[sel]
+races[np.where(races == 4)] = 0
+races[np.where(races == 3)] = 1
+races[np.where(races == 9)] = 2
+baselinegfr = df["baseline_eGFR"].values[sel]
+ckd = np.array(baselinegfr < 60, dtype=int)
 
 uop = uop_tot / hrs
 uflow = uop / weights
 
-rrt_flag = np.zeros(len(nids))
-hd_flags = df['pt_received_HD3D_F'].values[sel]
-crrt_flags = df['pt_received_CRRT3D_F'].values[sel]
-
-rrt_flag[np.where(hd_flags)] = 1
-rrt_flag[np.where(crrt_flags)] = 2
+# rrt_flag = np.zeros(len(nids))
+# hd_flags = df['pt_received_HD3D_F'].values[sel]
+# crrt_flags = df['pt_received_CRRT3D_F'].values[sel]
+#
+# rrt_flag[np.where(hd_flags)] = 1
+# rrt_flag[np.where(crrt_flags)] = 2
 
 nstats["Admit_Scr"] = df['AdmitScr'].values[sel]
 nstats["Anemia"] = df['Anemia_A'].values[sel]
 nstats["baseline_scr"] = df['baseline_sCr'].values[sel]
+nstats["ckd"] = np.array(nstats["baseline_scr"] < 60, dtype=int)
 nstats["BUN"] = df['BUN_high'].values[sel]
 nstats["AdmitKDIGO"] = admit_kdigo
 nstats["Nephrotox_exp"] = df['Nephrotox_ct'].values[sel]
 nstats["Vasopress_exp"] = df['Vasopress_ct'].values[sel]
-nstats["Race"] = df['RACE_BLACK'].values[sel]
+nstats["Race"] = races
 nstats["Urine_flow"] = uflow
 nstats["Urine_output"] = uop
 nstats["MechHemodynamicSupport"] = df['MechanicalHemodynamicSupport'].values[sel]

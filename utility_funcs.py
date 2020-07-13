@@ -446,3 +446,37 @@ def visualize_alignments(id_pairs, ids, kdigos, dtwPath):
             of.write(','.join(l2) + '\n')
         of.close()
     return
+
+# %%
+def get_timed_extremes(values, times, start_times, maxDay=3):
+    minimums = np.zeros(len(values))
+    maximums = np.zeros(len(values))
+    starts = np.zeros(len(values))
+    stops = np.zeros(len(values))
+
+    if start_times is not None and type(start_times[0]) != datetime.datetime:
+        start_times = get_array_dates(start_times)
+    for i in range(len(values)):
+        if start_times is not None:
+            tstart = start_times[i]
+            tend = tstart + datetime.datetime(maxDay)
+            vals_in_window = []
+            for j in range(len(values[i])):
+                tdate = get_date(times[i][j])
+                if tstart <= tdate <= tend:
+                    vals_in_window.append(values[i][j])
+        else:
+            idx = np.where(times[i] <= maxDay)[0]
+            vals_in_window = values[i][idx]
+        if len(vals_in_window) > 0:
+            starts[i] = vals_in_window[0]
+            stops[i] = vals_in_window[-1]
+            maximums[i] = np.max(vals_in_window)
+            minimums[i] = np.min(vals_in_window)
+        else:
+            starts[i] = np.nan
+            stops[i] = np.nan
+            maximums[i] = np.nan
+            minimums[i] = np.nan
+
+    return minimums, maximums, starts, stops

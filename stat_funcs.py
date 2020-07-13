@@ -930,6 +930,11 @@ def get_uky_demographics(ids, hosp_windows, dataPath=''):
 
 
 def get_uky_rrt_flags(ids, windows, dataPath, endDay=3):
+    # Get flags and total number of days for RRT
+    # rrt_flags:    0   -   No RRT
+    # rrt_flags:    1   -   HD (no CRRT)
+    # rrt_flags:    2   -   CRRT (no HD)
+    # rrt_flags:    3   -   CRRT & HD (starts <= 24 hours apart)
     rrt_m = pd.read_csv(os.path.join(dataPath, 'RENAL_REPLACE_THERAPY.csv'))
     crrt_flags = np.zeros(len(ids))
     hd_flags = np.zeros(len(ids))
@@ -948,6 +953,8 @@ def get_uky_rrt_flags(ids, windows, dataPath, endDay=3):
         crrt_flag = 0
         hd_day = 0
         crrt_day = 0
+        hd_starts = []
+        crrt_starts = []
         if np.size(dia_ids) > 0:
             for row in dia_ids:
                 start = get_date(rrt_m['HD_START_DATE'][row])
@@ -959,14 +966,17 @@ def get_uky_rrt_flags(ids, windows, dataPath, endDay=3):
                         rrt_flag = 1
                         hd_flag = 1
                         hd_day = stop_day - start_day
+                        hd_starts.append(start)
                     elif admit_day <= stop_day <= admit_day + endDay:
                         rrt_flag = 1
                         hd_flag = 1
                         hd_day = stop_day - admit_day
+                        hd_starts.append(start)
                     elif start_day < admit_day and stop_day > admit_day:
                         rrt_flag = 1
                         hd_flag = 1
                         hd_day = stop_day - start_day
+                        hd_starts.append(start)
 
                 start = get_date(rrt_m['CRRT_START_DATE'][row])
                 stop = get_date(rrt_m['CRRT_STOP_DATE'][row])
@@ -977,14 +987,42 @@ def get_uky_rrt_flags(ids, windows, dataPath, endDay=3):
                         rrt_flag = 2
                         crrt_flag = 1
                         crrt_day = stop_day - start_day
+                        crrt_starts.append(start)
                     elif admit_day <= stop_day <= admit_day + endDay:
                         rrt_flag = 2
                         crrt_flag = 1
                         crrt_day = stop_day - admit_day
+                        crrt_starts.append(start)
                     elif start_day < admit_day and stop_day > admit_day:
                         rrt_flag = 2
                         crrt_flag = 1
                         crrt_day = stop_day - start_day
+                        crrt_starts.append(start)
+        # if len(hd_starts) > 0:
+        #     if len(crrt_starts) == 0:
+        #         rrt_flag = 1
+        #     else: # Patient had both modalities
+        #         for h in hd_starts:
+        #             for c in crrt_starts:
+        #                 tdiff = np.abs((h - c).total_seconds() / (60 * 60))
+        #                 if tdiff < 24:
+        #                     rrt_flag = 3
+        #                     break
+        #                 elif h < c:
+        #                     rrt_flag = 1
+        #                 else:
+        #                     rrt_flag = 2
+        #             if rrt_flag == 3:
+        #                 break
+        # elif len(crrt_starts) > 0:
+        #     rrt_flag = 2
+        if crrt_flag:
+            rrt_flag = 2
+        elif hd_flag:
+            rrt_flag = 1
+        else:
+            rrt_flag = 0
+
         crrt_flags[i] = crrt_flag
         hd_flags[i] = hd_flag
         rrt_flags[i] = rrt_flag
@@ -1187,7 +1225,7 @@ def get_uky_labs(ids, males, dataPath='', maxDay=1):
             bicarb = [labs1_m['CO2_D1_LOW_VALUE'][lab_idx], labs1_m['CO2_D1_HIGH_VALUE'][lab_idx]]
             # definition A
             if male:
-                if hemat[0] < 39 or hemo[0] < 18:
+                if hemat[0] < 39 or hemo[0] < 13:
                     anemic[0] = 1
             else:
                 if hemat[0] < 36 or hemo[0] < 12:
@@ -1448,8 +1486,8 @@ def summarize_stats_dallas(ids, kdigos, days, scrs, icu_windows, hosp_windows,
     if 'nephrotox_ct' not in list(meta):
         print ('Getting medications...')
         neph_cts, vaso_cts = get_utsw_medications(ids, base_path)
-        meta.create_dataset('nephrotox_ct', data=neph_cts, dtype=int)
-        meta.create_dataset('vasopress_ct', data=vaso_cts, dtype=int)
+        meta.create_dataset('nephrotox_exp', data=neph_cts, dtype=int)
+        meta.create_dataset('vasopress_exp', data=vaso_cts, dtype=int)
     else:
         print("Medication info already saved.")
 
@@ -1466,12 +1504,18 @@ def summarize_stats_dallas(ids, kdigos, days, scrs, icu_windows, hosp_windows,
     if 'mv_flag' not in list(meta):
         print('Getting organ support...')
         mech_flags, mech_days, ecmos, iabps, vads,\
-        mv_frees_win, mv_frees_28d = get_utsw_organsupp(ids, icu_windows, dtds, died_inps, base_path)
+        mv_frees_win, mv_frees_28d = get_utsw_organsupp(ids, icu_windows, dtds, died_inps, base_path, maxDay=3)
 
-        meta.create_dataset('mv_flag', data=mech_flags, dtype=int)
+        meta.create_dataset('mv_flag_d03', data=mech_flags, dtype=int)
+        meta.create_dataset('ecmo_d03', data=ecmos, dtype=int)
+        meta.create_dataset('iabp_d03', data=iabps, dtype=int)
+        meta.create_dataset('vad_d03', data=vads, dtype=int)
+
+        mech_flags, mech_days, ecmos, iabps, vads, \
+        mv_frees_win, mv_frees_28d = get_utsw_organsupp(ids, icu_windows, dtds, died_inps, base_path, maxDay=1000)
         meta.create_dataset('mv_days', data=mech_days, dtype=float)
-        meta.create_dataset('mv_free_days_win', data=mv_frees_win, dtype=float)
-        meta.create_dataset('mv_free_days_28d', data=mv_frees_28d, dtype=float)
+        # meta.create_dataset('mv_free_days_win', data=mv_frees_win, dtype=float)
+        # meta.create_dataset('mv_free_days_28d', data=mv_frees_28d, dtype=float)
         meta.create_dataset('ecmo', data=ecmos, dtype=int)
         meta.create_dataset('iabp', data=iabps, dtype=int)
         meta.create_dataset('vad', data=vads, dtype=int)
@@ -1481,7 +1525,7 @@ def summarize_stats_dallas(ids, kdigos, days, scrs, icu_windows, hosp_windows,
     if 'weight' not in list(meta):
         print('Getting clinical others...')
         heights, weights, bmis, temps, net_fluids, gros_fluids, cfbs, glasgows,\
-        resps, hrs, maps, fos, urine_outs, urine_flows = get_utsw_flw(ids, base_path)
+        resps, hrs, maps, fos, urine_outs, urine_flows = get_utsw_flw(ids, icu_windows, base_path, maxDay=1000)
         meta.create_dataset('bmi', data=bmis, dtype=float)
         meta.create_dataset('weight', data=weights, dtype=float)
         meta.create_dataset('height', data=heights, dtype=float)
@@ -2444,7 +2488,7 @@ def get_utsw_rrt(ids, icu_windows, dataPath):
     return hd_dayss, crrt_dayss, hd_free_7ds, hd_free_28ds, crrt_free_7ds, crrt_free_28ds
 
 
-def get_utsw_rrt_flags(ids, windows, dataPath, endDay=3):
+def get_utsw_rrt_flags(ids, windows, dataPath, maxDay=3):
     rrt_m = pd.read_csv(os.path.join(dataPath, 'tDialysis.csv'))
     rrt_m.sort_values(by=['PATIENT_NUM'], inplace=True)
     # rrt_start_loc = rrt_m.columns.get_loc('START_DATE')
@@ -2471,28 +2515,96 @@ def get_utsw_rrt_flags(ids, windows, dataPath, endDay=3):
         hd_day = 0
         crrt_day = 0
         days = 0
+        hd_starts = []
+        crrt_starts = []
+        if i == 10:
+            pass
         if np.size(dia_ids) > 0:
             for row in dia_ids:
                 start = get_date(rrt_m['START_DATE'][row])
                 stop = get_date(rrt_m['END_DATE'][row])
+                window_end_day = admit_day + maxDay
+                tdays = 0
                 if start != 'nan' and stop != 'nan':
                     start_day = start.toordinal()
                     stop_day = stop.toordinal()
-                    if admit_day <= start_day <= admit_day + endDay:
+                    # days = stop_day - start_day + 1
+                    # Started dialysis after hospital admission
+                    if admit_day <= start_day <= window_end_day:
                         rrt_flag = 1
-                        days = stop_day - start_day
-                    elif admit_day <= stop_day <= admit_day + endDay:
-                        rrt_flag = 1
-                        days = stop_day - admit_day
-                    elif start_day < admit_day and stop_day > admit_day:
-                        rrt_flag = 1
-                        days = stop_day - start_day
+                        # Treatment ended before endDay limit
+                        if stop_day <= window_end_day:
+                            tdays = stop_day - start_day + 1
+                        # Only use up to endDay days after admission
+                        else:
+                            tdays = window_end_day - start_day + 1
+                    elif start_day <= admit_day:
+                        if stop_day <= admit_day:
+                            continue
+                        if stop_day <= window_end_day:
+                            if admit_day <= stop_day:
+                                tdays = stop_day - admit_day + 1
+                        # Only use up to endDay days after admission
+                        else:
+                            tdays = window_end_day - admit_day + 1
+                    #
+                    # elif admit_day <= stop_day <= admit_day + endDay:
+                    #     rrt_flag = 1
+                    #     days = stop_day - admit_day + 1
+                    # elif start_day < admit_day and stop_day > admit_day:
+                    #     rrt_flag = 1
+                    #     days = stop_day - start_day + 1
                     if rrt_m["DIALYSIS_TYPE"][row] == "HD":
                         hd_flag = 1
-                        hd_day += days
+                        hd_day += tdays
+                        hd_starts.append(start)
                     elif rrt_m["DIALYSIS_TYPE"][row] == "CRRT":
                         crrt_flag = 1
-                        crrt_day += days
+                        crrt_day += tdays
+                        crrt_starts.append(start)
+                    days += tdays
+                    if tdays < 0:
+                        pass
+                    # if admit_day <= start_day:
+                    #     rrt_flag = 1
+                    #     days = stop_day - start_day + 1
+                    # elif admit_day <= stop_day <= admit_day + endDay:
+                    #     rrt_flag = 1
+                    #     days = stop_day - admit_day + 1
+                    # elif start_day < admit_day and stop_day > admit_day:
+                    #     rrt_flag = 1
+                    #     days = stop_day - start_day + 1
+                    # if rrt_m["DIALYSIS_TYPE"][row] == "HD":
+                    #     hd_flag = 1
+                    #     hd_day += days
+                    # elif rrt_m["DIALYSIS_TYPE"][row] == "CRRT":
+                    #     crrt_flag = 1
+                    #     crrt_day += days
+
+        # if len(hd_starts) > 0:
+        #     if len(crrt_starts) == 0:
+        #         rrt_flag = 1
+        #     else: # Patient had both modalities
+        #         for h in hd_starts:
+        #             for c in crrt_starts:
+        #                 tdiff = np.abs((h - c).total_seconds() / (60 * 60))
+        #                 if tdiff < 24:
+        #                     rrt_flag = 3
+        #                     break
+        #                 elif h < c:
+        #                     rrt_flag = 1
+        #                 else:
+        #                     rrt_flag = 2
+        #             if rrt_flag == 3:
+        #                 break
+        # elif len(crrt_starts) > 0:
+        #     rrt_flag = 2
+        if crrt_flag:
+            rrt_flag = 2
+        elif hd_flag:
+            rrt_flag = 1
+        else:
+            rrt_flag = 0
 
         crrt_flags[i] = crrt_flag
         hd_flags[i] = hd_flag
@@ -2518,8 +2630,8 @@ def get_utsw_medications(ids, dataPath):
         vaso_ct = 0
         if idx.size > 0:
             idx = idx[0]
-            neph_ct = sum([med_m[idx, x] for x in neph_cols])
-            vaso_ct = sum([med_m[idx, x] for x in vaso_cols])
+            neph_ct = max([med_m[idx, x] for x in neph_cols])
+            vaso_ct = max([med_m[idx, x] for x in vaso_cols])
         neph_cts[i] = neph_ct
         vaso_cts[i] = vaso_ct
     del med_m
@@ -2671,7 +2783,7 @@ def get_utsw_demographics(ids, hosp_windows, dataPath=''):
     return males, races, ages, dods, dtds
 
 
-def get_utsw_organsupp(ids, icu_windows, dtds, died_inps, dataPath):
+def get_utsw_organsupp(ids, icu_windows, dtds, died_inps, dataPath, maxDay=3):
     organ_sup = pd.read_csv(os.path.join(dataPath, 'tAOS.csv'))
     mech_flags = np.zeros(len(ids))
     mech_days = np.zeros(len(ids))
@@ -2696,6 +2808,9 @@ def get_utsw_organsupp(ids, icu_windows, dtds, died_inps, dataPath):
             icu_admit = icu_windows[i][0]
             icu_disch = icu_windows[i][1]
 
+        win_start = icu_admit
+        win_end = icu_admit + datetime.timedelta(maxDay)
+
         organ_sup_idx = np.where(organ_sup['PATIENT_NUM'].values == tid)[0]
         if organ_sup_idx.size > 0:
             for row in organ_sup_idx:
@@ -2709,13 +2824,13 @@ def get_utsw_organsupp(ids, icu_windows, dtds, died_inps, dataPath):
                 ecmo_stop = get_date(organ_sup['ECMO_END_DATE'][row])
 
                 if mech_stop != 'nan':
-                    if icu_admit <= mech_start <= icu_disch:
+                    if icu_admit <= mech_start <= win_end:
                         mech_flag = 1
-                        if mech_stop <= icu_disch:
+                        if mech_stop <= win_end:
                             tmech_day = (mech_stop - mech_start).days
                         else:
-                            tmech_day = (icu_disch - mech_start).days
-                    elif icu_admit <= mech_stop <= icu_disch:
+                            tmech_day = (win_end - mech_start).days
+                    elif icu_admit <= mech_stop <= win_end:
                         mech_flag = 1
                         if mech_start <= icu_admit:
                             tmech_day = (mech_stop - icu_admit).days
@@ -2736,9 +2851,9 @@ def get_utsw_organsupp(ids, icu_windows, dtds, died_inps, dataPath):
                     mech_flag = 1
 
                 if iabp_start != 'nan' and iabp_stop != 'nan':
-                    if icu_admit <= iabp_start <= icu_disch:
+                    if icu_admit <= iabp_start <= win_end:
                         iabp = 1
-                    elif icu_admit <= iabp_stop <= icu_disch:
+                    elif icu_admit <= iabp_stop <= win_end:
                         iabp = 1
                     # if iabp_stop < icu_admit:
                     #     pass
@@ -2748,9 +2863,9 @@ def get_utsw_organsupp(ids, icu_windows, dtds, died_inps, dataPath):
                     #     iabp = 1
 
                 if vad_start != 'nan' and vad_stop != 'nan':
-                    if icu_admit <= vad_start <= icu_disch:
+                    if icu_admit <= vad_start <= win_end:
                         vad = 1
-                    elif icu_admit <= vad_stop <= icu_disch:
+                    elif icu_admit <= vad_stop <= win_end:
                         vad = 1
                     # if vad_stop < icu_admit:
                     #     pass
@@ -2760,9 +2875,9 @@ def get_utsw_organsupp(ids, icu_windows, dtds, died_inps, dataPath):
                     #     vad = 1
 
                 if ecmo_start != 'nan' and ecmo_stop != 'nan':
-                    if icu_admit <= ecmo_start <= icu_disch:
+                    if icu_admit <= ecmo_start <= win_end:
                         ecmo = 1
-                    elif icu_admit <= ecmo_stop <= icu_disch:
+                    elif icu_admit <= ecmo_stop <= win_end:
                         ecmo = 1
                     # if ecmo_stop < icu_admit:
                     #     pass
@@ -2813,6 +2928,30 @@ def get_utsw_comorbidities(ids, dataPath = ""):
         hypertensives[i] = h
     return diabetics, hypertensives
 
+
+def get_extremum_timed(values, times, start_times, maxDay=3):
+    minimums = np.zeros(len(values))
+    maximums = np.zeros(len(values))
+    starts = np.zeros(len(values))
+    stops = np.zeros(len(values))
+
+    if type(start_times[0]) != datetime.datetime:
+        start_times = get_array_dates(start_times)
+    for i in range(len(values)):
+        tstart = start_times[i]
+        tend = tstart + datetime.datetime(maxDay)
+        vals_in_window = []
+        for j in range(len(values[i])):
+            tdate = get_date(times[i][j])
+            if tstart <= tdate <= tend:
+                vals_in_window.append(values[i][j])
+        if len(vals_in_window) > 0:
+            starts[i] = vals_in_window[0]
+            stops[i] = vals_in_window[-1]
+            maximums[i] = np.max(vals_in_window)
+            minimums[i] = np.min(vals_in_window)
+
+    return starts, stops, maximums, minimums
 
 def iqr(d, axis=None):
     m = np.nanmedian(d, axis=axis)

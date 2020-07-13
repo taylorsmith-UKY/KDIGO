@@ -103,13 +103,20 @@ if not os.path.exists(os.path.join(resPath, 'stats.h5')):
 
     # Extract data corresponding to ICU
     if not os.path.exists(os.path.join(dataPath, 'scr_raw_%s.csv' % analyze)):
-        if analyze == 'icu':
-            (scrs, dates, dmasks) = extract_masked_data([scrs, dates, dmasks], tmasks, sel=2)
-        elif analyze == 'hosp':
-            (scrs, dates, dmasks) = extract_masked_data([scrs, dates, dmasks], tmasks, sel=[1, 2])
-        arr2csv(os.path.join(dataPath, 'scr_raw_%s.csv' % analyze), scrs, ids, fmt='%.3f')
-        arr2csv(os.path.join(dataPath, 'dates_%s.csv' % analyze), dates, ids, fmt='%s')
-        arr2csv(os.path.join(dataPath, 'ind_rrt_masks_%s.csv' % analyze), dmasks, ids, fmt='%d')
+        (iscrs, idates, idmasks) = extract_masked_data([scrs, dates, dmasks], tmasks, sel=2)
+
+        arr2csv(os.path.join(dataPath, 'scr_raw_icu.csv'), iscrs, ids, fmt='%.3f')
+        arr2csv(os.path.join(dataPath, 'dates_icu.csv'), idates, ids, fmt='%s')
+        arr2csv(os.path.join(dataPath, 'ind_rrt_masks_icu.csv'), idmasks, ids, fmt='%d')
+
+        (hscrs, hdates, hdmasks) = extract_masked_data([scrs, dates, dmasks], tmasks, sel=[1, 2])
+        arr2csv(os.path.join(dataPath, 'scr_raw_hosp.csv'), hscrs, ids, fmt='%.3f')
+        arr2csv(os.path.join(dataPath, 'dates_hosp.csv'), hdates, ids, fmt='%s')
+        arr2csv(os.path.join(dataPath, 'ind_rrt_masks_hosp.csv'), hdmasks, ids, fmt='%d')
+
+        scrs = iscrs
+        dates = idates
+        dmasks = idmasks
     else:
         scrs = load_csv(os.path.join(dataPath, 'scr_raw_%s.csv' % analyze), ids)
         dates = load_csv(os.path.join(dataPath, 'dates_%s.csv' % analyze), ids, dt='date')

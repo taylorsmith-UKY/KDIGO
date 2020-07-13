@@ -3,6 +3,7 @@ import numpy as np
 import json
 import h5py
 from utility_funcs import arr2csv, load_csv, get_array_dates
+from stat_funcs import get_uky_rrt_flags
 from copy import copy
 from sklearn.preprocessing import MinMaxScaler
 import argparse
@@ -25,6 +26,15 @@ parser.add_argument('--clin_features_mort', '-cfm', action='store', type=str, de
 parser.add_argument('--clin_features_make', '-cfma', action='store', type=str, dest='ffname_make',
                     default='clinical_model_features_make.csv')
 args = parser.parse_args()
+
+header = 'STUDY_PATIENT_ID,Admit_Scr,Age,Albumin,Anemia,baseline_scr,Bicarbonate_Low,Bicarbonate_High,Bilirubin,BMI,BUN,' \
+         'FiO2_Low,FiO2_High,FluidOverload,Gender,' \
+         'HeartRate_Low,HeartRate_High,Hematocrit_low,Hematocrit_high,Hemoglobin_low,Hemoglobin_High,' \
+         'ECMO,IABP,MechanicalVentilation,VAD,MAP_low,MAP_high,AdmitKDIGO,Nephrotox_exp,' \
+         'Vasopress_exp,pCO2_low,pCO2_high,Peak_SCr,pH_low,pH_high,Platelets,pO2_low,pO2_high,Potassium_low,' \
+         'Potassium_high,Race,Respiration_low,Respiration_high,Septic,Sodium_low,Sodium_high,' \
+         'Temperature_low,Temperature_high,Urine_output,Urine_flow,WBC_low,WBC_high,Height,Weight,hrsInICU_72hr,' \
+         'MechHemodynamicSupport,unPlannedAdmission,MaxKDIGO_D03,RRT_Flag_D03,LastKDIGO_D03'
 
 grp_name = args.meta
 statFileName = args.df
@@ -58,16 +68,8 @@ scrs = load_csv(os.path.join(dataPath, 'scr_interp_icu_2ptAvg.csv'), ids, float)
 icu_windows = load_csv(os.path.join(dataPath, 'icu_admit_discharge.csv'), ids, 'date', struct='dict')
 hosp_windows = load_csv(os.path.join(dataPath, 'hosp_admit_discharge.csv'), ids, 'date', struct='dict')
 
+rrt_flags, hd_flags, crrt_flags, hd_days, crrt_days, rrt_days = get_uky_rrt_flags(ids, icu_windows, baseDataPath, 3)
 
-
-header = 'STUDY_PATIENT_ID,Admit_Scr,Age,Albumin,Anemia,baseline_scr,Bicarbonate_Low,Bicarbonate_High,Bilirubin,BMI,BUN,' \
-         'FiO2_Low,FiO2_High,FluidOverload,Gender,' \
-         'HeartRate_Low,HeartRate_High,Hematocrit_low,Hematocrit_high,Hemoglobin_low,Hemoglobin_High,' \
-         'ECMO,IABP,MechanicalVentilation,VAD,MAP_low,MAP_high,AdmitKDIGO,Nephrotox_exp,' \
-         'Vasopress_exp,pCO2_low,pCO2_high,Peak_SCr,pH_low,pH_high,Platelets,pO2_low,pO2_high,Potassium_low,' \
-         'Potassium_high,Race,Respiration_low,Respiration_high,Septic,Sodium_low,Sodium_high,' \
-         'Temperature_low,Temperature_high,Urine_output,Urine_flow,WBC_low,WBC_high,Height,Weight,hrsInICU_72hr,' \
-         'MechHemodynamicSupport,unPlannedAdmission,MaxKDIGO_D03,RRT_Flag_D03,LastKDIGO_D03'
 
 feats = np.zeros((len(ids), (len(header.split(',')) + len(elixIdxs) - 1)))
 admit_scrs = np.zeros(len(ids))
@@ -85,6 +87,8 @@ for i in range(len(ids)):
     peak_scrs[i] = np.max(scrs[i][np.where(days[i] <= 3)])
     last_kdigos[i] = kdigos[i][np.where(days[i] <= 3)[0][-1]]
 
+baseline_gfr = stats["baseline_gfr"][:]
+ckd = np.array(baseline_gfr < 60, dtype=int)
 
 tstats = {'AdmitScr': admit_scrs, 'AdmitKDIGO': admit_kdigos,
           'Peak_SCr': peak_scrs, 'Dopamine': stats['dopa_d03'][:],
@@ -94,8 +98,8 @@ tstats = {'AdmitScr': admit_scrs, 'AdmitKDIGO': admit_kdigos,
           'VAD': stats['vad_d03'][:], "Anemia": stats['anemia'][:, 0],
           'ECMO': stats['ecmo_d03'], 'IABP': stats['iabp_d03'], 'MechHemodynamicSupport': stats['mhs_d03'],
           'unPlannedAdmission': stats['unPlannedAdmissions'],
-          "MaxKDIGO_D03": mkd03,
-          "BUN": np.nanmax(stats["bun"][:], axis=1), "RRT_Flag_D03": stats['rrt_flag_d03'][:], "LastKDIGO_D03": last_kdigos,
+          "BUN": np.nanmax(stats["bun"][:], axis=1), "RRT_Flag_D03": rrt_flags,
+          "MaxKDIGO_D03": mkd03, "LastKDIGO_D03": last_kdigos,
           "Nephrotox_exp": stats["nephrotox_exp_d03"], "Vasopress_exp": stats["vasopress_exp_d03"]}
 
 col = 0
