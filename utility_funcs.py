@@ -365,7 +365,7 @@ def plot_confusion_matrix(cm,
         plt.show()
 
 
-def get_dm_tag(popDTW, alpha, aggext, popcoords, dfunc, laplacian=1, lf_type='none'):
+def get_dm_tag(popDTW, alpha, popcoords, dfunc):
     if popDTW:
         dtw_tag = 'popDTW'
         if alpha >= 1:
@@ -376,24 +376,11 @@ def get_dm_tag(popDTW, alpha, aggext, popcoords, dfunc, laplacian=1, lf_type='no
             dtw_tag += "_a%dE-02" % (alpha * 100)
     else:
         dtw_tag = 'normDTW'
-    if aggext:
-        dtw_tag += '_aggExt'
     dm_tag = dfunc
     if popcoords:
         dm_tag += '_popCoords'
     else:
         dm_tag += '_absCoords'
-    if lf_type != 'none':
-        if lf_type == 'individual':
-            dm_tag += '_indLap'
-        elif lf_type == 'aggregated':
-            dm_tag += '_aggLap'
-        if laplacian >= 1:
-            dm_tag += "_lap%.0E" % laplacian
-        elif ((laplacian * 100) % 10) == 0:
-            dm_tag += "_lap%dE-01" % (laplacian * 10)
-        else:
-            dm_tag += "_lap%dE-02" % (laplacian * 100)
     return dm_tag, dtw_tag
 
 

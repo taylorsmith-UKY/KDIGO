@@ -28,7 +28,7 @@ parser.add_argument('--n_clust', '-n', action='store', type=int, dest='n_clust',
 parser.add_argument('--meta_group', '-meta', action='store', type=str, dest='meta',
                     default='meta')
 parser.add_argument('--alignment', '-align', action='store', type=str, dest='align',
-                    default='pdtw')
+                    default='popDTW_a6500E-4')
 args = parser.parse_args()
 
 
@@ -74,11 +74,10 @@ if not os.path.exists(os.path.join(resPath, 'clusters', '%ddays' % t_lim)):
     os.mkdir(os.path.join(resPath, 'clusters', '%ddays' % t_lim))
 
 folderName = args.sf.split('.')[0]
-dm_tag, dtw_tag = get_dm_tag(args.pdtw, args.alpha, args.aggExt, args.popcoords, args.dfunc, args.lapVal, args.lapType)
-if args.align == "pdtw":
-    folderName += "_" + dtw_tag
-else:
-    folderName += "_" + args.align
+dm_tag, dtw_tag = get_dm_tag(args.pdtw, args.alpha, args.popcoords, args.dfunc)
+dtw_tag = args.align
+
+folderName += "_" + args.align
 
 dm_path = os.path.join(resPath, 'dm', '%ddays' % t_lim, folderName)
 
