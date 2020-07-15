@@ -387,8 +387,17 @@ if not os.path.isfile(os.path.join(resPath, 'features', 'individual', 'sofa.csv'
 # Tw_unscaled(k) = log(Total # transitions between any scores / # transitions between k and k-1)
 if not os.path.exists(os.path.join(dataPath, 'kdigo_transition_weights.csv')):
     tweights = get_transition_weights(cohort_kdigos)
+    for i in range(len(cohort_kdigos)):
+        idx = np.where(cohort_days[i] <= t_lim)[0]
+        cohort_kdigos[i] = cohort_kdigos[i][idx]
+        cohort_days[i] = cohort_days[i][idx]
+
     arr2csv(os.path.join(dataPath, 'kdigo_transition_weights.csv'), tweights,
             ['0-1', '1-2', '2-3', '3-3D'], header='Transition,Weight')
+
+    arr2csv(os.path.join(resPath, 'kdigo_%s_%dptAvg_%dd.csv') % (analyze, args.avgpts, t_lim), cohort_kdigos, cohort_ids, fmt="%d")
+    arr2csv(os.path.join(resPath, 'days_%s_%dptAvg_%dd.csv') % (analyze, args.avgpts, t_lim), cohort_days,
+            cohort_ids, fmt="%d")
 
 print('Ready for distance matrix calculation or further inspection of static features for\n'
       'development of traditional predictive models.')
