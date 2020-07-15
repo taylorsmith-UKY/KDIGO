@@ -8,6 +8,7 @@
 #include <sstream>
 #include <limits>
 #include <stdlib.h>
+#include <cstring>
 
 #define MAXLEN 512
 #define v true
@@ -44,6 +45,7 @@ int main(int argc, char **argv) {
     string token;
     string line;
     string pairFileName;
+    double val;
     char filename[80] = {"\0"};
     char folderName[256] = {"\0"};
     char basePath[256] = {"\0"};
@@ -53,9 +55,9 @@ int main(int argc, char **argv) {
     char dtw_tag[80] = {"\0"};
     char subFolderName[80] = {"\0"};
     char tempStr[256] = {"\0"};
-    char inputFilenameStem[80] = {"\0"};
-    char sequenceFilename[80] = {"\0"};
-    char weightFilename[80] = {"\0"};
+    char inputFilenameStem[256] = {"\0"};
+    char sequenceFilename[256] = {"\0"};
+    char weightFilename[256] = {"\0"};
 
     vector<double> seq;
     struct stat info;
@@ -163,19 +165,27 @@ int main(int argc, char **argv) {
     }
 
     // Construct tag for DTW
-    if (popDTW)
+    if (!zeropad) {
+        if (popDTW)
 //        strcat(dtw_tag, "popDTW");
-        sprintf(dtw_tag, "popDTW");
-    else
+            sprintf(dtw_tag, "popDTW");
+        else
 //        strcat(dtw_tag, "normDTW");
-        sprintf(dtw_tag, "normDTW");
-//    if (alpha > 0) {
-        tempStr[0] = '\0';
+            sprintf(dtw_tag, "normDTW");
+
         if (alpha >= 1)
             sprintf(tempStr, "_a%dE+00", (int) alpha);
         else
             sprintf(tempStr, "_a%dE-04", (int) (floor((alpha*10000))));
         strcat(dtw_tag, tempStr);
+//    if (alpha > 0) {
+    }
+    else {
+        sprintf(dtw_tag, "zeropad");
+    }
+
+    tempStr[0] = '\0';
+
 //    }
     if (aggExt)
         strcat(dtw_tag, "_aggExt");
@@ -220,8 +230,8 @@ int main(int argc, char **argv) {
 
     unsigned long minSize = 10000;
 
-//    sprintf(weightFilename, "%s/%s", basePath, argv[2]);
-    strcpy(weightFilename, argv[2]);
+    sprintf(weightFilename, "%s/%s", basePath, argv[2]);
+//    strcpy(weightFilename, argv[2]);
     ifstream is(weightFilename);
     if (verbose)
         cout << "Reading weights from " << argv[2] << endl;
@@ -264,11 +274,12 @@ int main(int argc, char **argv) {
     sprintf(dtwFileName, "%s/dtw_alignment.csv", folderName);
 //    sprintf(distFileName, "%s/kdigo_dm_%s_%s.csv", folderName, dtw_tag, dist_tag);
     sprintf(distFileName, "%s/kdigo_dm_%s.csv", folderName, dist_tag);
-    ofstream alignmentFile;
     // sprintf(filename, "%s/dtw_alignment_proc%d.csv", folderName, myid);
     memset(filename, 0, sizeof(filename));
+
 //    If not priorDTW do the following, otherwise use previously computed DTW
     if (!pdtw) {
+        ofstream alignmentFile;
         if (!zeropad) {
             alignmentFile.open(dtwFileName, ios::out | ios::trunc);
         }
@@ -366,18 +377,18 @@ int main(int argc, char **argv) {
                 int l = max(seqs[idx1].size(), seqs[idx2].size());
                 vector<double> seq1, seq2;
                 for (int k = 0; k < l; k++) {
-                    if (seqs[idx1].size() <= k)
+                    if (k <= seqs[idx1].size())
                         seq1.push_back(seqs[idx1][k]);
                     else
                         seq1.push_back(0.0);
 
-                    if (seqs[idx2].size() <= k)
+                    if (k <= seqs[idx2].size())
                         seq2.push_back(seqs[idx2][k]);
                     else
                         seq2.push_back(0.0);
                 }
-                number = distanceWrapper(seq1, seq2, coords, popDist, dfunc);
-                distanceFile << ids[pairs[i][0]] << "," << ids[pairs[i][1]] << "," << number << endl;
+                val = distanceWrapper(seq1, seq2, coords, popDist, dfunc);
+                distanceFile << ids[pairs[i][0]] << "," << ids[pairs[i][1]] << "," << val << endl;
             }
         }
 
@@ -589,17 +600,31 @@ void priorDTW(char * dtwFileName, char * distFileName, double *coords, bool popC
         ss << line;
         ss >> number;
         dist_out << number;
-        while (ss >> number) {
-            X.push_back(number);
+        while (ss) {
+            string s;
+            if (!getline( ss, s, ',' )) break;
+            X.push_back(atof(s.c_str()));
         }
+//
+//        while (ss >> number) {
+//            X.push_back(number);
+//        }
         getline(alignments, line);
         ss.clear();
         ss << line;
         ss >> number;
         dist_out << "," << number;
-        while (ss >> number) {
-            Y.push_back(number);
+        while (ss) {
+            string s;
+            if (!getline( ss, s, ',' )) break;
+            Y.push_back(atof(s.c_str()));
         }
+//        ss << line;
+//        ss >> number;
+//
+//        while (ss >> number) {
+//            Y.push_back(number);
+//        }
         // vector<int> X, vector<int> Y, double *coords, bool popCoords, string dfunc
         number = distanceWrapper(X, Y, coords, popCoords, dfunc);
         dist_out << "," << number << endl;

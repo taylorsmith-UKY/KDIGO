@@ -1,0 +1,10 @@
+{
+  "basePath" : "/Volumes/GoogleDrive/My Drive/Documents/Work/Workspace/Kidney Pathology/KDIGO_eGFR_traj",
+  "cohortName" : "final-pub",
+  "analyze" : "icu",
+  "analysisDays": 14,
+  "timeResolutionHrs": 6,
+  "verbose": false,
+  "transition_cost_file": "kdigo_transition_weights.csv",
+  "akiDayLim": 3
+}
